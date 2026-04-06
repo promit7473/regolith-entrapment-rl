@@ -1,7 +1,7 @@
 # Regolith Wheel Entrapment Recovery
 
 **RL-trained escape policy for Mars rovers stuck in granular regolith**  
-Newton MPM + Isaac Lab + skrl PPO with LSTM, dual-sensor detection, curriculum learning. Designed to integrate with RLRoverLab navigator.
+Newton MPM + Isaac Lab + skrl PPO with LSTM, dual-sensor detection, curriculum learning. Designed to integrate with a high-level navigator.
 
 ## 📁 Project Structure
 ```
@@ -45,10 +45,10 @@ regolith_entrapment_research/
 ```
 
 ## 🔬 What This Solves
-This repository provides a **standalone escape policy subsystem** trained to detect and recover from wheel entrapment in granular regolith. It is *designed* to plug into the RLRoverLab navigator:
+This repository provides a **standalone escape policy subsystem** trained to detect and recover from wheel entrapment in granular regolith. It is *designed* to plug into a high-level navigator:
 
 ```
-[RLRoverLab Navigator] 
+[High-Level Navigator] 
     → Monitors slip/torque sensors 
     → On entrapment detection: SWITCHES to [YOUR Escape Policy] 
     → Escape policy executes recovery maneuvers 
