@@ -113,3 +113,8 @@ Thumbs.db
 
 # Conda
 conda-info/
+
+# AI involvement files - keep locally but don't push to GitHub
+CLAUDE.md
+ROADMAP.md
+docs/RESEARCH_PLAN.md

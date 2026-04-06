@@ -7,8 +7,6 @@ Newton MPM + Isaac Lab + skrl PPO with LSTM, dual-sensor detection, curriculum l
 ```
 regolith_entrapment_research/
 ├── README.md                 # This file
-├── CLAUDE.md                 # Quick reference & technical notes
-├── ROADMAP.md                # Development plan
 ├── .gitignore               # Git exclusions
 ├── launch.sh                # Main executor
 ├── view.sh                  # Alternative viewer
@@ -71,6 +69,31 @@ This repository provides a **standalone escape policy subsystem** trained to det
 - Waypoint tracking to resume navigation post-escape
 - (Optional) Shared terrain context for escape direction selection
 
+## 🛠️ Installation Guide
+Follow these steps to set up the environment:
+
+1. **Install Dependencies**:
+   - **Newton Physics Engine**: `git clone https://github.com/NVIDIA-Newton/newton.git ~/newton` + follow its installation guide
+   - **Isaac Lab**: `git clone https://github.com/isaac-sim/IsaacLab.git ~/IsaacLab` + follow its installation guide  
+   - **Isaac Sim**: Download from NVIDIA Omniverse Launcher
+   - **RLRoverLab Assets**: `git clone https://github.com/abmoRobotics/RLRoverLab.git ~/RLRoverLab`
+
+2. **Create Conda Environment**:
+   ```bash
+   conda create -n env_isaaclab python=3.11
+   conda activate env_isaaclab
+   ```
+
+3. **Install Python Packages**:
+   ```bash
+   pip install torch torchvision torchaudio gymnasium wandb scikit-learn
+   ```
+
+4. **Verify Installation**:
+   ```bash
+   ./launch.sh --help
+   ```
+
 ## 🚀 Quick Start
 ```bash
 # 1. Train (64 envs, 200k timesteps - adjust for your GPU)
@@ -103,16 +126,8 @@ tensorboard --logdir experiments/
 | **Visualization** | Entrapment state color coding, enhanced sand viz, action vectors | Debugging & validation |
 
 ## 📖 Documentation
-- **[CLAUDE.md]** - Quick reference & technical notes
-- **[ROADMAP.md]** - Development phases & planned features
 - **[Configs]** - `configs/ppo_aau_v2.yaml` shows all hyperparameters
 - **[Code]** - `envs/entrapment_env.py` contains all enhancements (well-commented)
-
-## 🛠️ Setup
-1. Install dependencies: Newton, Isaac Lab, Isaac Sim, RLRoverLab (see `CLAUDE.md` for details)
-2. Create conda env: `conda create -n env_isaaclab python=3.11 && conda activate env_isaaclab`
-3. Install packages: `pip install torch torchvision torchaudio gymnasium wandb scikit-learn`
-4. Verify: `./launch.sh --help`
 
 ## ⚠️ Notes
 - **Visualization**: Use Newton ViewerGL (via `eval.py`/`view_rover.py`), *not* Isaac Sim GUI (known broken in conda-Python)
@@ -120,4 +135,4 @@ tensorboard --logdir experiments/
 - **SSH key**: Your key `merajhossainpromit@gmail.com` is configured for GitHub pushes
 
 *Last updated: April 2026*  
-*Questions? Check CLAUDE.md or open an issue on GitHub.*
+*Questions? Open an issue on GitHub.*
