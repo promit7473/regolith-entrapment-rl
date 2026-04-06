@@ -1,0 +1,2173 @@
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Contents lists available at ScienceDirect
+
+Computers and Electronics in Agriculture
+journal homepage: www.elsevier.com/locate/compag
+
+Escape and path point tracking methods of skid-steered mobile robots
+under undulating terrain conditions
+Song Bi * , Yun Ding
+College of Electrical and Control Engineering, North China University of Technology, Beijing 100144, China
+
+A R T I C L E I N F O
+
+A B S T R A C T
+
+Keywords:
+Undulating terrain
+Skid-steered mobile robot
+Escape action generation
+Deep reinforcement learning
+Imitation learning
+
+Skid-steered mobile robots (SSMRs) offer the advantages of a simple structure and good terrain adaptability,
+making them widely used in agricultural production. The ground of outdoor orchards is generally undulating and
+unpaved. When an SSMR operates on the undulating road, some tires lift off the ground and cannot provide
+driving force, thus bringing the SSMR into a trapped state due to insufficient driving force. Moreover, the un­
+dulating state of the outdoor orchard ground cannot be measured in real time due to the influence of vegetation
+coverage. Therefore, the SSMR cannot avoid the undulating areas that may cause some tires to lift off the ground
+through path planning methods. In this paper, the principles for the SSMR to be trapped due to partial tire lifting
+off the ground were investigated, and a trapped-state recognition method based on internal sensor data of the
+robots was established. On this basis, an escape action generation model of SSMR is designed, and the model
+training was completed based on deep reinforcement learning. Finally, the simulation experiment and physical
+experiment of SSMR escape are conducted. The experimental results showed that the methods proposed in this
+paper could effectively recognize the trapped state of SSMR and achieved a 90 % success rate of escape.
+
+1. Introduction
+Skid-steered mobile robots (SSMRs) are widely used in various
+agricultural production scenarios such as outdoor orchards due to their
+advantages of compact and straightforward overall structure, strong
+load-bearing capacity, and low manufacturing cost. During operation,
+agricultural robots must walk along designated paths and perform pre­
+determined operation tasks. Hence, path point tracking is a key function
+for agricultural robots to complete operation tasks. For the path point
+tracking problem of SSMR on undulating and unpaved roads, some
+scholars have proposed many methods, such as model-based predictive
+control (Prado, Á. J., et al., 2020; J. Prado et al., 2021), robust control
+and adaptive control (J. Liao et al.,2019), and intelligent control
+(Juman, M. A., et al., 2019).
+However, on undulating unpaved roads, there may be soil slopes or
+concavities, which can easily cause some of the tires of the SSMR to lift
+off the ground and fail to provide driving force. Under the condition of
+insufficient driving force, the SSMR will be trapped and unable to track
+the target path (W. Yu et al., 2010). For the above-mentioned trappedstate problem, two solutions are usually adopted. The first step is to
+install an auxiliary mechanism to prevent the robot from getting into
+
+trouble (García, J. M., et al., 2017). However, the auxiliary mechanism
+is costly, and it is only suitable for equipment with a lower weight. The
+other solution is to enable the robot to avoid the zones that are prone to
+trapping the SSMR by rational path planning. For example, the zones
+that are prone to trapping the robot can be identified based on ground
+elevation information (M. Toscano-Moreno et al., 2024) or ground
+three-dimensional real-time perception information (R. Grandia
+et al.,2023). Nevertheless, in the outdoor orchard environment, on the
+one hand, the operation process of agricultural machinery will change
+the undulating state of the road surface, making it difficult to obtain
+stable elevation information; on the other hand, during the leaf-full and
+leaf-dead periods, the vegetation covers the ground of outdoor orchards,
+making it impossible to observe the terrain in real time, as illustrated in
+Fig. 1.
+Hence, in the outdoor orchard environment, it is challenging to avoid
+an SSMR from falling into the trapped state by rational path planning.
+Therefore, studying the autonomous escape methods of SSMR under the
+condition of lacking real-time terrain information can improve the
+reliability and effectiveness of SSMR operation in the outdoor orchard
+environment, and has definite practical value.
+In the absence of external perceptual information, the trapped state
+
+* Corresponding author.
+E-mail address: bisong@ncut.edu.cn (S. Bi).
+https://doi.org/10.1016/j.compag.2025.111247
+Received 31 May 2025; Received in revised form 7 November 2025; Accepted 18 November 2025
+Available online 25 November 2025
+0168-1699/© 2025 Elsevier B.V. All rights are reserved, including those for text and data mining, AI training, and similar technologies.
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 1. Roads in an outdoor orchard during different periods. (a) full-leaf period (Summer), (b) leaf-fall period (Autumn).
+
+suspension structure or not, there is always some possibility that the
+tires of the SSMR may lift off the ground on undulating unpaved roads.
+There are relatively few investigations on the escape methods of SSMR
+based on the internal feedback data after the tire leaves the ground, as
+well as the path point tracking methods after SSMR escape. Based on the
+reasons described above, this study investigates the problems of
+autonomous escape and path point tracking of the SSMR based on in­
+ternal sensor feedback and DRL. A method for identifying the trapped
+state of the SSMR is designed based on the real-time torque information
+feedback from the drive motor. Furthermore, a generation model for the
+autonomous escape actions of the SSMR is designed and trained based
+on LSTM and DRL. The proposed autonomous escape method for robots
+based on internal feedback can effectively improve the reliability and
+stability of SSMRs operating under unpaved, undulating road condi­
+tions. This approach is demonstrated by taking an orchard with vege­
+tation coverage and undulating terrain as the research environment.
+The main contributions of this study can be summarized as follows:
+
+Fig. 2. The SSMR platform.
+
+of the robot can be identified based on the feedback data of the internal
+motor and IMU of the robot (J. K. Yim et al., 2023). It serves as the basis
+for generating the escape actions to analyze the trapped state of SSMR
+and estimate the ground passability based on the internal feedback data
+sequence of the robot. The long short-term memory (LSTM) network (S.
+Hochreiter et al., 1997) exhibits good modeling capabilities for time
+series data (Slawiñski, E., et al., 2024), allowing for the establishment of
+a passability evaluation model for the surrounding area of the robot
+based on the LSTM method. The reinforcement learning method enables
+the robot to achieve behavior control. However, the control effect on the
+robot is not desirable in a continuous action space (Z. Zhang et al.,
+2025). The deep reinforcement learning (DRL) method enhances the
+expression ability of the robot for complex problems by introducing
+deep neural networks. It has been successfully applied in complex de­
+cision control tasks where the decision-making output is a continuous
+quantity, such as autonomous driving (Y. Fu et al., 2022) and robot
+control (Wen, T., et al., 2024; Cheng X et al., 2024). During the skidsteering process of SSMR, the relationships between the robot’s tires
+and the ground are rather complex, which can be challenging to model.
+Moreover, it is noticed that the control output of SSMR is a continuous
+quantity. Hence, DRL has also been applied to the design of trajectory
+tracking control methods for SSMR on unpaved roads. Dawson (Dawson,
+K., et al., 2024) verified that DRL could plan effective paths for SSMR in
+complex environments. Joglekar (Joglekar, A., et al., 2022) designed an
+adaptive tracking controller for pure path point tracking based on the
+DRL framework and realized path point tracking control under undu­
+lating ground conditions in the simulation environment.
+The existing studies on the path point tracking control of SSMR are
+based on the premise that the four tires of the robot can land stably and
+provide sufficient driving force. Whether the SSMR is equipped with a
+
+1) For the situation where some tires lifted off the ground, the rela­
+tionship between the steering radius of the SSMR and the driving
+force required by the tires is established, the causes for the SSMR to
+be trapped are analyzed, and the recognition methods for the trapped
+state of the SSMR are designed.
+2) A passability evaluation method for the surrounding areas of the
+robot is designed based on the internal sensor information of the
+robot. A model for generating escape actions is designed, enabling
+the robot to escape from the trapped state and re-track the pre­
+determined path when the SSMR is trapped.
+3) A reward function integrating artificial rewards and environmental
+rewards is designed. The training of the escape action generation
+model is completed based on the training method integrating
+imitation learning and deep learning. Moreover, an escape method
+based on the internal state of the robot is established.
+4) Extensive experiments, including both simulation tests and realworld experiments, were conducted for evaluations. An ablation
+study is also conducted to estimate the feasibility of the proposed
+method. In general, the proposed method demonstrates high accu­
+racy and robustness in recognizing anomalous operational states and
+generating reasonable actions under undulating terrain.
+The rest of this paper is organized as follows. Section 2 presents the
+analysis and detection method for SSMR anomalies. Section 3 describes
+the construction of the policy network along with the design of the
+reward function, action space, and state space. Section 4 presents the
+simulation and real-world experimental results. Finally, the discussion
+and conclusions are provided in Sections 5 and 6, respectively.
+2
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Table 1
+Performance parameters of the experimental platform.
+No.
+
+Parameter
+
+Value
+
+Unit
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+
+Length
+Width
+Height
+Mass
+Wheelbase
+Wheel track
+Rated torque
+Rated rotational speed
+Rated acceleration
+Reduction ratio
+Number of motors
+
+1.27
+0.928
+0.677
+302
+0.565
+0.778
+2.4
+3000
+52.36
+80
+4
+
+m
+m
+m
+kg
+m
+m
+Nm
+rpm
+rad/s2
+−
+−
+
+Fig. 4. The schematic diagram of the force analysis of an SSMR.
+
+2. Dynamic analysis and trapped-state recognition of SSMR
+under the condition of tires partially lifting off the ground
+
+Table 2
+The SSMR parameters.
+Parameter
+
+Label
+
+Tire longitudinal force
+Tire lateral force
+
+i
+
+Tire sideslip angle
+Tire vertical load
+Tire equivalent normal load
+Tire grade resistance
+
+Longitudinal component of the tire grade resistance
+Lateral component of the tire grade resistance
+
+Tire cornering stiffness
+Slope angle
+Driving motor torque under normal conditions
+Driving motor torque under abnormal conditions (the sideslip
+angle is less than 6◦ )
+Driving motor torque under abnormal conditions when SSMR is
+in the transient acceleration state (the sideslip angle is less
+than 6◦ )
+Driving motor torque under abnormal conditions (the sideslip
+angle is more than 6◦ )
+Driving motor torque under abnormal conditions when SSMR is
+in the transient acceleration state (the sideslip angle is more
+than 6◦ )
+Angle between the tire’s longitudinal direction and the slope
+gradient direction
+Tire rolling resistance coefficient
+Tire lateral friction coefficient
+Tire radius
+SSMR wheel track
+SSMR wheelbase
+SSMR mass
+SSMR yaw angular velocity
+SSMR longitudinal velocity
+SSMR lateral velocity
+SSMR single wheel transmission system resistance torque
+
+The drive system of the SSMR studied in this work uses unsuspended
+rigid connections and solid tires. The overall structure of this system is
+shown in Fig. 2.
+In this system, four DC servo motors are adopted as drive motors, and
+an IMU and an ultra-wideband (UWB) positioning system are installed.
+The performance parameters of the experimental platform are provided
+in Table 1.
+This study analyzes the causes of SSMR anomalies under undulating
+terrain conditions and proposes a method for recognizing SSMR anom­
+alies based on motor running characteristics. The SSMR parameters are
+provided in Table 2.
+
+Fx (i = 1, 2, 3, 4)
+Fy (i = 1, 2, 3, 4)
+αi (i = 1, 2, 3, 4)
+i
+Fz (i = 1, 2, 3, 4)
+i
+Fg (i = 1, 2, 3, 4)
+i
+
+i
+
+Frg (i = 1, 2, 3, 4)
+
+Frx (i = 1, 2, 3, 4)
+Fry (i = 1, 2, 3, 4)
+Cα
+β
+i
+T0 (i = 1, 2, 3, 4)
+i
+T1 (i = 1, 2, 3, 4)
+i
+i
+
+i
+
+T1a (i = 1,2,3,4)
+
+i
+
+T2 (i = 1, 2, 3, 4)
+
+i
+
+T2a (i = 1,2,3,4)
+
+2.1. Grade resistance
+Grade resistance denotes an additional resistance a robot is subjected
+to during the running process, as illustrated in Fig. 3.
+Fig. 3(a) shows the side view of the schematic diagram of the grade
+resistance, where the angle of the slope on which the tires run is β and
+the vertical down force is Fg .
+Fig. 3(b) depicts the top view of the schematic diagram of the grade
+resistance, where the slope height is 0–0.5 m, and is represented by a
+gradient blue line. At this point in Fig. 3(b), the angle between the tire’s
+longitudinal direction and the slope gradient direction is γ. The grade
+resistance can be further decomposed into a longitudinal resistance, Frx,
+and a lateral resistance, Fry. The grade resistance is defined as a
+component of the vertical down force on tires along the ramp direction
+when they roll on the ramp, as expressed by:
+
+γ
+i
+i
+
+μr (i = 1, 2, 3, 4)
+μy (i = 1, 2, 3, 4)
+
+r
+B
+L
+m
+
+ωR
+
+vx
+vy
+Tc
+
+Frg = Fg sinβ
+
+(1)
+
+where Frg is the grade resistance, expressed in N; m denotes the tire mass,
+expressed in kg; β indicates the ramp angle, expressed in rad.
+When an SSMR moves uphill, the longitudinal resistance Frx will
+hinder tire rolling, and the lateral resistance Fry will be superimposed
+with the tire lateral force, hindering the steering of the SSMR during the
+uphill motion. This phenomenon can be mathematically expressed as
+follows:
+{
+Frx = Fg sinβcosγ
+(2)
+Fry = Fg sinβsinγ
+2.2. Dynamic equation
+The force analysis of an SSMR during regular operation is presented
+in Fig. 4, where the left front (LF), left rear (LR), right front (RF), and
+right rear (RR) wheels of the robot are labeled by 1, 2, 3, and 4,
+respectively.
+When an SSMR is steady, it has an acceleration of v̇, u̇, ẇ are zero, and
+its steady-state equation is defined by(Raikwar, S., et al., 2022):
+
+Fig. 3. The schematic diagram of the grade resistance. (a) side view, and (b)
+top view.
+
+3
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 5. The schematic diagram of the abnormal force on an SSMR: (a) top view, and (b) right view.
+
+⎧
+∑4 (
+⎪
+)
+⎪
+i
+⎪
+Fx − i Frx − i Fr = − mωR vy
+⎪
+⎪
+i=1
+⎪
+⎪
+⎪
+⎨ ∑ (
+) L∑4 ( i
+)
+B 4 i
+Fx − i Frx +
+Fy + i Fry = 0
+i=1
+i=1
+⎪
+2
+2
+⎪
+⎪
+⎪
+⎪
+∑4 (
+)
+⎪
+⎪
+i
+⎪
+Fy + i Fry = mωR vx
+⎩
+i=1
+
+wheel is off the ground, it is not supported by the ground and is subject
+only to gravity. According to the diagonal moment balance equation of
+the SSMR, the down force of the LF wheel’s diagonal tire (the RR wheel)
+is approximately equal to zero. In this case, neither the LF wheel nor the
+RR wheel can provide any driving force. When the SSMR steers, if the
+steering radius is large, the tire sideslip angle will be less than 6◦ , and the
+lateral force will be in a linear region. However, if the steering radius is
+small, the tire sideslip angle will be greater than 6◦ , and the lateral force
+will be in a nonlinear region; the magnitude of the lateral force is
+directly proportional to the tire load (Milliken et al., 1995). Two sce­
+narios are considered depending on the steering radius value: one where
+a large steering radius results in a tire sideslip angle less than 6◦ , and
+another where a small steering radius causes the tire sideslip angle to be
+larger than 6◦ .
+
+(3)
+
+2.3. Cause analysis of SSMR anomalies
+When an SSMR operates on a locally undulating terrain, its abnormal
+status is primarily caused by the failure of the grounded tires to provide
+the driving force necessary for the SSMR to achieve its target running
+status. During operations in outdoor orchards, an SMMR has relatively
+low longitudinal velocity and yaw angular velocity. Therefore, the
+anomaly of insufficient driving force is most commonly observed in skid
+steering. If the yaw moment provided by the driving force of tires cannot
+overcome the yaw resistance moment, the SSMR will fail to reach the
+target motion state, yielding an anomaly. Therefore, this study analyzes
+the causes of SSMR anomalies based on the yaw moment balance
+equation. When the SSMR operates steadily with all four tires in normal
+contact with the ground, each tire needs to provide a longitudinal force
+i
+Fx as shown in Eq. (4):
+i
+
+)
+L( i
+Fx = Frx + Fr −
+Fy + i Fry
+B
+i
+
+i
+
+2.3.1. Large steering radius
+When the steering radius of SSMR is large, the lateral force of the tire
+has a linear relationship with the sideslip angle. The lateral force is only
+related to the sideslip stiffness and the sideslip angle. In this case, Fyi =
+
+Cα ( − αi ). The driving forces required by tires 2 and 3 can be obtained by
+substituting Fyi = Cα ( − αi ) into Eq. (5), as shown in the following
+equation:
+⎧
+⎪
+⎪
+⎪
+⎨
+
+(4)
+
+2
+
+[
+]
+L
+T1 = r 2 μr 2 Fz1 − 2 Cα (− α2 ) +Tc
+B
+
+◦
+
+(αi ⩽6 )
+[
+]
+⎪
+)
+L(
+⎪
+⎪
+⎩ 3 T1 = r 3 Fg sinβcosγ + 3 μr 3 Fz1 −
+Cα (− α3 )+ 3 Fg sinβsinγ +Tc
+B
+
+In this study, the tires used in SSMR are solid, and the deformation
+AMOUNT of the tires within the grounding mark is small. The genera­
+tion mechanism of its longitudinal force is close to the rigid body friction
+model. Hence, the steady-state relationship between the driving torque
+and the longitudinal force can be approximately expressed as i T = i Fx r.
+The single-tire driving force of SSMR under typical driving condi­
+tions can be obtained by substituting i T = i Fx r, i Fr = i μr i Fz0 , and Eq.
+(2) into Eq. (4), as shown in Eq. (5):
+[
+]
+)
+L( i
+i
+T0 = r i Fg sinβcosγ + i μr i Fz0 −
+Fy + i Fg sinβsinγ + Tc
+(5)
+B
+
+(6)
+
+The difference between the driving forces of tires 2 and 3 when the
+diagonal tires of SSMR lift off the ground and tires 2 and 3 contact the
+ground (under these abnormal and typical conditions) can be expressed
+as follows:
+)
+( 2 )[ 2
+]
+{( 2
+2
+2
+( 3 T1 − 3 T0 ) = r( 3 μr )[ 3 Fz1 − 3 Fz0 ]
+(7)
+T1 − T0 = r μr
+Fz1 − Fz0
+Due to the undulating ground, tires 1 and 4 of SSMR are unable to
+provide a normal support force. Under ideal conditions, namely, the
+SSMR’s attitude is close to the horizontal level, the vertical load on tires
+2 and 3 will double. Therefore, 2 Fz1 > 2 Fz0 and 3 Fz1 > 3 Fz0 . At this
+point, it can be known from Eq. (7) that 2 T1 > 2 T0 and 3 T1 > 3 T0 . Let
+the driving forces required by SSMR in the transient acceleration stage
+when the sideslip angle is less than 6◦ be 2 T1a and 3 T1a , and then the
+order of the driving forces required by SSMR in the transient
+
+Fig. 5 shows the abnormal force on an SSMR when its tires are lifted.
+The schematic diagram of the force on the robot from the top view is
+depicted in Fig. 5. In Fig. 5(a), the RF wheel of the SSMR is on the slope,
+and the maximum height of the slope is 0.3 m; the saturation value of
+blue represents the ground level values. Fig. 5(b) shows a schematic
+diagram of the force on the robot from the right view is displayed. It is
+assumed that the RF wheel of the SSMR is lifted at this point and that the
+LF wheel is off the ground due to the terrain. However, when the LF
+4
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 6. Escape policy generation method based on reward fusion.
+
+acceleration state, normal state, and abnormal state when the sideslip
+angle is less than 6◦ is 2 T1a > 2 T1 > 2 T0 and 3 T1a > 3 T1 > 3 T0 . During
+the robot design process, the rated torque of the drive motor is designed
+in accordance with the standard for driving SSMR under normal con­
+ditions. When the SSMR tires lift off the ground, 2 T1 > 2 TN and
+3
+T1 > 3 TN . In this case, the SSMR enters into a trapped state.
+
+[
+]
+L− α 2
+T2 =r 2 μr 2 Fz1 −
+μy Fz1 +Tc
+B |α|
+(αi >6◦ )
+[
+)]
+(
+⎪
+L − α 3
+⎪
+3
+3
+3 3
+3
+⎪
+⎩ T2 =r Fg sinβcosγ+ μr Fz1 −
+μ Fz1 + Fg sinβsinγ +Tc
+B |α| y
+⎧
+⎪
+⎪
+⎪
+⎨
+
+2
+
+(8)
+
+When the diagonal tires of SSMR lift off the ground and tires 2 and 3
+contact with the ground, the differences between the driving forces of
+tires 2 and 3 under these abnormal conditions and those under normal
+conditions can be expressed as shown in Eq. (9):
+
+2.3.2. Small steering radius
+When the steering radius is small, the lateral force of the tires is in the
+nonlinear region. At this point, the lateral force of SSMR is positively
+correlated with the vertical load Fz , and the lateral force can be
+expressed as FyM = −|αα| μy Fz1 . Substituting FyM = −|αα| μy Fz1 into Eq. (5)
+yields the driving forces required by tires 2 and 3 as shown in Eq. (8):
+
+5
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+2.4. Anomaly detection based on motor running characteristics
+Since the servo drive motor used for an SSMR has an upper limit on
+the torque output, the actuator has saturation characteristics. When an
+SSMR steers in the case of the partial lift-off of tires, the torque required
+to maintain the motion attitude of the SSMR exceeds the maximum
+output capacity of the motor. Thus, the output torque of a grounded
+motor will be close to its upper limit of torque output Tmax . The motor
+will not be able to output the target torque required to maintain the
+motion attitude, which leads to the SSMR’s anomaly. Therefore, when
+the torque of a drive motor satisfies Eq., it is considered that there is an
+SSMR anomaly.
+⃒i ⃒
+t
+⃒ Tn ⃒
+1 ∑
+⃒ ⃒ > Tthread
+(10)
+ct n=t− ct ⃒ TN ⃒
+In Eq. (10), i Tn denotes the real-time torque of the i− th motor at the
+n-th moment; TN is the rating torque of the motor; ct is the length of the
+time window for judging an SSMR anomaly; If ct is excessive, the
+detection failure of the trapped state will occur; if the value is too low, it
+will lead to an increase in the detection error rate of the trapped state. If
+Tthread is too small, it will cause excessive sensitivity to the motor torque;
+if excessive, it will cause the detection failure of the trapped state of
+SSMR. The SSMR escape control algorithm should enable the robot to
+track the set path points with as few escape control times as possible to
+enhance the effectiveness and efficiency of the robot’s path point
+tracking. Therefore, the detection window and threshold should be
+determined based on the overload capacity of the motor installed on the
+SSMR. Hence, the performance of the motor can be maximized,
+enhancing the robot’s working efficiency.
+
+Fig. 7. The schematic diagram of the robot-path point relative error.
+Table 3
+The conditional reward.
+Reward conditions
+
+Reward value
+
+Terminal reward value
+
+Arrival at a target point
+Drive motor anomaly
+
+Rcon =2itarget
+Rcon = − 2iabn
+
+Rcon =2itarget + 50
+Rcon =2itarget − 50
+
+⎧
+(2
+⎪
+⎪
+⎪
+⎨ T2 −
+
+2
+
+)
+T0 = r
+
+⎪
+(
+⎪
+⎪
+⎩ 3 T2 −
+
+3
+
+)
+T0 = r
+
+(
+2
+
+(
+3
+
+L
+B
+
+μr + μy
+L
+B
+
+μr + μy
+
+)
+[2
+)
+[3
+
+Fz1 −
+
+2
+
+Fz0
+
+]
+
+Fz1 −
+
+3
+
+Fz0
+
+]
+
+(9)
+
+3. An escape policy generation model based on deep
+reinforcement learning
+
+At this point, as the steering radius increases, the lateral force of the
+tires is positively correlated with the vertical load, and the lateral force
+also increases with the increase in the vertical load. At this point, 2 T2 >
+2
+T1 > 2 T0 and 3 T2 > 3 T1 > 3 T0 . Let the driving force required by SSMR
+in the transient acceleration stage when the sideslip angle is greater than
+6◦ be 2 T2a and 3 T2a . Then, the order of the driving forces required by
+SSMR in the transient acceleration state, normal state, and abnormal
+state when the sideslip angle is higher than 6◦ is 2 T2a > 2 T2 > 2 T1 >
+2
+T0 and 3 T2a > 3 T2 > 3 T1 > 3 T0 . Similarly, 2 T2 > 2 TN and 3 T2 > 3 TN ,
+and the SSMR enters into a trapped state.
+
+The generation process of the escape actions of the SSMR in the
+trapped state is a sequential decision process. This process can be
+modeled as a Markov decision process (Puterman M L et al., 2014) to
+solve the optimal policy based on the reinforcement learning paradigm.
+The motor speed of SSMR can be used as the controlled quantity of the
+robot. However, this controlled quantity is a continuous variable.
+Hence, the optimal policy can be solved by the DRL method. The
+training and implementation flowchart of the SSMR escape action gen­
+eration model is illustrated in Fig. 6.
+
+Fig. 8. The structure of the SSMR control policy network.
+6
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 9. The block diagram of reward fusion-based DRL.
+
+As shown in Fig. 6, a simulation environment for SSMR is initially
+established based on the Unity platform, and a virtual terrain that
+simulates the orchard simulation environment is generated. Hence, tire
+characteristics and the rigid body dynamic simulation of SSMR are
+conducted. In the simulation environment, real-time state information
+during the operation of SSMR can be obtained. Then, by virtue of the
+DRL method, the SSMR escape action generation model is trained based
+on the simulation platform. Finally, the escape action generation model
+trained based on DRL is transferred to the actual robot platform to
+generate the escape actions of SSMR.
+
+anomaly state. The state space of an SSMR is defined by
+}
+{
+s = smotor , smotion , spostion , sabnormal
+The four parts in the state space of an SSMR are as follows:
+1) Drive motor state
+
+The contact force with the ground and other information can be
+directly perceived from the changing relationships between the speeds
+and torques of drive motors. Thus, the given speed, real-time speed, and
+real-time torque of the four drive motors of an SSMR are denoted as parts
+of the drive motor state and denoted by ωset , ωcur , and t cur , respectively.
+This study introduces the average torque, denoted by t avg , into the drive
+motor state in combination with the anomaly detection method to
+characterize the current anomaly of a robot and enhance the sensitivity
+of the policy network to it. The drive motor state, labeled assmotor , with a
+total of 16 dimensions, is expressed as follows:
+}
+{
+(13)
+smotor = ωset , ωcur , t cur , t avg
+
+3.1. SSMR action space
+In this study, an SSMR is driven to complete the path point tracking
+task by providing the speed to the two motors on the left side and the
+two motors on the right side to drive the robot. The speeds of the front
+and rear motors on the left are set to be consistent. Similarly, the speeds
+of the front and rear motors on the right are set to be consistent. Then,
+the action space of an SSMR can be defined as follows:
+a = [ ωl , ωr ]
+
+(12)
+
+where ωcur is the real-time speed of the four drive motors; ωset is the
+given speed of the four drive motors in the last control cycle; t cur is the
+real-time torque of the four drive motors; tavg is the average torque of the
+four drive motors;
+
+(11)
+
+where ωl denotes the set wheel velocity of the robot’s left side; ωr is the
+set wheel velocity of the robot’s right.
+
+2) Robot motion state
+
+3.2. SSMR state space design
+
+The IMU can perceive changes in spatial attitude caused by surface
+relief during the SSMR motion. Considering the robot’s attitude and
+angular velocity, part of the robot’s state space provides an indirect
+perception of the surface relief. A robot’s motion statesmotion , with seven
+dimensions in total, is expressed by
+
+It is impossible to acquire terrain perception information in the
+problem considered in this work. Only available information denotes a
+robot’s proprioception state, including the real-time speeds and realtime torques of the four drive motors, the attitude and angular veloc­
+ity of the robot, and the target point’s position. Therefore, in this
+research, the state space of an SSMR includes four parts: the drive motor
+state, the robot motion state, the robot position state, and the robot
+
+smotion = {q, ω}
+
+7
+
+(14)
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 10. The simulation framework.
+
+]
+[
+where q = qw , qx , qy , qz is the robot attitude, expressed in quater­
+]
+[
+nions, and ω = ωx , ωy , ωz is the robot’s spatial angular velocity;
+
+4) Robot anomaly state
+When a robot is already in an abnormal state at the previous
+moment, the policy network should adjust the action output promptly to
+avoid being in an abnormal state for an extended period. Therefore, the
+SSMR’s state space contains a sign that indicates whether the robot had a
+drive motor anomaly at the previous moment, denoted by sabnormal . If
+there was a drive motor anomaly at the previous moment, the value of
+sabnormal will be one; otherwise, it will equal zero.
+
+3) Robot’s position state
+A robot’s position state spostion describes the relative position between
+a path point and the SSMR, including the distance between them and the
+relative orientation angle of the path point in the robot coordinate
+system, which are denoted by edis and edir , respectively. The schematic
+diagram of the robot-path point relative error is presented in Fig. 7,
+where Oʹ denotes the position of the robot centroid, and P is the path
+point’s position.
+Further, a two-dimensional vector spostion is expressed as follows:
+spostion = {edis , edir }
+
+3.3. Reward function
+As a core link of reinforcement learning, the reward function design
+directly defines the application direction of reinforcement learning in
+policy training. The suboptimal policy is rapidly converged through
+discriminator rewards, and the optimal policy is fine-tuned using the
+rewards output by the manually designed reward function. Next, the
+proposed method combines these rewards with the discriminator re­
+wards to form a final reward. In the proposed method, the expert policy
+is not optimal. Therefore, if the weight of the discriminator rewards is
+
+(15)
+
+where edis is the distance between the robot and the target point, and
+edir is the relative orientation angle of the target point in the robot co­
+ordinate system;
+
+8
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Rs = c2θ θt (θt− 1 − θt )⋅cvz |vz |
+
+where cθ and cvz are the weight coefficients of the angle error and lon­
+gitudinal velocity, respectively; θt is the angle error at the current
+moment; θt− 1 denotes the angle error of the last control cycle; vz is the
+current longitudinal velocity of a robot.
+The velocity-angle coupling reward, defined by (θt− 1 − θt )|vz |, en­
+sures the increase in vz on the premise of allowing an SSMR to reduce the
+angle error. In the problem studied in this work, a negative velocity is
+needed in the motion control decisions of an SSMR to adjust the heading
+angle when the SSMR’s status is abnormal. As a result, the SSMR’s ve­
+locity is assigned an absolute value in the reward. When the angle error
+is small, due to environmental stochasticity, the variation rate of the
+angle error is highly susceptible to the oscillations between positive and
+negative values, causing the reward to oscillate for a small angle error.
+Thus, an angle error θt is set as a weight coefficient in Rs . When the angle
+error is minimal, the Rs value will gradually tend toward zero, pre­
+venting the reward from oscillating under a small angle error.
+Reward Rs mainly guides an intelligent agent to control an SSMR to
+reduce the angle error. Moreover, |v| is used to take into account the
+negative velocity when tracking the path point, which causes the
+intelligent agent to back up at full speed to maximize reward Rs when
+the SSMR runs abnormally. Therefore, a tracking reward Rtrack is added
+to encourage the intelligent agent to approach the path point, and it is
+expressed by:
+
+Fig. 11. The SSMR anomaly.
+
+too large, the final policy will tend to imitate the suboptimal expert
+policy. In contrast, if the weight of the discriminator rewards is too
+small, the policy will converge slowly. After a comprehensive consid­
+eration of the training speed and the final policy effect, a reward R is
+expressed as follows:
+R = 0.9RH + 0.1RD
+
+(19)
+
+Rtrack = − (cd dt + cθ θt )
+
+(20)
+
+where cd and cθ are weight coefficients, dt is the distance error at the
+current moment, and θt is the angle error at the current moment.
+3.3.2. Abnormal action reward
+When an SSMR turns along the rising slope, it is likely to be in an
+abnormal state for a long time. This turning behavior along the rising
+slope is then penalized to guide an intelligent agent to make safe de­
+cisions. Therefore, the abnormal action reward of the SSMR is intro­
+duced, and its pitch and roll angles are denoted by ϕx and ϕz ,
+respectively. Accordingly, there is an abnormal attitude when the atti­
+tude angle of the SSMR satisfies the following conditions:
+⎧
+|sinϕx | > 0.08
+⎪
+⎪
+⎨
+cosϕx > 0
+(21)
+|sinϕz | > 0.08
+⎪
+⎪
+⎩
+cosϕz > 0
+
+(16)
+
+where RH indicates the rewards output by the manually designed reward
+function, and RD denotes the discriminator rewards.
+The final policy to be determined in this study needs to avoid the
+long-term abnormal status of a robot while ensuring its arrival at the
+target point. Therefore, rewards output by the manually designed
+reward function consider both the path point tracking of an SSMR and
+the penalty for abnormal status. The rewards output by the manually
+designed reward function derived in this study include: (a) a path point
+tracking reward, which is used to encourage the fast and accurate mo­
+tion of an SSMR toward the path point; (b) an SSMR abnormal action
+reward, which is introduced to avoid an SSMR being in an abnormal
+status for a long time; (c) a conditional reward, which is provided when
+the SSMR status satisfies certain conditions. The rewards output by the
+manually designed reward function RH are defined as follows:
+
+where Rtarget is the path point tracking reward, Rabn is the SSMR
+abnormal action reward, and Rcon is the conditional reward.
+
+At this moment, the robot, affected by terrain relief, has an inclined
+body, and the vertical load distribution of the four wheels is uneven.
+Additionally, an abnormal decision in this case can lead to the drive
+motor anomaly of the SSMR. This study first defines a symbolic function
+f to illustrate the composition of the abnormal action reward:
+{
++ 1, sinϕx ⋅sinϕz > 0
+f=
+(22)
+− 1,
+sinϕx ⋅sinϕz < 0
+
+3.3.1. Path point tracking reward
+The path point tracking reward consists of a velocity-angle coupling
+reward and a tracking reward, which can be expressed by:
+
+The abnormal action reward is defined to satisfy the abnormal atti­
+tude conditions defined by Eq. (22).
+((
+) (
+))
+Rabn = − cθ θt + I vyt ⩾ − 0.05 ∧ f(vlt − vrt ) < 0 ⋅cv f(vlt − vrt )
+(23)
+
+RH = Rtarget + Rabn + Rcon
+
+Rtarget = Rs + Rtrack
+
+(17)
+
+(18)
+
+y
+
+where cθ and cv are weight coefficients; vt is the robot’s velocity in the
+gravity direction at the current moment; vlt is the given wheel velocity on
+the left side; vrt is the given wheel velocity on the right side; I(•) is an
+indicator function, which takes a value of one when the condition in
+brackets holds; otherwise, it equals zero.
+
+where Rs is the velocity-angle coupling reward, and Rtrack is the tracking
+reward.
+This study defines a velocity-angle coupling reward to guide an agent
+to control an SSMR to arrive at the path point as soon as possible. This
+reward increases the velocity on the premise of guiding the intelligent
+agent to control the SSMR, thereby reducing the angle error. This reward
+is expressed as follows:
+
+3.3.3. Conditional reward
+The conditional reward comprises an operational conditional reward
+and a terminal conditional reward, which mainly correspond to two
+9
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 12. The running data graph of the SSMR in the abnormal state: (a) LF motor data, (b) RF motor data, (c) LR motor data, and (d) RR motor data.
+
+aspects: the robot’s arrival at a path point and a robot anomaly.
+In the case of a robot anomaly on a terrain with slight surface relief,
+there is no significant change in the robot’s attitude. Hence, it is
+impossible to cover all possible scenarios of SSMR anomalies using only
+the Rabn value. Therefore, the conditional reward is introduced to
+constrain the robot’s decisions in this state.
+When an intelligent agent causes an SSMR to be in an abnormal state
+for a long time during the control process, a penalty should be given to
+avoid the intelligent agent’s high-risk decisions. In contrast, when the
+robot safely completes the path-tracking task, a positive reward should
+be given. The training round is terminated once the conditions described
+in Eq. (26) are met. Then, a new training round starts.
+{
+iabn > 5
+(24)
+itarget > 5
+
+reflect only local and real-time environmental information. However,
+extracting the global features of nearby terrain is challenging for an
+SSMR, which causes information gaps in the decision process and results
+in decision failures. Therefore, this study introduces the LSTM model
+into the policy network. Furthermore, this study extracts terrain feature
+information from the time series features of the proprioception data of
+an SSMR, leveraging the module’s long-term memory ability to enhance
+the accuracy and robustness of decisions. The structure of the policy
+network is displayed in Fig. 8.
+The policy network mainly consists of three fully connected layers
+and one LSTM module. Firstly, the real-time status of the SSMR is input
+into the first fully connected layer for feature encoding. Then, the
+encoded features are sent to the LSTM memory module for time-series
+modeling. Ultimately, the time-series features are sent into the other
+two fully connected layers and linearly mapped as the mean value and
+the logarithm of the standard deviation of random action samples. Thus,
+the final action values can be output after action sampling by con­
+structing a normal distribution of actions.
+The SSMR acquires the driving force through the interaction between
+the tires and the ground. Changes in terrain can directly affect the state
+of the drive motor and the motion state of SSMR, potentially causing
+overload of the drive motor and an abnormal state of SSMR. In the
+absence of direct acquisition of terrain conditions through sensors such
+as cameras and radars, the time-series modeling capability of LSTM is
+
+where iabn is the number of consecutive drive motor anomalies, and itarget
+is the number of target points reached.
+The conditional reward is presented in detail in Table 3.
+3.4. SSMR escape policy generation model
+The road environment of outdoor orchards is highly complex and
+dynamic. Additionally, real-time proprioception data of an SSMR can
+10
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+in Unity;
+2) SSMR rigid body dynamics simulation module
+A real SSMR system comprises a tire part and a rigid body part. In this
+work, the former was simulated by the tire collider in the motor and tire
+characteristic simulation module, and the latter was simulated by the
+rigid body component in Unity. The motion state of the rigid body part
+was determined based on the longitudinal and lateral forces of the four
+tires output by the motor and tire characteristic simulation module;
+3) Randomized terrain generation module
+In this study, the motion control method of an SSMR was investi­
+gated under undulating terrain conditions using reinforcement learning,
+which necessitated simulating outdoor undulating terrains. Since the
+terrain generated by traditional random noise methods is discontinuous,
+the Perlin noise method (Perlin, 1985) was employed in this work to
+generate the complex terrain environment required for the simulation of
+SSMR motion;
+4) Control policy module
+The simulation conducted in this work mainly involved three policies
+for SSMR control: the expert policy, the imitator policy, and the reward
+fusion-based reinforcement learning policy.
+
+Fig. 13. The SSMR anomaly in the simulation.
+
+employed to model the time series features of drive motor states, SSMR
+motion states, and SSMR abnormal states, thereby obtaining the implicit
+expressions of terrain passability in historical trajectories. Thus, the
+time-series context, which contains terrain semantics and risk informa­
+tion, can be provided for the subsequent motion planning of SSMR,
+thereby improving the effectiveness of the SSMR escape policy genera­
+tion model.
+In this study, a clipped proximal policy optimization (Clipped PPO)
+algorithm (Schulman et al., 2017) is selected as a DRL training algo­
+rithm. Additionally, the LSTM model is incorporated into the policy
+network. The maximum length of each piece of experience in the
+experience replay pool is T. The LSTM model’s parameters can be
+trained using a truncated backpropagation through time (Truncated
+BPTT) method (Werbos, 2002). The block diagram of the reward fusionbased DRL is shown in Fig. 9.
+
+4.2. Robot anomaly experiment
+This study reproduced SSMR anomalies in both simulated and realworld environments to validate the effectiveness of the proposed
+anomaly detection method for SSMR based on their motor characteris­
+tics. The proposed method was validated by analyzing the motor data of
+an SSMR when it runs abnormally.
+The robot anomaly experiments were as follows:
+1) Real-world experiments
+The lift-off of the SSMR tires during practical operations is presented
+in Fig. 11; at this point, the robot steered left. Due to the terrain, the
+robot’s RF wheels were jacked up, and its LF wheel was off the ground.
+The remaining drive motors failed to provide sufficient driving torque,
+causing the robot to move abnormally.
+The normalized real-time running data of the SSMR’s four drive
+motors during the SSMR running, including the state shown in Fig. 11,
+are presented in Fig. 12.
+
+4. Anomaly recognition and path point tracking experiment
+4.1. Simulated environment construction
+A favorable simulated environment could effectively improve the
+efficiency of control policy training based on reinforcement learning.
+The parameterization of tire-ground friction in the Unity engine realized
+the simulation of real tire forces. Unity supported parallel computing,
+satisfying the requirements for the timeliness of the reinforcementlearning algorithm’s training. In this study, an experimental platform
+for simulation training was developed using Unity. The overall simula­
+tion framework is presented in Fig. 10.
+The framework primarily consists of four modules: a motor and tire
+characteristic simulation module, an SSMR rigid body dynamics simu­
+lation module, a randomized terrain generation module, and a control
+policy module. The four modules are as follows:
+
+2) Simulation experiments
+An image of an SSMR anomaly in the simulation is presented in
+Fig. 13. In this case, the RF tire was lifted, whereas the LF tire was off the
+ground.
+The normalized real-time running data of the four drive motors of the
+SSMR during running, including the state shown in Fig. 13, are pre­
+sented in Fig. 14.
+The running data of the real SSMR in the 8-s period are shown in
+Fig. 14. Starting from 5 s, the given speed on the left side of the robot was
+less than that on the right side, and the SSMR started to steer left,
+entering the abnormal status, as illustrated in Fig. 14. The following
+conclusions can be drawn from Fig. 14.
+
+1) Motor and tire characteristic simulation module
+In a real SSMR system, four independent servo motors drive four tires
+to achieve the motion control of the SSMR. In the simulated system used
+in this work, the controller of a real servo motor was simulated through
+incremental proportional-integral-derivative (PID) control, and the dy­
+namic characteristics of real tires were simulated using the tire collider
+
+(1) As shown in the green blocks in Fig. 12(a) and Fig. 14(a), the left
+front tire is suspended due to the terrain when the SSMR turns left
+with the left front tire lifted. The speed tracking error of the drive
+motor is less than 1 %, and the torque value is approximately
+0 Nm. At this point, the drive motor is running no-load.
+11
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 14. The running data graph of the SSMR in the abnormal state in the simulations: (a) LF motor data, (b) RF motor data, (c) LR motor data, and (d) RR
+motor data.
+
+(2) As shown in the yellow blocks in Fig. 12(d) and Fig. 14(d), the
+right rear tire can maintain contact with the ground under the
+effect of gravity. However, since the diagonal tires are suspended,
+they cannot provide an effective vertical load to the right rear
+tire. The speed tracking error of the drive motor is less than 1 %,
+and the torque output fluctuates around 30 % of the rated torque.
+The tire is in a critical contact state.
+(3) As shown in the red blocks in Fig. 12(b), Fig. 12(c), Fig. 14(b),
+and Fig. 14(c), the speed tracking error of the drive motor of the
+remaining tires in complete contact with the ground is close to
+100 %. The torque value is always greater than 90 % of the rated
+torque, indicating that the robot has entered an abnormal state.
+
+Fig. 15. The schematic
+point generation.
+
+diagram
+
+of
+
+randomized
+
+terrain
+
+and
+
+To sum up, the simulation environment established in this study can
+effectively simulate the data characteristics of the drive motor of the
+actual SSMR when it is in a trapped state, which can effectively support
+the training of the motion planning policy of SSMR. Moreover, the
+anomaly detection threshold in Eq. (10) should be determined based on
+the actual situation during the simulation and the abnormal operation
+process of the actual SSMR. If the anomaly detection threshold or the
+time window for judging the trapped state of SSMR is too small, the
+generation policy of the escape actions will be overly sensitive to the
+
+path
+
+12
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Table 6
+The discriminator network parameters.
+Layer
+number
+
+Layer
+name
+
+Input
+dimension
+
+Output
+dimension
+
+Activation
+function
+
+1
+2
+3
+
+FC1
+FC2
+Output
+layer
+
+32
+128
+128
+
+128
+128
+1
+
+Relu
+Relu
+Sigmoid
+
+Table 7
+The training parameters.
+
+Table 4
+The policy network parameters.
+Layer
+name
+
+Input
+dimension
+
+Output
+dimension
+
+Activation
+function
+
+1
+2
+3
+4
+5
+
+FC1
+LSTM
+FC2
+FC3
+Output
+layer
+
+30
+128
+128
+64
+64
+
+128
+128
+64
+64
+4
+
+Relu
+tanh/Sigomid
+Relu
+Relu
+−
+
+Layer
+name
+
+Input
+dimension
+
+Output
+dimension
+
+Activation
+function
+
+1
+2
+3
+5
+4
+
+FC1
+LSTM
+FC2
+FC3
+Output
+layer
+
+30
+128
+128
+64
+64
+
+128
+128
+64
+64
+1
+
+Relu
+tanh/Sigomid
+Relu
+Relu
+−
+
+Discount factor
+Shear coefficient of truncated PPO
+Optimizer learning rate
+Epoch number
+Mini-batch
+Entropy regularization coefficient
+Maximum step size
+The total step size
+The experience replay pool size
+Sequence length of truncated BPTT
+Discriminator learning rate
+Weight coefficient of angle error
+Weight coefficient of distance error
+Weight coefficient of a robot’s longitudinal velocity
+Weight coefficient of a robot’s tire velocity
+
+0.92
+0.15
+3e-4
+10
+512
+1e-3
+2e3
+4e6
+5e3
+128
+3.0e-4
+1/π
+0.125
+0.43
+0.027
+
+4.3. Policy training and ablation experiments
+4.3.1. Training protocol design
+This section provides an introduction to the simulation process from
+three aspects: environment initialization, random path point generation,
+and episode termination conditions. The schematic diagram of ran­
+domized terrain and path point generation in a single episode is pre­
+sented in Fig. 15.
+The three considered aspects were as follows:
+
+Table 5
+Parameters of the value network.
+Layer
+number
+
+Value
+
+capacity. The drive motor of the SSMR designed in this study can operate
+continuously for 1.63 s when the average output torque is 1.05 times the
+rated torque of the motor. The operation cycle of the robot escape
+control algorithm designed in this study was 150 ms. Therefore, the
+window length for the trapped anomaly detection was set to 10 control
+cycles (1.5 s) to prevent the motor from entering the protection state due
+to long-term overload, improving the reliability of robot operation.
+Moreover, some torque output margin of the motor should also be
+retained to enhance the robot’s reliability. In this study, the threshold
+parameter is designed as Tthread = 0.95, i.e., the output torque margin
+was 5 % of the rated torque. Thus, the anomaly detection threshold of
+SSMR in Eq. (10) was set to Tthread = 0.95. In contrast, the time window
+length for evaluating the trapped state of SSMR was set to ct = 10.
+
+Fig. 16. The expert policy.
+
+Layer
+number
+
+Parameter
+
+1) Environment initialization
+The randomized terrain was initialized at the start of the episode.
+The first path point was generated on the connection between the ro­
+bot’s centroid and the center of the randomized terrain to increase the
+probability of interaction between the robot and the randomized terrain.
+As illustrated in Fig. 15, the robot’s initial x − z coordinate system
+coincided with the world x − z coordinate system, and the robot’s initial
+position was (0, 0);
+
+torque changes of the drive motor. As a result, it is difficult for the model
+to converge during the policy training process, and the SSMR fails to
+track the target path. If the anomaly detection threshold or the time
+window length for evaluating the trapped state of SSMR is too large, the
+resulting escape action generation policy can easily cause the SSMR to
+enter the trapped state, making it difficult to track the target path. The
+setting of the detection window is related to the motor’s overload
+
+2) Random path point generation
+Once the robot reached the target point, the next target point was
+randomly generated. With the robot’s centroid as the circle center and
+13
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 17. Terrain equivalent trend graph.
+
+2m as the radius, the next path point was randomly generated in the arc,
+making an angle of ±60◦ with the current orientation of the robot;
+
+anomaly detection cycle of the SSMR is too high, the time of anomaly
+detection will be prolonged. However, if the anomaly detection cycle is
+too small, there will be an increase in the error rate of anomaly detec­
+tion. After a comprehensive consideration, this study set the anomaly
+detection cycle to Ct = 10.
+
+3) Episode termination conditions
+The current episode ended when any of the following conditions
+were met:
+(1) Arrival at the target point five times in a row: the conditions for
+arrival at a target point were defined as
+{
+|edir | < cdir
+(25)
+edis < cdis
+
+4.3.2. Expert policy collection
+When the SSMR steered under undulating terrain conditions, the
+steering resistance torque increased with the decrease in steering radius,
+thus increasing the probability of SSMR anomalies. This study collected
+data on 100 episodes in a randomized terrain with a maximum height of
+0.05 m to 0.5 m to avoid the overloading of SSMR drive motors. Two
+policies were followed during the data-collecting process, and an
+example of the expert policy is shown in Fig. 16.
+The two policies were as follows:
+
+where edir is the angle error of the SSMR tracking the current path point;
+edis is the distance error of the SSMR tracking the current path point; cdir
+is the angle error threshold; cdis is the distance error threshold.
+An excessive angle error or distance error can reduce the precision of
+path tracking. In contrast, a minimal angle error threshold or distance
+error threshold could make it difficult for the policy to converge. Based
+on a comprehensive consideration, this study set cdir = 0.4 rad and cdis =
+0.4 m;
+(2) More than five consecutive anomalies were used to evaluate
+whether the SSMR was in an abnormal status. According to Eq., if the
+
+(1) Small steering radii should be avoided as much as possible in
+complex scenarios. A large steering radius should be used when
+the heading angle of a robot in collecting expert data has to be
+adjusted;
+
+14
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 18. The LG method imitation learning policy (maximum height = 0.1 m).
+
+(2) In the face of extreme working conditions, the target point
+tracking policy of “adjusting the heading angle first and then
+steering with a large radius (straight line)” should be adopted.
+
+In the problem of the path-tracking control of SSMR studied in this
+work, if there were too many neurons in the fully connected layers, the
+number of parameters would be significant. This phenomenon would
+slow down the training and reasoning processes, even leading to over­
+fitting. However, if the number of parameters was too small, the
+expressive ability of the neural network would be limited, making it
+challenging to fit complex policies. In addition, if there were too many
+
+4.3.3. Parameter design
+1) Policy network parameters
+15
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 19. The LGH method reward fusion-based DRL policy (maximum height = 0.5 m).
+
+LSTM hidden units, the computational complexity and gradient propa­
+gation difficulty would increase. Conversely, if the number of LSTM
+hidden units was too small, it could be challenging for the network to
+capture long-term dependencies in data. After striking a balance be­
+tween the training time and network performance, this paper sets the
+parameters of the policy network, as shown in Table 4.
+
+neurons was assigned one output dimension, representing the value of
+the current state. The parameters of the value network are given in
+Table 5.
+3) Discriminator network parameters
+The discriminator in this paper was composed of two hidden layers
+(each with 128 neurons) to avoid unstable training caused by an
+excessively fast convergence of the discriminator in adversarial learning.
+The input was a state-action pair, and the output denoted a probability
+scalar. The parameters of the discriminator network were set, as given in
+
+2) Value network parameters
+The value network’s structure was the same as that of the policy
+network in the previous part of feature extraction, and the last layer of
+16
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 20. Reward convergence graph.
+
+Fig. 21. Success rate convergence graph.
+
+Table 8
+The results of the ablation experiments.
+
+Table 9
+The domain randomization parameters.
+
+Method
+
+LSTM
+
+GAIL
+
+Manual
+Reward
+
+Final
+reward
+
+Final success rate
+(%)
+
+Randomized parameters
+
+Unit
+
+Range of
+randomization
+
+LG
+LH
+GH
+LGH
+
+✓
+✓
+−
+✓
+
+✓
+−
+✓
+✓
+
+−
+✓
+✓
+✓
+
+−
+61
+50
+75
+
+60 %
+75 %
+62 %
+90 %
+
+Generated ground level
+Terrain constraint parameters
+Size of the generated local terrain
+The initial angle of the target point
+Robot weight
+Position offset of the robot’s center of gravity
+Longitudinal peak friction coefficient of tires
+Tire rolling resistance coefficient
+Longitudinal peak-asymptotic friction coefficient
+difference of tires
+Lateral peak friction coefficient of tires
+Lateral peak-asymptotic friction coefficient of tires
+Offset of tire height
+Maximum motor torque
+Motor control parameter
+Measurement error of motor speed
+Measurement error of rotor torque
+Measurement error of relative distance
+Measurement error of relative direction
+Measurement error of attitude angle
+Measurement error of angular velocity
+
+m
+−
+m2
+rad
+kg
+m
+−
+−
+−
+
+[0, 0.5]
+[5.5, 7]
+[4.25]
+[− 0.8, 0.8]
+[250, 400]
+[− 0.1, 0.1]
+[1, 1.8]
+[0.02, 0.08]
+[0.2, 0.5]
+
+−
+−
+m
+%
+%
+rpm
+Nm
+m
+rad
+rad
+rad/
+s
+
+[1.6, 2]
+[0.6, 0.8]
+[0, 0.005]
+[80, 120]
+[80, 120]
+[− 0.5, 0.5]
+[− 5.5]
+[− 0,015,0.015]
+[− 0.08,0.08]
+[− 0.1,0.1]
+[− 0.1,0.1]
+
+Table 6.
+4) Training parameters
+In this study, truncated PPO was used to calculate the policy
+gradient, and the Adam method was employed to optimize the policy,
+value, and discriminator networks. The training parameters are listed in
+Table 7.
+4.4. Path-tracking control experiments under undulating terrain
+conditions
+In this study, the terrain was generated in the simulation environ­
+ment based on the frequency-domain statistical values of the pitch angle
+in the actual orchard operation data of SSMR. The terrain equivalent
+trend graph in the actual environment is shown in Fig. 17.
+17
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 22. The outdoor small-slope experiment scenario. More information available online: https://gitee.com/ncut_ifr/dashboard/attach_files/2211109/download.
+
+Figs. 17(a) and (c) represent the pitch angle data of the actual SSMR
+walking in the orchard, while Figs.17(b) and (d) denote the terrain
+equivalent trend graphs corresponding to (a) and (c), respectively.
+Random terrain is generated in the simulation environment based on
+the terrain equivalent trend of the actual environment and Perlin noise
+to verify the effectiveness of the reward fusion method in solving the
+problem proposed in this study. Furthermore, the effects of the strategies
+trained by LGH (a method including LSTM, GAIL, and Handcrafted
+Reward) and LG (a method including LSTM and GAIL) on controlling
+SSMR to track given paths in complex terrain environments are
+comparatively analyzed. Then, the policies obtained from LGH training
+are transferred to the actual SSMR system via domain randomization
+and state alignment methods. Finally, the path point tracking control
+experiments of SSMR in complex terrain environments are conducted in
+an outdoor actual environment.
+
+motion trajectory generated by the imitator policy was not always
+optimal. As indicated by the trajectory in the red box in Fig. 18, the
+imitator policy sometimes carried out redundant actions.
+2) Reward fusion-based DRL policy
+As depicted in Fig. 19, according to the elevation map, the robot
+started to track the second target point after arriving at the first target
+point (at a time of approximately 5 s). The terrain under the RR tire of
+the robot was concave, and the RR tire hung in the air. According to the
+torque curve of the robot, at this point, the RF motor had a high torque,
+whereas the RR motor was running without a load. The robot tried to
+adjust the heading angle, resulting in the RF motor anomaly. According
+to the attitude history data, the robot was going downhill for 4 to 5 s,
+which can be observed from the robot’s trajectory map. When the
+heading angle was adjusted toward the LR direction, there was still a
+significant risk of abnormal status. Therefore, after the anomaly
+occurred, the policy did not adjust the heading angle immediately.
+Instead, it controlled the SSMR to walk forward along the ramp to a safe
+position, after which it adjusted the heading angle to track the second
+path point. Similarly, the same control policy was adopted in the fifth
+target point tracking process.
+The policy trained with the LGH method can control the complete
+path tracking task of the SSMR under complex terrain conditions, pre­
+venting the SSMR from entering an abnormal status. Compared with the
+results presented in Figs. 18 and 20, this method showed a very smooth
+trajectory of the SSMR and a better effect.
+
+4.4.1. Simulation experiments
+The path-tracking control experiments were performed on the SSMR
+in a simulated environment using the policies trained by the LG and LGH
+methods. The given velocities of the left and right tires, the torque values
+of the drive motors, the pitch angle and position of the robot, and other
+information on the running process were collected. The running data
+graphs of the SSMR when the experiments were performed by using the
+policies trained with the LGH and LG methods are presented in Figs. 18
+and 19, respectively. In Figs. 18 and 19, each running data graph con­
+tains five sub-graphs, which (from left to right and from top to bottom)
+are as follows:
+(1) The given velocities of the left and right tires;
+(2) The real-time torque values of the four drive motors;
+(3) The robot’s pitch angle;
+(4) The robot anomaly;
+(5) The trajectory map of the robot in the running process, where the
+trajectory that gradually changes over time is the robot’s posi­
+tion; the orange dot denotes the path point tracked by the robot;
+the green arrow indicates the orientation of the robot after
+reaching the path point; the blue dot is the initial position of the
+robot. The trajectory map is set in the elevation map in the
+simulated environment, and the height corresponding to the
+color of the elevation map is displayed on the right side of the
+map.
+1) Imitator policy
+
+4.4.2. Ablation experiments
+Ablation experiments are conducted on the three modules to verify
+the effects of LSTM, GAIL imitation learning, and manual reward. The
+involved methods include the LGH method, the LH method (a method
+including LSTM and Handcrafted Reward), the GH method (a method
+including GAIL and Handcrafted Reward), and the LG method. Figs. 20
+and 21 depict the reward convergence curves and the success rate
+convergence curves of different methods, respectively.
+The experimental results show that in terms of the GAIL module, the
+convergence speed of the methods containing the GAIL module (LGH,
+GH, and LG) is faster than that of the methods without the GAIL module.
+However, since the GH method does not have the time-series modeling
+capability of the LSTM module, the decisions can only be made based on
+the transient state of SSMR. As a result, although the GH method con­
+verges faster than the LH method in the early stage, the convergence
+process is unstable due to the lack of the LSTM module. Moreover, the
+final effect is not better than that of the LH method.
+Although the convergence speeds of the success rates of the LGH
+method and the LG method in the early stage of training are comparable,
+the LG method is characterized by a lower success rate of escape than the
+LGH method due to its lack of Handcrafted Reward. The ablation
+experimental results of the final reward and final success rate ablation
+are shown in Table 8.
+
+The running data of the SSMR when the robot was controlled by the
+imitator policy to track the path point on the same terrain as in the case
+of the expert policy are displayed in Fig. 18. The imitator policy could
+complete the continuous path tracking task by imitating the policy of
+human experts, without allowing the SSMR to enter an abnormal status.
+As shown in Fig. 18, the imitator policy combined with the LSTM
+could complete the established path-tracking task by learning the expert
+policy, without introducing the SSMR anomalies. However, the robot’s
+18
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 23. The running data graph in the outdoor small-slope scenario.
+
+4.4.3. Experiments in outdoor real-world scenarios
+The real-world experiments were carried out in the inter-row area
+and at the row head of an outdoor orchard. The longitude of the
+experimental site was 116.878574◦ E, while the latitude was
+39.786343◦ N. The land stiffness in the inter-row area and at the row
+head of this orchard was relatively high. The soil cone index in the
+above-mentioned areas was 2.1–2.8 MPa, and the soil cone index at the
+row head was slightly higher than that of the inter-row area.
+This study employed the domain randomization method to perform
+large-scale parameter randomization in the simulated environment.
+Domain randomization is a commonly used sim-to-real technique in
+
+reinforcement learning that enhances the generalization ability of the
+trained policy by exposing it to diverse simulated conditions (Chen et al.,
+2021). The policy trained with the LGH method was directly transferred
+to outdoor real-world scenarios. In this study, ten groups of path points
+were designed for the experiments in outdoor real-world scenarios. The
+policy trained with the LGH method was used in two typical outdoor
+scenarios to control the SSMR. A total of 20 experiments were carried
+out, and the path point tracking task was completed in 18. As a result,
+the success rate in real-world outdoor scenarios was 90 %.
+The experimental platform was configured with Ubuntu 22.04, an
+Intel® Core™ i7-12700H processor (3.5 GHz), an NVIDIA GeForce RTX
+
+19
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 24. The outdoor flat-ground experiment scenario. More information available online: https://gitee.com/ncut_ifr/dashboard/attach_files/2211108/download.
+
+3060 Laptop GPU, and 40 GB of DDR4 RAM. Programming was con­
+ducted in Python 3.10 using the PyTorch library. With a control cycle of
+150 ms for the physical robot, the input sequence length of the LSTM
+model used in this study was 128, and the hidden layer dimension was
+128. Thus, the average inference time of the escape action generation
+model based on LSTM was 95 ms. This indicates that the computational
+demand of the DRL-trained escape action generation model during
+operation is sufficiently low to meet real-time control requirements.
+
+path. The center of the slope was located at (3.6 m, 3.8 m), with a
+diameter of approximately 1.5 m, as marked by red circles in the tra­
+jectory map. According to the torque curve, when the robot was tracking
+the fourth path point (at about 17.5 s), the LR tire motor and LF tire
+motor had a larger output torque. At this point, the tires of the robot
+were lifted by the high-amplitude terrain, which was also reflected in the
+pitch angle curve of the robot. This study observed the trajectory of the
+SSMR to select the control mode of adjusting the heading angle of the
+SSMR in reverse. Then, the fourth path point was tracked with a straight
+line to avoid SSMR anomalies caused by steering when the tire was lif­
+ted. The real trajectory sequences when the SSMR was tracking the
+fourth path point are presented in Fig. 23 (a)–(f).
+
+1) Domain randomization
+The gap between the simulation setup and reality can be mainly
+attributable to drive motor parameters, sensor noises, and ambient
+noises. This study performed extensive domain randomization on the
+key dynamic parameters and ambient parameters of the robot to narrow
+this gap. As shown in Table 9, ambient parameters, generated ground
+height, ground complexity, the positions of the complex terrain and the
+target point, the mass, center of gravity, and tire friction parameters of
+the robot, and changes in its dynamic parameters were randomized to
+allow the robot to reach different ground and target point positions. The
+dynamic parameters of drive motors, including the maximum torque
+and control parameters, were also randomized so that the policy could
+adapt to changes in motor parameters, as well as parameter differences
+caused by the assembly and running wear of the reducer. In addition,
+due to installation errors, tire wear, and other reasons, the four tires of a
+real SSMR were not always on the same plane. Consequently, the height
+of the tire center was randomized in the simulated environment so that
+the policy could adapt to the anomaly caused by the scenario of the four
+tires not being on the same plane.
+10,000 path spectra were designed based on the domain randomi­
+zation parameters in Table 9 to train the escape action generation model
+in the simulation environment. One thousand path spectra that did not
+participate in the training of the escape action generation model were
+designed based on the domain randomization parameters in Table 9 to
+test the effectiveness of the escape action generation model. The success
+rate of escape control was obtained from the statistics of escape control
+results on these 1,000 path spectra. Ultimately, the escape success rate
+was 90 %.
+
+3) Experiment in an outdoor flat-ground scenario
+In the outdoor flat-ground scenario in Fig. 24, the surface relief of the
+terrain was characterized by low amplitude and high frequency. When
+the SSMR steered into the terrain, the tires were lifted off the ground,
+resulting in an anomaly. The obtained running data graph for the policy
+trained by the LGH method (Fig. 25) was used to control the SSMR’s
+tracking path points in this scenario.
+As indicated by the real-time trajectory map of the robot in Fig. 25, at
+tracking path point 2, the heading angle was adjusted backward firstly
+and then steered with a large radius, as depicted by the trajectory in the
+green box in Fig. 25. Once the SSMR arrived at path point 1 and started
+tracking path point 2 (at approximately 7 s), the LF and RR motors were
+in a high-torque output state. As a result, LR and RF tires were in critical
+contact with the ground. The policy trained with the LGH method was
+adopted to adjust the heading angle backward and then steer with a
+large radius, avoiding the SSMR entering an abnormal operating state.
+Fig. 25 (a) – (f) show the real trajectory sequences when the SSMR
+tracked the fourth path point.
+5. Discussion
+The results indicated that using the LGH method (i.e., the reward
+fusion-based DRL policy) can complete the path-tracking task under
+simulated and real-world outdoor undulating terrain conditions without
+causing the SSMR to enter the abnormal status. The proposed reward
+fusion-based method showed a specific generalization ability because of
+the expert policy. There were only two basic sub-policies for avoiding
+the SSMR anomalies in the expert policy: backward adjustment of the
+heading angle and large-radius steering. However, when tracking the
+second and fifth path points in Fig. 19, the final policy evaluated that the
+first controlling angle could not track these path points. Accordingly, the
+policy of driving forward to find a suitable position and then steering
+was selected. Similarly, as shown in Fig. 23, in a real-world outdoor
+scenario, the same policy was adopted when tracking the fifth path
+point. As a result, it can be concluded that adopting the proposed reward
+fusion-based DRL policy helped learn the expert policy and further
+optimized the imitator policy based on the expert policy.
+The UWB system is characterized by a good positioning effect under
+
+2) Experiments in outdoor small-slope scenarios
+This study selected a small-slope undulating terrain in an outdoor
+scenario to construct the experimental environment and validate the
+performance of the proposed policy trained by the LGH method in
+handling a robot in complex real outdoor terrain environments, as
+shown in Fig. 22. In the experiment, the UWB positioning system con­
+sisted of four UWB anchor nodes and a UWB node. The UWB anchor
+nodes 1–4 constructed the coordinate system used to describe the
+SSMR’s position. The coordinates from UWB anchor node 1 to anchor
+node 4 are as follows: (0, 0), (0, 6), (6, 6), and (6, 0).
+As shown in Fig. 23, a set of path points was designed such that the
+SSMR would traverse and steer on a slight slope when following this
+20
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+Fig. 25. The running data graph in the outdoor flat-ground scenario.
+
+line-of-sight conditions, providing usable positioning information for
+robots in an unobstructed environment. However, there were obstruc­
+tions in the inter-row area of the outdoor orchard. Moreover, the posi­
+tioning errors of the UWB system in the inter-row area of the orchard
+were relatively large, failing to provide reliable positioning information
+for robots. The conducted study focused on the escape method of robots
+in outdoor orchards. Hence, any means that can provide reliable posi­
+tioning information could be combined with the method proposed in
+this study to achieve the escape control of SSMR. Moreover, this study
+completed the physical experiment of robot escape in the unobstructed
+area of an outdoor orchard. Consequently, the positioning information
+of the UWB system in the experimental area could support the SSMR
+
+escape experiment in this study.
+Furthermore, in the open, unobstructed area, the differential GPS
+could be employed to provide reliable positioning information for the
+robot. Due to the severe obstruction of branches and leaves in the interrow area of the orchard, the positioning information provided by the
+communication positioning methods, such as UWB and GPS, was char­
+acterized by substantial errors. Nevertheless, the inter-row map of the
+orchard could be established based on the SLAM method, providing
+available positioning information for the robot (Jiang, S., et al., 2024).
+Therefore, an appropriate global positioning method could be selected
+based on the actual usage scenarios of the robot. On this basis, the robot
+could successfully escape from the predicament via the escape action
+21
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+
+generation method proposed in this study. Lastly, the trajectory tracking
+after escape could also be achieved.
+However, in real-world environments, when the SSMR ran on muddy
+ground, the robot was subject to a more severe bulldozing effect in the
+steering process. Since the bulldozing effect during the SSMR steering on
+a muddy ground was not simulated in the simulated environment of this
+study, if it is necessary to use the proposed method to control the SSMR
+for path point tracking in a real muddy ground scenario, the bulldozing
+effect of an SSMR should be considered under the muddy ground con­
+ditions and simulated in a particular simulation environment. The
+rolling resistance coefficient of the tires increased and the friction co­
+efficient decreased when the SSMR ran on soft or muddy ground.
+Therefore, when studying the escape control on soft or muddy ground,
+the threshold parameter for anomaly detection can be appropriately
+reduced to increase the torque output margin of the motor, enhancing
+the reliability of robot operation. Lastly, the input sequence length of the
+LSTM model can be appropriately increased to expand the memory
+scope of ground passability, increasing the escape success rate of the
+robot from the trapped state.
+
+Supervision, Resources, Project administration, Methodology, Investi­
+gation, Funding acquisition, Formal analysis, Conceptualization. Yun
+Ding: Writing – original draft, Visualization, Validation, Software,
+Methodology, Formal analysis, Data curation.
+Declaration of competing interest
+The authors declare that they have no known competing financial
+interests or personal relationships that could have appeared to influence
+the work reported in this paper.
+Acknowledgement
+This work was supported by the National Key Research and Devel­
+opment Program of China under Grant 2024YFB4711003.
+Data availability
+Data will be made available on request.
+
+6. Conclusions
+
+References
+
+This paper proposed the trapped-state recognition method and
+escape action generation method of an SSMR based on the internal
+feedback information of the robot for the path point tracking control of
+robots on unpaved outdoor roads, where the actual terrain undulations
+could not be observed. This paper presented a method for recognizing
+the trapped state based on the principal analysis results of the SSMR
+being trapped on undulating road surfaces, established a simulation
+environment for SSMR operation based on the Unity platform, and
+completed the training of the SSMR escape action generation model
+based on the DRL paradigm. The physical experiment of the robot was
+completed in the outdoor orchard. It was found that the trapped state of
+SSMR can be successfully detected and that the robot could autono­
+mously escape from the trapped state. After escape, the robot can
+autonomously track the subsequent path.
+Four-wheel independent drive and independent steering (4WID4WIS) robots are also a commonly used type of mobile robot platform in
+agricultural production operations. During the steering process of a
+4WID-4WIS robot, the tire steering resistance increases due to terrain
+conditions, preventing it from turning to the target angle. As a result, the
+4WID-4WIS robot is trapped due to terrain factors. The method designed
+in this paper started from the internal data feedback of the robot, and
+could generate feasible escape actions when the robot was trapped.
+Moreover, the method could establish the simulation object of the 4WID4WIS robot based on the existing simulation system design methods, and
+simulate the terrain that was prone to trapping this type of robot in the
+simulation environment. Furthermore, the method could design the
+training parameters and reward functions required for DRL, and estab­
+lish the escape action generation model required by the 4WID-4WIS
+robot.
+The research work of this paper is based on the premise that the
+ground of outdoor orchards is relatively solid. However, the production
+operations, such as ploughing and irrigation, can seriously change the
+softness of the soil. The soil softness will change the output capacity of
+the tire driving force, and the bulldozing effect will be more obvious.
+Therefore, simulation environments must be established for different
+ground conditions. Moreover, the effectiveness of the SSMR escape ac­
+tion generation model and the adjustment of the model structure pro­
+posed in this paper when ground conditions change have to be further
+explored, improving the adaptability of our proposed method to the
+changes of ground conditions.
+
+Chen, X., Hu, J., Jin, C., Li, L., Wang, L. (2021). Understanding domain randomization
+for sim-to-real transfer. arXiv Preprint arXiv:2110.03239.
+Cheng, X., Ji, Y., Chen, J., Yang, R., Yang, G., Wang, X. (2024). Expressive whole-body
+control for humanoid robots. arXiv Preprint arXiv:2402.16796.
+Dawson, K., Menendez, O., Camacho, C., Torres-Torriti, M., Prado, A. (2024). On the
+assessment of reinforcement learning techniques for path planning of skid-steer
+mobile robots subject to terrain constraints. 1–7.
+Fu, Y., Li, C., Yu, F.R., Luan, T.H., Zhang, Y., 2022. Hybrid autonomous driving guidance
+strategy combining deep reinforcement learning and expert system. IEEE Trans.
+Intell. Transp. Syst. 23 (8), 11273–11286. https://doi.org/10.1109/
+TITS.2021.3102432.
+García, J.M., Martínez, J.L., Mandow, A., García-Cerezo, A., 2017. Caster-leg aided
+maneuver for negotiating surface discontinuities with a wheeled skid-steer mobile
+robot. Rob. Auton. Syst. 91, 25–37. https://doi.org/10.1016/j.robot.2016.12.007.
+Grandia, R., Jenelten, F., Yang, S., Farshidian, F., Hutter, M., 2023. Perceptive
+locomotion through nonlinear model-predictive control. IEEE Trans. Rob. 39 (5),
+3402–3421. https://doi.org/10.1109/TRO.2023.3275384.
+Hochreiter, S., Schmidhuber, J., 1997. Long short-term memory. Neural Comput. 9 (8),
+1735–1780. https://doi.org/10.1162/neco.1997.9.8.1735.
+Jiang, S., Qi, P., Han, L., Liu, L., Li, Y., Huang, Z., Liu, Y., He, X., 2024. Navigation system
+for orchard spraying robot based on 3D LiDAR SLAM with NDT_ICP point cloud
+registration. Comput. Electron. Agric. 220, 108870.
+Joglekar, A., Sathe, S., Misurati, N., Srinivasan, S., Schmid, M.J., Krovi, V., 2022. Deep
+reinforcement learning based adaptation of pure-pursuit path-tracking control for
+skid-steered vehicles. IFAC-PapersOnLine 55 (37), 400–407.
+Juman, M.A., Wong, Y.W., Rajkumar, R.K., Kow, K.W., Yap, Z.W., 2019. An incremental
+unsupervised learning based trajectory controller for a 4 wheeled skid steer mobile
+robot. Eng. Appl. Artif. Intel. 85, 385–392. https://doi.org/10.1016/j.
+engappai.2019.06.023.
+Liao, J., Chen, Z., Yao, B., 2019. Model-based coordinated control of four-wheel
+independently driven skid steer mobile robot with wheel–ground interaction and
+wheel dynamics. IEEE Trans. Ind. Inf. 15 (3), 1742–1752. https://doi.org/10.1109/
+TII.2018.2869573.
+Milliken, W.F., Milliken, D.L., Metz, L.D. (1995). Race car vehicle dynamics (Vol. 400).
+SAE international Warrendale.
+Perlin, K., 1985. An image synthesizer. ACM Siggraph Computer Graphics 19 (3),
+287–296.
+Prado, Á.J., Torres-Torriti, M., Yuz, J., Auat Cheein, F., 2020. Tube-based nonlinear
+model predictive control for autonomous skid-steer mobile robots with tire–terrain
+interactions. Control Eng. Pract. 101, 104451. https://doi.org/10.1016/j.
+conengprac.2020.104451.
+Prado, A.J., Torres-Torriti, M., Cheein, F.A., 2021. Distributed tube-based nonlinear MPC
+for motion control of skid-steer robots with terra-mechanical constraints. IEEE Rob.
+Autom. Lett. 6 (4), 8045–8052. https://doi.org/10.1109/LRA.2021.3102328.
+Puterman, M.L., 2014. Markov decision processes: Discrete stochastic dynamic
+programming. John Wiley & Sons.
+Raikwar, S., Fehrmann, J., Herlitzius, T., 2022. Navigation and control development for a
+four-wheel-steered mobile orchard robot using model-based design. Comput.
+Electron. Agric. 202, 107410. https://doi.org/10.1016/j.compag.2022.107410.
+Schulman, J., Wolski, F., Dhariwal, P., Radford, A., Klimov, O. (2017). Proximal policy
+optimization algorithms. arXiv Preprint arXiv:1707.06347.
+Slawiñski, E., Rossomando, F., Chicaiza, F.A., Moreno-Valenzuela, J., Mut, V., 2024.
+LSTM network in bilateral teleoperation of a skid-steering robot. Neurocomputing
+602, 128248. https://doi.org/10.1016/j.neucom.2024.128248.
+M. Toscano-Moreno, M. Sánchez-Montero, J.A. García-Esteban, A. Mandow, J. Morales,
+A. Garcia-Cerezo. (2024). Integrating DEM path planning in the navigation and
+control system for UGVs in rough terrain: a case study on multiple victim evacuation.
+
+CRediT authorship contribution statement
+Song Bi: Writing – review & editing, Writing – original draft,
+22
+
+S. Bi and Y. Ding
+
+Computers and Electronics in Agriculture 241 (2026) 111247
+Intelligent Robots and Systems (IROS) 2023, 2760–2767. https://doi.org/10.1109/
+IROS55552.2023.10341986.
+Yu, W., Chuy, O.Y., Collins, E.G., Hollis, P., 2010. Analysis and experimental verification
+for dynamic modeling of a skid-steered wheeled vehicle. IEEE Trans. Rob. 26 (2),
+340–353. https://doi.org/10.1109/TRO.2010.2042540.
+Zhang, Z., Liu, T., Ding, L., Wang, H., Xu, P., Yang, H., Gao, H., Deng, Z., Pajarinen, J.,
+2025. Imitation-enhanced reinforcement learning with privileged smooth transition
+for hexapod locomotion. IEEE Rob. Autom. Lett. 10 (1), 350–357. https://doi.org/
+10.1109/LRA.2024.3497754.
+
+2024 7th Iberian Robotics Conference (ROBOT), 1–6. Doi: 10.1109/
+ROBOT61475.2024.10796912.
+Wen, T., Wang, X., Zheng, Z., Sun, Z., 2024. A DRL-based path planning method for
+wheeled mobile robots in unknown environments. Comput. Electr. Eng. 118,
+109425. https://doi.org/10.1016/j.compeleceng.2024.109425.
+Werbos, P.J., 2002. Backpropagation through time: what it does and how to do it. Proc.
+IEEE 78 (10), 1550–1560.
+Yim, J.K., Ren, J., Ologan, D., Gonzalez, S.G., Johnson, A.M., 2023. Proprioception and
+reaction for walking among Entanglements. IEEE/RSJ International Conference on
+
+23
+
+

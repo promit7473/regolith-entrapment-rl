@@ -1,0 +1,63 @@
+# PPO hyperparameters for AAU Mars Rover entrapment recovery
+# Used by scripts/train.py
+
+experiment:
+  name: ppo_aau_mars_v2
+  directory: experiments/aau_mars_entrapment
+  checkpoint_interval: 2000
+  write_interval: 100
+
+ppo:
+  rollouts: 24
+  learning_epochs: 5
+  mini_batches: 4
+  discount_factor: 0.99
+  lambda: 0.95
+  learning_rate: 3.0e-4
+  grad_norm_clip: 1.0
+  ratio_clip: 0.2
+  value_clip: 0.2
+  clip_predicted_values: true
+  entropy_loss_scale: 0.02
+  value_loss_scale: 1.0
+
+model:
+  # Recurrent layer configuration for temporal modeling (inspired by Bi & Ding 2026)
+  recurrent_layers: 1
+  recurrence_type: lstm
+  memory_size: 128
+  policy_layers: [128, 64]  # First layer feeds into LSTM
+  value_layers: [128, 64]
+  activation: elu
+
+environment:
+  num_envs: 64            # 5070Ti safe default; scale to 512 on 4090
+  episode_length_s: 20.0
+  decimation: 2           # policy at 25 Hz
+  physics_dt: 0.02        # 50 Hz
+
+reward:
+    forward_progress: 3.0  # Increased from 2.0 for stronger learning signal
+    escape_bonus: 5.0
+    pen_slip: 1.0
+    pen_tilt: 0.3
+    pen_action_delta: 0.05
+    pen_abnormal: 0.5      # Penalty for sustained anomalous states
+    rew_rocking: 0.1       # Bonus for rocking motion when trapped
+
+solver:
+  type: xpbd
+  iterations: 4
+  num_substeps: 4
+
+mpm:
+  voxel_size: 0.05
+  sand_half_x: 0.6
+  sand_half_y: 0.6
+  sand_depth: 0.15
+  particle_mu: 0.7
+  particle_ke: 1.0e14
+
+training:
+  seed: 42
+  timesteps: 200000       # short run for 5070Ti; 2M on 4090

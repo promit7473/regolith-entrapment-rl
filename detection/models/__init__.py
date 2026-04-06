@@ -1,0 +1,1 @@
+from .cnn_gru import SinkageDetector, LABEL_NAMES, LABEL_NORMAL, LABEL_SINKING, LABEL_ENTRAPPED
