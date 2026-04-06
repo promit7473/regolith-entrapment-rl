@@ -56,7 +56,7 @@ mpm:
   sand_half_y: 0.6
   sand_depth: 0.15
   particle_mu: 0.7
-  particle_ke: 1.0e14
+  particle_ke: 3.0e7
 
 training:
   seed: 42
