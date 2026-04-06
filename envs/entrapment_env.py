@@ -576,10 +576,18 @@ class EntrapmentEnv(DirectRLEnv):
                 yaw=0.0,
             )
             print(f"[Sand Visual] ViewerGL open — robots:{self.num_envs}  sand pts:{n_vis}")
+            
+            # --- ENHANCEMENT: Entrapment state visualization ---
+            # Track current state to avoid redundant viewer calls
+            self._entrap_visual_active = False
+            self._torque_visual_active = False
+            
+            # --- ENHANCEMENT: Sand particle visualization ---
+            # Make sand points more visible and color by velocity
+            self._sand_size_multiplier = 1.8  # Make sand points 80% larger for visibility
+            self._sand_velocity_color = True  # Color sand by vertical velocity (sinking/splashing)
         except Exception as e:
-            import traceback
-            print(f"[Sand Visual] Failed: {e}")
-            traceback.print_exc()
+            print(f"[Sand Visual] ViewerGL setup failed: {e}")
             self._viewer = None
 
     def _render_sand_particles(self):
@@ -592,6 +600,32 @@ class EntrapmentEnv(DirectRLEnv):
             robot_state = NewtonManager._state_0
             self._viewer.begin_frame(self._render_frame / 50.0)
             self._viewer.log_state(robot_state)
+            
+            # --- ENHANCEMENT: Entrapment state visualization ---
+            # Get latest entrapment/torque flags (from _get_observations logic)
+            entrap_active = False
+            torque_active = False
+            if hasattr(self, '_entrap_flag') and self._entrap_flag is not None:
+                entrap_active = bool(self._entrap_flag.any().item())
+                if entrap_active and not self._entrap_visual_active:
+                    # Change rover to RED when entrapped
+                    self._viewer.set_model_color(wp.vec3(1.0, 0.2, 0.2))  # RGB red
+                    self._entrap_visual_active = True
+                elif not entrap_active and self._entrap_visual_active:
+                    # Reset to default color
+                    self._viewer.set_model_color(wp.vec3(0.8, 0.8, 0.8))  # Default gray
+                    self._entrap_visual_active = False
+
+            if hasattr(self, '_torque_anomaly_flag') and self._torque_anomaly_flag is not None:
+                torque_active = bool(self._torque_anomaly_flag.any().item())
+                if torque_active and not self._torque_visual_active:
+                    # Change rover to ORANGE when torque anomalous
+                    self._viewer.set_model_color(wp.vec3(1.0, 0.5, 0.2))  # RGB orange
+                    self._torque_visual_active = True
+                elif not torque_active and self._torque_visual_active:
+                    self._viewer.set_model_color(wp.vec3(0.8, 0.8, 0.8))  # Default gray
+                    self._torque_visual_active = False
+            
             sand_pts = self.sand_state.particle_q[::self._vis_stride]
             n_vis = len(sand_pts)
             # Reuse pre-allocated arrays to avoid VRAM fragmentation
@@ -600,12 +634,99 @@ class EntrapmentEnv(DirectRLEnv):
                                           dtype=wp.float32, device=sand_pts.device)
                 self._vis_colors = wp.full(n_vis, wp.vec3(0.76, 0.60, 0.42),
                                            dtype=wp.vec3, device=sand_pts.device)
+            
+            # --- ENHANCEMENT: Sand particle visualization ---
+            # Increase point size for better visibility
+            vis_radii = self._vis_radii * self._sand_size_multiplier
+            
+            # Color sand by vertical velocity (shows movement/sinking/splashing)
+            if self._sand_velocity_color and hasattr(self, 'sand_state') and self.sand_state.particle_qd is not None:
+                sand_vel_z = self.sand_state.particle_qd[::self._vis_stride, 2]  # Z velocity
+                # Normalize velocity to [0,1] range for coloring
+                # Blue = slow sinking (negative Z), Red = fast movement/splashing
+                vel_norm = torch.clamp((sand_vel_z + 0.5) / 1.0, 0.0, 1.0)  # Adjust offset/scale as needed
+                # Create color array: blue channel decreases with velocity, red increases
+                enhanced_colors = wp.zeros(n_vis, dtype=wp.vec3, device=sand_pts.device)
+                enhanced_colors[:, 0] = vel_norm  # Red channel
+                enhanced_colors[:, 2] = 1.0 - vel_norm  # Blue channel
+                # Green channel stays low for blue-red spectrum
+                enhanced_colors[:, 1] = 0.2
+                final_colors = enhanced_colors
+            else:
+                final_colors = self._vis_colors
+            
             self._viewer.log_points(
                 name="sand",
                 points=sand_pts,
-                radii=self._vis_radii,
-                colors=self._vis_colors,
+                radii=vis_radii,
+                colors=final_colors,
             )
+            
+            # --- ENHANCEMENT: Action command vectors ---
+            # Visualize drive commands being sent to wheels
+            if hasattr(self, 'actions') and self.actions is not None:
+                try:
+                    # Get drive actions (first 6 dimensions) - shape: (num_envs, 6)
+                    drive_actions = self.actions[:, :6]
+                    # Convert to wheel angular velocity commands (rad/s)
+                    wheel_vel_cmds = drive_actions * DRIVE_VEL_LIMIT  # From config
+                    
+                    # Show action vectors for first environment only to avoid clutter
+                    env_idx = 0
+                    if env_idx < self.num_envs:
+                        # Get rover base position for this environment
+                        base_pos = self.root_pos[env_idx].cpu().numpy()
+                        
+                        # Approximate wheel positions relative to rover base
+                        # These are typical offsets for AAU rover - adjust if needed
+                        wheel_offsets = [
+                            [ 0.30,  0.20, 0.05],  # Front-right wheel
+                            [-0.30,  0.20, 0.05],  # Front-left wheel
+                            [ 0.30, -0.20, 0.05],  # Rear-right wheel
+                            [-0.30, -0.20, 0.05]   # Rear-left wheel
+                        ]
+                        
+                        # Scale factor for vector visibility (tune as needed)
+                        action_scale = 0.25
+                        
+                        # For each wheel, draw an action vector
+                        for wheel_idx, (offset_x, offset_y, offset_z) in enumerate(wheel_offsets):
+                            if wheel_idx < wheel_vel_cmds.shape[1]:
+                                # Calculate wheel position
+                                wheel_pos = np.array([
+                                    base_pos[0] + offset_x,
+                                    base_pos[1] + offset_y,
+                                    base_pos[2] + offset_z
+                                ])
+                                
+                                # Get command magnitude
+                                cmd_mag = abs(wheel_vel_cmds[env_idx, wheel_idx].item())
+                                
+                                # Only show significant commands (>0.05 rad/s)
+                                if cmd_mag > 0.05:
+                                    # Direction: simplified forward vector (X-axis in rover frame)
+                                    # In reality, should transform by rover orientation, but X-forward is good approximation
+                                    forward_dir = np.array([1.0, 0.0, 0.0])
+                                    
+                                    # Create vector: from wheel position in direction of command
+                                    action_vec = forward_dir * cmd_mag * action_scale
+                                    end_point = wheel_pos + action_vec
+                                    
+                                    # Log as two points (start and end) with small radius to appear as line
+                                    # Green color for action vectors
+                                    self._viewer.log_points(
+                                        name=f"action_viz_wheel_{wheel_idx}",
+                                        points=np.array([wheel_pos, end_point]),
+                                        radii=wp.full(2, 0.015),  # Thin lines
+                                        colors=wp.array([
+                                            [0.0, 1.0, 0.0],  # Start point green
+                                            [0.0, 1.0, 0.0]   # End point green
+                                        ])
+                                    )
+                except Exception:
+                    # Fail silently to not break main rendering loop
+                    pass
+            
             self._viewer.end_frame()
         except Exception:
             pass
