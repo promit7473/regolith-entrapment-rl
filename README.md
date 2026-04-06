@@ -3,7 +3,7 @@
 **RL-trained escape policy for Mars rovers stuck in granular regolith**  
 Newton MPM + Isaac Lab + skrl PPO with LSTM, dual-sensor detection, curriculum learning. Designed to integrate with a high-level navigator.
 
-## 📁 Project Structure
+## [-] Project Structure
 ```
 regolith_entrapment_research/
 ├── README.md                 # This file
@@ -44,7 +44,7 @@ regolith_entrapment_research/
 └── stubs/                   # External library stubs
 ```
 
-## 🔬 What This Solves
+## [-] What This Solves
 This repository provides a **standalone escape policy subsystem** trained to detect and recover from wheel entrapment in granular regolith. It is *designed* to plug into a high-level navigator:
 
 ```
@@ -57,19 +57,19 @@ This repository provides a **standalone escape policy subsystem** trained to det
 ```
 
 **What's included**:
-- ✅ Trained escape policy (`*.pt` checkpoints) - 10D action space (6 drive + 4 steer)
-- ✅ Dual entrapment detection: slip-based (low v_x + high slip) + torque-based (high motor torque)
-- ✅ Observation space: 28D (wheel states, slip, IMU, joint torques, entrapment/torque flags)
-- ✅ Reward shaping: progress + shaped escape - penalties + rocking bonus
-- ✅ Curriculum learning: sinkage depth increases with training progress
-- ✅ Visualization enhancements: entrapment state color coding (red/orange), enhanced sand viz, action vectors
+- [x] Trained escape policy (`*.pt` checkpoints) - 10D action space (6 drive + 4 steer)
+- [x] Dual entrapment detection: slip-based (low v_x + high slip) + torque-based (high motor torque)
+- [x] Observation space: 28D (wheel states, slip, IMU, joint torques, entrapment/torque flags)
+- [x] Reward shaping: progress + shaped escape - penalties + rocking bonus
+- [x] Curriculum learning: sinkage depth increases with training progress
+- [x] Visualization enhancements: entrapment state color coding (red/orange), enhanced sand viz, action vectors
 
 **What's required for integration** (external wrapper):
 - Logic to switch between navigator and escape policy based on entrapment detection
 - Waypoint tracking to resume navigation post-escape
 - (Optional) Shared terrain context for escape direction selection
 
-## 🛠️ Installation Guide
+## [-] Installation Guide
 Follow these steps to set up the environment:
 
 1. **Install Dependencies**:
@@ -94,7 +94,7 @@ Follow these steps to set up the environment:
    ./launch.sh --help
    ```
 
-## 🚀 Quick Start
+## [-] Quick Start
 ```bash
 # 1. Train (64 envs, 200k timesteps - adjust for your GPU)
 ./launch.sh scripts/train.py --num_envs 64 --timesteps 200000
@@ -109,14 +109,14 @@ Follow these steps to set up the environment:
 tensorboard --logdir experiments/
 ```
 
-## 📈 Key Metrics to Watch (TensorBoard)
+## [-] Key Metrics to Watch (TensorBoard)
 - `reward/mean` → Should trend upward
 - `episode/escape_rate` → Should increase from 0%  
 - `extras/log/curriculum_progress` → Should increase 0→1.0 over training
 - `extras/log/entrap_flag_rate` & `extras/log/torque_anomaly_rate` → Should stabilize (not 0 or 1)
 - `entropy` → Should stay > 0.02 (prevents collapse)
 
-## ⚙️ Core Enhancements (vs. baseline)
+## [-] Core Enhancements (vs. baseline)
 | Component | Improvement | Purpose |
 |-----------|-------------|---------|
 | **Policy Network** | LSTM layer (128 units) | Temporal modeling of proprioceptive data |
@@ -125,11 +125,11 @@ tensorboard --logdir experiments/
 | **Curriculum Learning** | Episode-based sinkage increase | Consistent challenge as policy improves |
 | **Visualization** | Entrapment state color coding, enhanced sand viz, action vectors | Debugging & validation |
 
-## 📖 Documentation
+## [-] Documentation
 - **[Configs]** - `configs/ppo_aau_v2.yaml` shows all hyperparameters
 - **[Code]** - `envs/entrapment_env.py` contains all enhancements (well-commented)
 
-## ⚠️ Notes
+## [-] Notes
 - **Visualization**: Use Newton ViewerGL (via `eval.py`/`view_rover.py`), *not* Isaac Sim GUI (known broken in conda-Python)
 - **Experiments/outputs**: Auto-gitignored (see `.gitignore`)
 - **SSH key**: Your key `merajhossainpromit@gmail.com` is configured for GitHub pushes
