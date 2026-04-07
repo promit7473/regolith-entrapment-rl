@@ -20,9 +20,10 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
-# Repo-bundled asset — works on any machine after cloning
+# Simplified USD with articulation/physics schemas — used for RL simulation
+# (assets/robots/rover/ contains visual-only USDs for the standalone Newton viewer)
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROVER_USD_PATH = os.path.join(_REPO_ROOT, "assets", "robots", "rover", "Mars_Rover.usd")
+ROVER_USD_PATH = os.path.join(_REPO_ROOT, "robots", "Mars_Rover_Simplified.usd")
 
 # Wheel radius: 0.10 m
 ROVER_WHEEL_RADIUS = 0.10   # m
