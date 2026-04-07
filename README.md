@@ -59,7 +59,7 @@ This repository provides a **standalone escape policy subsystem** trained to det
 **What's included**:
 - [x] Trained escape policy (`*.pt` checkpoints) - 10D action space (6 drive + 4 steer)
 - [x] Dual entrapment detection: slip-based (low v_x + high slip) + torque-based (high motor torque)
-- [x] Observation space: 28D (wheel states, slip, IMU, joint torques, entrapment/torque flags)
+- [x] Observation space: 29D (wheel states, slip, IMU, joint torques, entrapment/torque flags, escape progress)
 - [x] Reward shaping: progress + shaped escape - penalties + rocking bonus
 - [x] Curriculum learning: sinkage depth increases with training progress
 - [x] Visualization enhancements: entrapment state color coding (red/orange), enhanced sand viz, action vectors
@@ -95,18 +95,35 @@ Follow these steps to set up the environment:
    ```
 
 ## [-] Quick Start
+
+### Headless (no display needed — training server / SSH)
 ```bash
-# 1. Train (64 envs, 200k timesteps - adjust for your GPU)
+# Train — always headless by default (LAUNCH_OV_APP=1 set internally)
 ./launch.sh scripts/train.py --num_envs 64 --timesteps 200000
 
-# 2. Evaluate with visualization (Newton ViewerGL)
-./launch.sh scripts/eval.py --num_envs 1 --checkpoint experiments/aau_mars_entrapment/ppo_aau_mars_v1/checkpoints/best_agent.pt
+# Headless eval — metrics only, no viewer window
+./launch.sh scripts/eval.py --num_envs 64 --headless --episodes 50 \
+    --checkpoint experiments/aau_mars_entrapment/ppo_aau_mars_v2/checkpoints/best_agent.pt
 
-# 3. Record video (RTX headless)
-./launch.sh scripts/record.py --num_envs 1 --camera side --num_steps 500 --checkpoint experiments/aau_mars_entrapment/ppo_aau_mars_v1/checkpoints/best_agent.pt
+# Smoke test (quick sanity check — 4 envs, 500 steps)
+./launch.sh scripts/train.py --num_envs 4 --timesteps 500
 
-# 4. Monitor training
+# Monitor training
 tensorboard --logdir experiments/
+
+# Generate training curve plots (no Isaac Sim needed)
+python3 scripts/plot_training.py --compare
+```
+
+### With display (Newton ViewerGL — needs DISPLAY)
+```bash
+# Evaluate with live 3D viewer
+./launch.sh scripts/eval.py --num_envs 1 \
+    --checkpoint experiments/aau_mars_entrapment/ppo_aau_mars_v2/checkpoints/best_agent.pt
+
+# Record video (RTX headless rendering → MP4)
+./launch.sh scripts/record.py --num_envs 1 --camera side --num_steps 500 \
+    --checkpoint experiments/aau_mars_entrapment/ppo_aau_mars_v2/checkpoints/best_agent.pt
 ```
 
 ## [-] Key Metrics to Watch (TensorBoard)

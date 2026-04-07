@@ -1,5 +1,5 @@
 """
-Standalone Newton viewer for the AAU Mars Rover + MPM sand.
+Standalone Newton viewer for the Mars Rover (6-wheel) + MPM sand.
 No Isaac Lab, no SimulationApp — just Newton + ViewerGL.
 
 Usage:
@@ -30,7 +30,7 @@ ROVER_USD = "/home/mhpromit7473/RLRoverLab/rover_envs/assets/robots/aau_rover/Ma
 
 
 def main():
-    parser = argparse.ArgumentParser(description="View AAU Mars Rover in Newton")
+    parser = argparse.ArgumentParser(description="View Mars Rover (6-wheel) in Newton")
     parser.add_argument("--no-sand", action="store_true", help="Skip MPM sand")
     parser.add_argument("--num-frames", type=int, default=0, help="0 = infinite")
     parser.add_argument("--voxel-size", type=float, default=0.05)
@@ -48,7 +48,7 @@ def main():
     builder.default_shape_cfg.kf = 5.0e2
     builder.default_shape_cfg.mu = 0.75
 
-    # Load AAU rover from USD
+    # Load Mars rover from USD
     print(f"Loading rover: {ROVER_USD}")
     # Wheel centers are at z=-0.167, radius=0.10 → bottom at z=-0.267.
     # So spawn root at z=+0.30 to have wheels just touching ground.
@@ -176,7 +176,7 @@ def main():
     frame = 0
 
     print(f"\n{'='*50}")
-    print(f"  AAU Mars Rover — Newton Standalone Viewer")
+    print(f"  Mars Rover (6-wheel) — Newton Standalone Viewer")
     print(f"  Bodies: {model.body_count} | Shapes: {model.shape_count} | "
           f"Particles: {model.particle_count}")
     print(f"  Sand: {'ON' if mpm_solver else 'OFF'}")

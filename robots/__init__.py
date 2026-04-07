@@ -1,1 +1,1 @@
-from .aau_rover_cfg import AAU_ROVER_CFG, AAU_WHEEL_RADIUS
+from .aau_rover_cfg import MARS_ROVER_CFG, ROVER_WHEEL_RADIUS

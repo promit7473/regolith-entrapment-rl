@@ -1,5 +1,5 @@
 """
-AAU Mars Rover — Wheel Entrapment Recovery — Video Recorder
+Mars Rover (6-wheel) — Wheel Entrapment Recovery — Video Recorder
 
 Uses Isaac Sim's RTX renderer (headless, no GUI window) to capture
 research-quality video and images of the rover in the regolith.
@@ -10,7 +10,7 @@ Usage:
 
     # Trained policy
     ./launch.sh scripts/record.py --num_envs 1 --num_steps 500 \\
-        --checkpoint experiments/aau_mars_entrapment/ppo_aau_mars_v1/checkpoints/best_agent.pt
+        --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
 
     # Side-view camera
     ./launch.sh scripts/record.py --num_envs 1 --camera side
@@ -30,7 +30,7 @@ import sys
 
 from isaaclab.app import AppLauncher
 
-parser = argparse.ArgumentParser(description="AAU Mars Rover — Video Recorder")
+parser = argparse.ArgumentParser(description="Mars Rover (6-wheel) — Video Recorder")
 parser.add_argument("--num_envs",  type=int, default=1,         help="Envs to run (1 recommended)")
 parser.add_argument("--num_steps", type=int, default=500,       help="Frames to record")
 parser.add_argument("--out_dir",   type=str, default="recordings", help="Output directory")
@@ -64,7 +64,7 @@ from isaaclab_rl.skrl import SkrlVecEnvWrapper
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-import envs  # registers AAURover-MarsEntrapment-v0
+import envs  # registers MarsRover-RegolithEscape-v0
 from envs.entrapment_env import EntrapmentEnvCfg
 
 
@@ -98,7 +98,7 @@ def record():
     env_cfg = EntrapmentEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
 
-    env = gym.make("AAURover-MarsEntrapment-v0", cfg=env_cfg)
+    env = gym.make("MarsRover-RegolithEscape-v0", cfg=env_cfg)
     env = SkrlVecEnvWrapper(env, ml_framework="torch")
 
     device  = env.device
@@ -151,10 +151,12 @@ def record():
     rgb_annot = rep.AnnotatorRegistry.get_annotator("rgb")
     rgb_annot.attach([render_product])
 
-    # Warm up — let replicator initialise and RTX shaders compile
+    # Warm up — let replicator initialise, RTX shaders compile, and
+    # overscan/datawindow metadata populate (prevents NoneType error on first get_data)
     print("[Record] Warming up RTX renderer (may take ~30s first run)...")
-    for _ in range(5):
+    for _ in range(20):
         simulation_app.update()
+        rep.orchestrator.step(pause_timeline=False)
 
     # ── Recording loop ────────────────────────────────────────────────────────
     frames    = []
@@ -182,19 +184,27 @@ def record():
 
         # Render + grab frame
         simulation_app.update()
-        raw = rgb_annot.get_data()
-        if raw is not None and raw.size > 0:
-            # raw is RGBA uint8 (H, W, 4)
-            frames.append(raw[:, :, :3].copy())
+        rep.orchestrator.step(pause_timeline=False)
+        try:
+            raw = rgb_annot.get_data()
+            if raw is not None and hasattr(raw, "size") and raw.size > 0:
+                # raw is RGBA uint8 (H, W, 4)
+                frames.append(raw[:, :, :3].copy())
+        except Exception:
+            pass  # skip frames where replicator metadata isn't ready yet
 
         done = terminated | truncated
         if done.any():
             obs, _ = env.reset()
 
         if step % 50 == 0:
-            log = info.get("log", {})
-            vx  = float(log.get("mean_vx", torch.tensor(0.0)))
-            esc = float(log.get("escape_rate", torch.tensor(0.0)))
+            try:
+                raw_env = env.unwrapped
+                log = raw_env.extras.get("log", {})
+                vx  = float(log.get("mean_vx",     torch.tensor(0.0)))
+                esc = float(log.get("escape_rate",  torch.tensor(0.0)))
+            except Exception:
+                vx, esc = 0.0, 0.0
             print(f"  step {step:4d}/{args_cli.num_steps}"
                   f"  |  frames captured: {len(frames)}"
                   f"  |  v_x={vx:.3f} m/s  escape={esc:.0%}")

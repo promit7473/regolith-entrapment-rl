@@ -1,5 +1,5 @@
 """
-AAU Mars Rover — Evaluation / Live Preview
+Mars Rover — Regolith Escape — Evaluation / Live Preview
 
 Runs the trained policy (or random actions) with Newton ViewerGL for
 live 3D visualization, and prints episode metrics.
@@ -22,7 +22,7 @@ import sys
 
 from isaaclab.app import AppLauncher
 
-parser = argparse.ArgumentParser(description="AAU Mars Rover — Evaluation")
+parser = argparse.ArgumentParser(description="Mars Rover (6-wheel) — Evaluation")
 parser.add_argument("--num_envs",   type=int, default=1)
 parser.add_argument("--checkpoint", type=str, default=None)
 parser.add_argument("--episodes",   type=int, default=0,
@@ -51,7 +51,7 @@ from isaaclab_rl.skrl import SkrlVecEnvWrapper
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-import envs  # registers AAURover-MarsEntrapment-v0
+import envs  # registers MarsRover-RegolithEscape-v0
 from envs.entrapment_env import EntrapmentEnvCfg
 
 
@@ -93,7 +93,7 @@ def main():
         # Override to limit memory: restrict max_nodes for collision impulse buffer
         print("[Eval] Viewer mode: consider --no-mpm if you get VRAM OOM")
 
-    env = gym.make("AAURover-MarsEntrapment-v0", cfg=env_cfg)
+    env = gym.make("MarsRover-RegolithEscape-v0", cfg=env_cfg)
     env = SkrlVecEnvWrapper(env, ml_framework="torch")
 
     device  = env.device
@@ -110,7 +110,7 @@ def main():
 
     mode = "trained" if agent else "random"
     print(f"\n{'='*55}")
-    print(f"  AAU Mars Rover — Eval ({mode} actions)")
+    print(f"  Mars Rover (6-wheel) — Eval ({mode} actions)")
     print(f"  Envs: {env.num_envs}  |  Viewer: {'open' if _viewer else 'off'}")
     if args_cli.episodes > 0:
         print(f"  Episodes: {args_cli.episodes}")

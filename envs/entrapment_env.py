@@ -1,8 +1,8 @@
 """
-AAU Mars Rover — Wheel Entrapment Recovery — Newton DirectRLEnv.
+Mars Rover — Wheel Entrapment Recovery — Newton DirectRLEnv.
 
 Physics stack:
-  • XPBD  (XPBOSolverCfg)  — rigid-body dynamics for the AAU Mars rover
+  • XPBD  (XPBOSolverCfg)  — rigid-body dynamics for the 6-wheel Mars rover
   • SolverImplicitMPM      — sparse-grid MPM for granular regolith
   • Two-way coupling        — sand impulses → robot bodies, robot SDF → sand grid
 
@@ -11,17 +11,21 @@ Mars environment:
   • Rock scatter         : 10 rock USDs placed randomly each episode reset
   • Regolith bed         : 1.2 m × 1.2 m × 0.15 m XPBD particle bed per env
 
-Robot: AAU 6-wheel rocker-bogie rover (Mars_Rover.usd)
+Robot: 6-wheel rocker-bogie Mars rover (Mars_Rover.usd)
   Drive joints  (6) : .*Drive_Continuous   — velocity control, ±6 rad/s
   Steer joints  (4) : .*Steer_Revolute     — position control, ±0.6 rad
   Passive joints(N) : Rocker/Differential  — free
 
-Obs (20D):
+Obs (29D):
   wheel_vel     (6)  — drive joint velocities normalised by 6 rad/s
   slip          (6)  — per-wheel slip ratio
   steer_pos     (4)  — steering joint angles normalised by 0.6 rad
   imu_acc       (3)  — linear acceleration / g
   gravity_z     (1)  — projected gravity z (tilt indicator)
+  drive_torque  (6)  — normalised drive joint torques (inspired by Bi & Ding 2026)
+  entrap_flag   (1)  — binary entrapment indicator
+  torque_anomaly(1)  — sustained high-torque anomaly flag
+  dist_norm     (1)  — distance from env origin / escape threshold (0=spawn, 1=escaped)
 
 Action (10D):
   drive_cmd     (6)  — velocity targets [-1,1] → ±6 rad/s
@@ -51,13 +55,13 @@ from isaaclab.utils.math import sample_uniform
 import newton as nt
 from newton.solvers import SolverImplicitMPM
 
-from robots import AAU_ROVER_CFG, AAU_WHEEL_RADIUS
-from .mpm_kernels import compute_body_forces, subtract_body_force, reset_particle_range
+from robots import MARS_ROVER_CFG, ROVER_WHEEL_RADIUS
+from .mpm_kernels import compute_body_forces, subtract_body_force, reset_particle_range, clamp_escaped_particles
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-WHEEL_RADIUS    = AAU_WHEEL_RADIUS          # 0.10 m
+WHEEL_RADIUS    = ROVER_WHEEL_RADIUS        # 0.10 m
 DRIVE_JOINTS    = [".*Drive_Continuous"]    # regex — 6 wheels
 STEER_JOINTS    = [".*Steer_Revolute"]      # regex — 4 corners
 DRIVE_VEL_LIMIT = 6.0                       # rad/s
@@ -87,8 +91,9 @@ ROCK_SCATTER_R  = 0.9  # scatter radius [m] around env origin (inside sand patch
 @configclass
 class EntrapmentEnvCfg(DirectRLEnvCfg):
     # 6 drive vel + 6 slip + 4 steer pos + 3 imu acc + 1 gravity_z
-    # + 6 drive torque + 1 entrapment flag + 1 torque anomaly flag = 28
-    observation_space = 28
+    # + 6 drive torque + 1 entrapment flag + 1 torque anomaly flag
+    # + 1 dist_norm (distance from origin / escape threshold) = 29
+    observation_space = 29
     # 6 drive cmd + 4 steer cmd = 10
     action_space      = 10
     state_space       = 0
@@ -103,13 +108,13 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     pen_slip             = 1.0
     pen_tilt             = 0.3
     pen_action_delta     = 0.05
-    pen_abnormal         = 0.5  # Penalty for sustained anomalous states
-    rew_rocking          = 0.1  # Bonus for rocking motion when trapped
+    pen_abnormal         = 0.5  # Penalty for sustained anomalous states (suppressed when trapped)
+    rew_rocking          = 1.0  # Bonus for rocking motion when trapped (raised from 0.1)
 
     # Domain randomization ranges (inspired by Bi & Ding 2026, Table 9)
     dr_motor_gain_range  = (0.8, 1.2)   # multiplicative gain on drive velocity targets
     dr_obs_noise_std     = 0.02         # additive Gaussian noise on observations
-    dr_sinkage_range     = (0.02, 0.10) # m — how deep wheels are buried at reset
+    dr_sinkage_range     = (0.04, 0.10) # m — guaranteed partial burial; curriculum scales up
 
     solver_cfg = XPBOSolverCfg(
         iterations=4,
@@ -130,7 +135,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
         newton_cfg=newton_cfg,
     )
 
-    robot_cfg: ArticulationCfg = AAU_ROVER_CFG.replace(
+    robot_cfg: ArticulationCfg = MARS_ROVER_CFG.replace(
         prim_path="/World/envs/env_.*/Robot"
     )
 
@@ -345,10 +350,18 @@ class EntrapmentEnv(DirectRLEnv):
         self._particle_env_starts = np.array(self._particle_env_starts, dtype=np.int32)
         self._particles_per_env   = len(sand_builder.particle_q) // num_envs
 
+        # Warp array of env origins — used by clamp_escaped_particles kernel
+        self._env_origins_wp = wp.array(
+            env_origins_np[:, :3].astype(np.float32),
+            dtype=wp.vec3, device=device,
+        )
+
         _p(f"[MPM] Finalizing sand model ({len(sand_builder.particle_q)} particles)...")
         self.sand_model = sand_builder.finalize(device=device)
         self.sand_model.particle_mu = 0.7
-        self.sand_model.particle_ke = 1.0e14
+        self.sand_model.particle_ke = 5.0e4   # ~50 kPa — keeps CFL < 1 at dt=0.005s
+        # NOTE: higher ke (e.g. 3e7 Pa) causes particle explosion: CFL ~ 13×,
+        # particles near wheel SDF escape the 1.2m sand box, VDB grid balloons → OOM.
         _p("[MPM] Sand model finalized.")
 
         mpm_opt = SolverImplicitMPM.Options()
@@ -483,6 +496,24 @@ class EntrapmentEnv(DirectRLEnv):
             self.sand_state, self.sand_state,
             contacts=None, control=None, dt=mpm_dt,
         )
+
+        # Clamp any escaped particle back into its env's sand box.
+        # Without this, even one particle drifting away causes the sparse VDB
+        # bounding box to balloon each step → volume_builder OOM around step 5.
+        wp.launch(
+            clamp_escaped_particles,
+            dim=int(self.sand_model.particle_count),
+            inputs=[
+                self.sand_state.particle_q,
+                self._env_origins_wp,
+                int(self._particles_per_env),
+                float(SAND_HALF_X),
+                float(SAND_HALF_Y),
+                float(SAND_DEPTH),
+            ],
+            device=self.device,
+        )
+
         self._collect_mpm_impulses()
         self._render_sand_particles()
 
@@ -678,7 +709,7 @@ class EntrapmentEnv(DirectRLEnv):
                         base_pos = self.root_pos[env_idx].cpu().numpy()
                         
                         # Approximate wheel positions relative to rover base
-                        # These are typical offsets for AAU rover - adjust if needed
+                        # Approximate wheel offsets relative to rover base
                         wheel_offsets = [
                             [ 0.30,  0.20, 0.05],  # Front-right wheel
                             [-0.30,  0.20, 0.05],  # Front-left wheel
@@ -803,11 +834,18 @@ class EntrapmentEnv(DirectRLEnv):
         )
         self._torque_anomaly_flag    = (self._torque_anomaly_counter >= self._TORQUE_ANOMALY_STEPS_THRESH).float()
 
-        # 6 + 6 + 4 + 3 + 1 + 6 + 1 + 1 = 28
+        # Distance from env origin, normalised by escape threshold (0=spawn, 1=escaped)
+        # Gives the agent explicit progress feedback it cannot infer from velocity alone.
+        self.root_pos   = wp.to_torch(self.robot.data.root_link_pos_w)
+        pos_xy    = self.root_pos[:, :2] - self.scene.env_origins[:, :2]
+        dist_norm = (torch.norm(pos_xy, dim=-1) / ESCAPE_DISTANCE).clamp(0.0, 2.0).unsqueeze(-1)
+
+        # 6 + 6 + 4 + 3 + 1 + 6 + 1 + 1 + 1 = 29
         obs = torch.cat([
             drive_vel, slip, steer_pos, imu_acc, grav_z,
             drive_torque_norm, self._entrap_flag.unsqueeze(-1),
             self._torque_anomaly_flag.unsqueeze(-1),
+            dist_norm,
         ], dim=-1)
         obs = obs.nan_to_num(0.0).clamp(-5.0, 5.0)
         # Domain randomization: additive observation noise
@@ -846,6 +884,8 @@ class EntrapmentEnv(DirectRLEnv):
         r_escape = r_escape_binary + r_escape_shaped
 
         # Slip penalty (drive wheels) - consistent with observation calculation
+        # Suppressed when entrap_flag=1: rocking requires high slip, penalising it
+        # actively prevents recovery.
         self.joint_vel = wp.to_torch(self.robot.data.joint_vel)
         drive_vel = self.joint_vel[:, self._drive_ids].nan_to_num(0.0) * WHEEL_RADIUS
         v_x_exp   = v_x.unsqueeze(1).expand(-1, 6)
@@ -853,7 +893,7 @@ class EntrapmentEnv(DirectRLEnv):
         denom = torch.maximum(torch.abs(drive_vel),
                               torch.abs(v_x_exp).clamp(min=eps))
         slip      = ((drive_vel - v_x_exp) / denom).clamp(-1.0, 1.0)
-        p_slip    = self.cfg.pen_slip * torch.mean(torch.abs(slip), dim=-1) * self.cfg.sim.dt
+        p_slip    = self.cfg.pen_slip * torch.mean(torch.abs(slip), dim=-1) * (1.0 - self._entrap_flag) * self.cfg.sim.dt
 
         # Tilt penalty
         ang_vel = wp.to_torch(self.robot.data.root_ang_vel_b).nan_to_num(0.0)
@@ -865,16 +905,23 @@ class EntrapmentEnv(DirectRLEnv):
         ) * self.step_dt
         self.prev_action = self.actions.clone()
 
-        # Abnormal action penalty (sustained high torque with low progress)
-        # Penalize when anomalous AND not making forward progress
-        progress_penalty = torch.clamp(-v_x, min=0.0)  # Only penalize negative/zero progress
-        p_abnormal = self.cfg.pen_abnormal * torch.mean(progress_penalty * self._torque_anomaly_flag) * self.cfg.sim.dt
+        # Abnormal action penalty (sustained high torque with low progress).
+        # Suppressed when entrap_flag=1: backward rocking is intentional recovery,
+        # not an anomaly — firing this penalty during recovery teaches the wrong thing.
+        # Per-env tensor (was incorrectly a scalar mean over all envs).
+        progress_penalty = torch.clamp(-v_x, min=0.0)
+        p_abnormal = (self.cfg.pen_abnormal
+                      * progress_penalty
+                      * self._torque_anomaly_flag
+                      * (1.0 - self._entrap_flag)
+                      * self.cfg.sim.dt)
 
-        # Rocking bonus when trapped
-        # Reward alternating forward/backward motion to help escape sand
+        # Rocking bonus when trapped — per-env tensor, weight raised 0.1 → 1.0.
+        # Rewards any alternation in forward/backward velocity while entrap_flag=1,
+        # now strong enough to outweigh the (suppressed) slip penalty.
         v_x_change = torch.abs(v_x - self.prev_v_x)
-        p_rocking = self.cfg.rew_rocking * torch.mean(v_x_change * self._entrap_flag) * self.cfg.sim.dt
-        self.prev_v_x = v_x.clone()  # Store for next step calculation
+        p_rocking  = self.cfg.rew_rocking * v_x_change * self._entrap_flag * self.cfg.sim.dt
+        self.prev_v_x = v_x.clone()
 
         # Update curriculum progress (based on episode completion)
         # This tracks how many episodes have been completed for difficulty scaling

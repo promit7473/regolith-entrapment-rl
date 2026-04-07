@@ -1,8 +1,8 @@
 """
-AAU Mars Rover ArticulationCfg for Newton entrapment training.
+Mars Rover ArticulationCfg for Newton regolith entrapment training.
 
-Robot:  6-wheel rocker-bogie (AAU / ExoMy-class Mars rover)
-USD:    /home/mhpromit7473/RLRoverLab/rover_envs/assets/robots/aau_rover/Mars_Rover.usd
+Robot:  6-wheel rocker-bogie Mars rover
+USD:    Mars_Rover_Simplified.usd (robots/ local asset)
 
 Joint layout
   Drive  (velocity control) : FL/ML/RL/FR/MR/RR_Drive_Continuous   ×6
@@ -18,16 +18,16 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
-AAU_ROVER_USD_PATH = (
+ROVER_USD_PATH = (
     "/home/mhpromit7473/regolith_entrapment_research/robots/Mars_Rover_Simplified.usd"
 )
 
-# Wheel radius matches AAU rover (0.10 m)
-AAU_WHEEL_RADIUS = 0.10   # m
+# Wheel radius: 0.10 m
+ROVER_WHEEL_RADIUS = 0.10   # m
 
-AAU_ROVER_CFG = ArticulationCfg(
+MARS_ROVER_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=AAU_ROVER_USD_PATH,
+        usd_path=ROVER_USD_PATH,
         activate_contact_sensors=True,
         collision_props=sim_utils.CollisionPropertiesCfg(
             contact_offset=0.04,

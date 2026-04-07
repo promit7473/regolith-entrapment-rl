@@ -1,5 +1,6 @@
 """
-Warp kernels for MPM ↔ XPBD two-way coupling and per-env particle reset.
+Warp kernels for MPM ↔ XPBD two-way coupling, per-env particle reset,
+and escaped-particle clamping.
 
 Ported from newton/examples/mpm/example_mpm_twoway_coupling.py and extended
 with a partial-reset kernel so individual envs can be reset without disturbing
@@ -62,6 +63,37 @@ def subtract_body_force(
     )
     body_q_res[b]  = body_q[b]
     body_qd_res[b] = body_qd[b] - wp.spatial_vector(delta_v, delta_w)
+
+
+# ── Escaped-particle clamp ─────────────────────────────────────────────────────
+
+@wp.kernel
+def clamp_escaped_particles(
+    particle_q:        wp.array(dtype=wp.vec3),
+    env_origins:       wp.array(dtype=wp.vec3),
+    particles_per_env: int,
+    half_x:            float,
+    half_y:            float,
+    depth:             float,
+):
+    """
+    After each MPM step, snap any particle that left its env's sand box back
+    inside.  Keeps the sparse VDB bounding box bounded → prevents OOM in
+    volume_builder.cu when a single particle drifts to a large position.
+
+    Bounds per env:
+        x ∈ [origin_x - half_x,  origin_x + half_x]
+        y ∈ [origin_y - half_y,  origin_y + half_y]
+        z ∈ [origin_z - 0.05,    origin_z + depth + 0.10]
+    """
+    i   = wp.tid()
+    env = i // particles_per_env
+    o   = env_origins[env]
+    p   = particle_q[i]
+    px  = wp.clamp(p[0], o[0] - half_x,       o[0] + half_x)
+    py  = wp.clamp(p[1], o[1] - half_y,       o[1] + half_y)
+    pz  = wp.clamp(p[2], o[2] - float(0.05),  o[2] + depth + float(0.10))
+    particle_q[i] = wp.vec3(px, py, pz)
 
 
 # ── Per-env particle reset ─────────────────────────────────────────────────────

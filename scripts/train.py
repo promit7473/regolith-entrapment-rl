@@ -1,5 +1,5 @@
 """
-AAU Mars Rover — Wheel Entrapment Recovery — Training Script
+Mars Rover — Regolith Escape Recovery — Training Script
 Newton DirectRLEnv + skrl PPO
 
 Usage (via launch.sh from repo root):
@@ -14,7 +14,7 @@ import sys
 
 from isaaclab.app import AppLauncher
 
-parser = argparse.ArgumentParser(description="AAU Mars Rover Entrapment Recovery RL Training")
+parser = argparse.ArgumentParser(description="Mars Rover Regolith Escape Recovery RL Training")
 parser.add_argument("--num_envs",   type=int,   default=64)
 parser.add_argument("--seed",       type=int,   default=42)
 parser.add_argument("--checkpoint", type=str,   default=None)
@@ -49,7 +49,7 @@ from skrl.utils import set_seed
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-import envs  # registers "Jackal-Entrapment-v0" and "AAURover-MarsEntrapment-v0"
+import envs  # registers "MarsRover-RegolithEscape-v0"
 from envs.entrapment_env import EntrapmentEnv, EntrapmentEnvCfg
 
 
@@ -98,7 +98,7 @@ def train():
     env_cfg = EntrapmentEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
 
-    env = gym.make("AAURover-MarsEntrapment-v0", cfg=env_cfg)
+    env = gym.make("MarsRover-RegolithEscape-v0", cfg=env_cfg)
     env = SkrlVecEnvWrapper(env, ml_framework="torch")
 
     device    = env.device
@@ -108,7 +108,7 @@ def train():
     act_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(num_act,))
 
     print(f"\n{'='*55}")
-    print(f"  AAU Mars Rover Entrapment Recovery — PPO Training")
+    print(f"  Mars Rover Regolith Escape — PPO Training")
     print(f"  Obs: {num_obs}D | Act: {num_act}D | Envs: {env.num_envs}")
     print(f"  Device: {device} | Seed: {args_cli.seed}")
     print(f"{'='*55}\n")
@@ -120,7 +120,7 @@ def train():
     rollouts = 24
     memory   = RandomMemory(memory_size=rollouts, num_envs=env.num_envs, device=device)
 
-    exp_dir = os.path.join(REPO_ROOT, "experiments", "aau_mars_entrapment")
+    exp_dir = os.path.join(REPO_ROOT, "experiments", "regolith_recovery")
     ppo_cfg = PPO_DEFAULT_CONFIG.copy()
     ppo_cfg.update({
         "rollouts":           rollouts,
@@ -141,7 +141,7 @@ def train():
         "value_preprocessor_kwargs":      {"size": 1, "device": device},
         "experiment": {
             "directory":          exp_dir,
-            "experiment_name":    "ppo_aau_mars_v2",
+            "experiment_name":    "ppo_regolith",
             "write_interval":     100,
             "checkpoint_interval": 2000,
             "wandb":              False,
@@ -156,6 +156,23 @@ def train():
     if args_cli.checkpoint:
         print(f"Resuming from: {args_cli.checkpoint}")
         agent.load(args_cli.checkpoint)
+
+    # Patch: forward Isaac Lab extras["log"] entries to TensorBoard each rollout.
+    # skrl's PPO doesn't auto-log these; we inject via agent.track_data().
+    _raw_env = env.unwrapped
+    _orig_post = agent.post_interaction
+
+    def _post_interaction_with_extras(timestep, timesteps):
+        _orig_post(timestep=timestep, timesteps=timesteps)
+        try:
+            log = _raw_env.extras.get("log", {})
+            for k, v in log.items():
+                val = float(v.mean().item()) if hasattr(v, "mean") else float(v)
+                agent.track_data(f"Info / {k}", val)
+        except Exception:
+            pass
+
+    agent.post_interaction = _post_interaction_with_extras
 
     trainer = SequentialTrainer(
         cfg={"timesteps": args_cli.timesteps, "headless": args_cli.headless},
