@@ -26,7 +26,8 @@ import warp as wp
 import newton
 from newton.viewer import ViewerGL
 
-ROVER_USD = "/home/mhpromit7473/RLRoverLab/rover_envs/assets/robots/aau_rover/Mars_Rover.usd"
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROVER_USD = os.path.join(_REPO_ROOT, "assets", "robots", "rover", "Mars_Rover.usd")
 
 
 def main():
@@ -133,7 +134,7 @@ def main():
         )
         mpm_solver = SolverImplicitMPM(mpm_model, mpm_opt)
         model.particle_mu = 0.7
-        model.particle_ke = 1.0e14
+        model.particle_ke = 5.0e4
 
     # ── State ────────────────────────────────────────────────────────────
     state_0 = model.state()

@@ -2,7 +2,7 @@
 Mars Rover ArticulationCfg for Newton regolith entrapment training.
 
 Robot:  6-wheel rocker-bogie Mars rover
-USD:    Mars_Rover_Simplified.usd (robots/ local asset)
+USD:    assets/robots/rover/Mars_Rover.usd (bundled in repo)
 
 Joint layout
   Drive  (velocity control) : FL/ML/RL/FR/MR/RR_Drive_Continuous   ×6
@@ -14,13 +14,15 @@ Steering control:  stiffness=8000, damping=1000
 Passive joints:    stiffness=0,  damping=0,  effort=0
 """
 
+import os
+
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
-ROVER_USD_PATH = (
-    "/home/mhpromit7473/regolith_entrapment_research/robots/Mars_Rover_Simplified.usd"
-)
+# Repo-bundled asset — works on any machine after cloning
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROVER_USD_PATH = os.path.join(_REPO_ROOT, "assets", "robots", "rover", "Mars_Rover.usd")
 
 # Wheel radius: 0.10 m
 ROVER_WHEEL_RADIUS = 0.10   # m

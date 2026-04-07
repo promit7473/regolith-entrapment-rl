@@ -13,6 +13,8 @@ Generates:
              with auto-annotated behaviour events
 
 Usage:
+    # --- Requires Isaac Sim + Newton ---
+
     # Random actions (sanity / pipeline check):
     ./launch.sh scripts/plot_episode.py --num_envs 1
 
@@ -23,53 +25,75 @@ Usage:
     # Collect N episodes and overlay trajectories:
     ./launch.sh scripts/plot_episode.py --num_envs 1 --episodes 3 \\
         --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
+
+    # --- Offline: no Isaac Sim needed ---
+    # First save data once with eval.py:
+    ./launch.sh scripts/eval.py --episodes 3 --checkpoint <ckpt> \\
+        --save-data experiments/regolith_recovery/episode_data/run1.npz
+
+    # Then plot anywhere, any time:
+    python3 scripts/plot_episode.py --from-file experiments/regolith_recovery/episode_data/run1.npz
 """
 
 import argparse
-import math
 import os
 import sys
 
-from isaaclab.app import AppLauncher
+# ── Pre-parse: detect offline (--from-file) mode BEFORE loading the Isaac Sim stack ──
+_pre = argparse.ArgumentParser(add_help=False)
+_pre.add_argument("--from-file", type=str, default=None)
+_pre_ns, _ = _pre.parse_known_args()
+_OFFLINE = (_pre_ns.from_file is not None)
 
-parser = argparse.ArgumentParser(description="Episode dashboard plotter")
-parser.add_argument("--num_envs",   type=int, default=1)
-parser.add_argument("--checkpoint", type=str, default=None)
-parser.add_argument("--episodes",   type=int, default=1,
-                    help="Number of episodes to collect (trajectories overlaid on map)")
-parser.add_argument("--max_steps",  type=int, default=500,
-                    help="Max steps per episode (safety cap)")
-AppLauncher.add_app_launcher_args(parser)
+if not _OFFLINE:
+    import math
+    from isaaclab.app import AppLauncher
 
-args_cli, hydra_args = parser.parse_known_args()
-os.environ["LAUNCH_OV_APP"] = "1"
-args_cli.headless = True
-sys.argv = [sys.argv[0]] + hydra_args
+    parser = argparse.ArgumentParser(description="Episode dashboard plotter")
+    parser.add_argument("--num_envs",   type=int, default=1)
+    parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--episodes",   type=int, default=1,
+                        help="Number of episodes to collect (trajectories overlaid on map)")
+    parser.add_argument("--max_steps",  type=int, default=500,
+                        help="Max steps per episode (safety cap)")
+    parser.add_argument("--from-file",  type=str, default=None,
+                        help="Load saved .npz instead of running simulation")
+    AppLauncher.add_app_launcher_args(parser)
 
-app_launcher   = AppLauncher(args_cli)
-simulation_app = app_launcher.app
+    args_cli, hydra_args = parser.parse_known_args()
+    os.environ["LAUNCH_OV_APP"] = "1"
+    args_cli.headless = True
+    sys.argv = [sys.argv[0]] + hydra_args
 
-# ── Post-launch imports ────────────────────────────────────────────────────────
-import torch
+    app_launcher   = AppLauncher(args_cli)
+    simulation_app = app_launcher.app
+else:
+    parser = argparse.ArgumentParser(description="Episode dashboard plotter (offline mode)")
+    parser.add_argument("--from-file", type=str, default=None,
+                        help="Load saved .npz (created by eval.py --save-data)")
+    args_cli, _ = parser.parse_known_args()
+    simulation_app = None
+
+# ── Imports (numpy/matplotlib always; sim stack only in online mode) ───────────
 import numpy as np
-import gymnasium as gym
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import matplotlib.ticker as ticker
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize, LinearSegmentedColormap
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 
-from isaaclab_rl.skrl import SkrlVecEnvWrapper
-
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-import envs
-from envs.entrapment_env import EntrapmentEnvCfg
+if not _OFFLINE:
+    import torch
+    import gymnasium as gym
+    from isaaclab_rl.skrl import SkrlVecEnvWrapper
+    import envs
+    from envs.entrapment_env import EntrapmentEnvCfg
 
 PLOTS_DIR = os.path.join(REPO_ROOT, "experiments", "regolith_recovery", "plots")
 os.makedirs(PLOTS_DIR, exist_ok=True)
@@ -124,42 +148,8 @@ def _snap_heightmap(raw_env, env_idx=0, grid_res=60):
     Bin MPM particle positions into a 2D surface height map (env-local coords).
     Returns (heightmap [grid_res × grid_res], extent_tuple) or (None, None).
     """
-    if not (hasattr(raw_env, "_mpm_ready") and raw_env._mpm_ready
-            and hasattr(raw_env, "sand_state")):
-        return None, None
-    try:
-        import warp as wp
-        start = int(raw_env._particle_env_starts[env_idx])
-        n_per = raw_env._particles_per_env
-        wp.synchronize_device()
-        pq    = raw_env.sand_state.particle_q.numpy()[start:start + n_per]
-
-        origin = raw_env.scene.env_origins[env_idx].cpu().numpy()
-        lx = pq[:, 0] - origin[0]
-        ly = pq[:, 1] - origin[1]
-        lz = pq[:, 2] - origin[2]
-
-        xe = np.linspace(-SAND_HALF_X, SAND_HALF_X, grid_res + 1)
-        ye = np.linspace(-SAND_HALF_Y, SAND_HALF_Y, grid_res + 1)
-
-        hmap    = np.full((grid_res, grid_res), np.nan)
-        in_box  = ((lx >= -SAND_HALF_X) & (lx <= SAND_HALF_X) &
-                   (ly >= -SAND_HALF_Y) & (ly <= SAND_HALF_Y))
-        xi = np.clip(np.digitize(lx[in_box], xe) - 1, 0, grid_res - 1)
-        yi = np.clip(np.digitize(ly[in_box], ye) - 1, 0, grid_res - 1)
-        zv = lz[in_box]
-
-        # max-z per cell = surface height
-        for i, j, z in zip(xi, yi, zv):
-            if np.isnan(hmap[i, j]) or z > hmap[i, j]:
-                hmap[i, j] = z
-
-        floor = np.nanmin(hmap) if not np.all(np.isnan(hmap)) else 0.0
-        hmap  = np.where(np.isnan(hmap), floor, hmap)
-        return hmap, (-SAND_HALF_X, SAND_HALF_X, -SAND_HALF_Y, SAND_HALF_Y)
-    except Exception as exc:
-        print(f"  [heightmap] warning: {exc}")
-        return None, None
+    # TEMPORARILY DISABLE HEIGHTMAP EXTRACTION TO AVOID CUDA MEMORY ISSUES
+    return None, None
 
 
 # ── Behaviour event detection ──────────────────────────────────────────────────
@@ -204,7 +194,7 @@ def _detect_events(t, pos_xy, entrap_flag, torque_anomaly, wheel_vel):
 def load_agent(device, num_obs, num_act, num_envs, ckpt_path):
     from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
     from skrl.memories.torch import RandomMemory
-    from train import PolicyNet, ValueNet
+    from scripts.train import PolicyNet, ValueNet
 
     obs_space = gym.spaces.Box(low=-math.inf, high=math.inf, shape=(num_obs,))
     act_space = gym.spaces.Box(low=-1.0,      high=1.0,      shape=(num_act,))
@@ -642,9 +632,53 @@ def _save_deformation_map(ep, episodes_data):
     print(f"  [saved] {out}")
 
 
+# ── Offline loader ─────────────────────────────────────────────────────────────
+
+_EP_KEYS = ["t", "wheel_vel", "drive_torque", "slip",
+            "entrap_flag", "torque_anomaly", "imu_acc",
+            "pos_xy", "reward", "action"]
+
+def _load_from_npz(path):
+    """Load episodes_data list from a .npz saved by eval.py --save-data."""
+    data    = np.load(path, allow_pickle=True)
+    n_eps   = int(data["n_episodes"][0])
+    mode    = str(data["mode"][0])
+    episodes = []
+    for i in range(n_eps):
+        ep = {}
+        for k in _EP_KEYS:
+            key = f"ep{i}_{k}"
+            ep[k] = data[key] if key in data else np.array([])
+        ep["heightmap_initial"] = None
+        ep["heightmap_final"]   = None
+        ep["heightmap_extent"]  = None
+        episodes.append(ep)
+    return episodes, mode
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
+    # ── Offline mode: plot from saved .npz without any simulation ────────────
+    if getattr(args_cli, "from_file", None):
+        episodes_data, mode = _load_from_npz(args_cli.from_file)
+        print(f"\n{'='*55}")
+        print(f"  Offline mode — loading: {args_cli.from_file}")
+        print(f"  Episodes: {len(episodes_data)}  |  Mode: {mode}")
+        for i, ep in enumerate(episodes_data):
+            n_steps  = len(ep["t"])
+            ep_rew   = float(ep["reward"].sum())
+            dist_max = float(np.linalg.norm(ep["pos_xy"], axis=-1).max()) if len(ep["pos_xy"]) else 0.0
+            escaped  = dist_max > ESCAPE_DIST
+            print(f"  Episode {i+1}: steps={n_steps}  reward={ep_rew:.2f}  "
+                  f"max_dist={dist_max:.2f}m  escaped={'YES' if escaped else 'no'}")
+        print(f"{'='*55}\n")
+        print("Generating episode dashboard ...")
+        make_episode_figure(episodes_data, PLOTS_DIR, mode=mode)
+        print(f"\nDone. Plots in: {PLOTS_DIR}\n")
+        return
+    # ─────────────────────────────────────────────────────────────────────────
+
     env_cfg = EntrapmentEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
 

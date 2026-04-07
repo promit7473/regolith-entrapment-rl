@@ -13,6 +13,12 @@ Usage:
 
     # Headless evaluation (no viewer, just metrics)
     ./launch.sh scripts/eval.py --num_envs 64 --checkpoint <path> --headless --episodes 50
+
+    # Save episode data for offline plotting (no need to re-run sim to plot)
+    ./launch.sh scripts/eval.py --num_envs 1 --checkpoint <path> --episodes 5 \\
+        --save-data experiments/regolith_recovery/episode_data/run1.npz
+    # Then plot anywhere without Isaac Sim:
+    python3 scripts/plot_episode.py --from-file experiments/regolith_recovery/episode_data/run1.npz
 """
 
 import argparse
@@ -29,6 +35,9 @@ parser.add_argument("--episodes",   type=int, default=0,
                     help="Run N episodes then exit (0 = infinite / interactive)")
 parser.add_argument("--no-mpm", action="store_true",
                     help="Skip MPM sand physics (viewer-only, shows rover without sand)")
+parser.add_argument("--save-data",  type=str, default=None, metavar="PATH",
+                    help="Save episode data to PATH (.npz) for offline plotting "
+                         "with: python3 scripts/plot_episode.py --from-file PATH")
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, hydra_args = parser.parse_known_args()
@@ -122,6 +131,43 @@ def main():
     ep_rewards = []
     ep_reward = torch.zeros(env.num_envs, device=device)
 
+    # ── Episode data collection (for --save-data) ────────────────────────────
+    import numpy as np
+    _SAVE_PATH = getattr(args_cli, "save_data", None)
+    _EP_KEYS   = ["t", "wheel_vel", "drive_torque", "slip",
+                  "entrap_flag", "torque_anomaly", "imu_acc",
+                  "pos_xy", "reward", "action"]
+    _VEL_LIM, _TRQ_LIM = 6.0, 3.0
+    _DT = float(env_cfg.sim.dt) * float(env_cfg.decimation)
+    saved_episodes, _cur_ep = [], {k: [] for k in _EP_KEYS}
+    _ep_step = 0
+    _env_origin = env.unwrapped.scene.env_origins[0].cpu().numpy()[:2]
+
+    def _collect_step(obs_t, act_t, rew_t):
+        nonlocal _ep_step
+        ob = obs_t[0].cpu().numpy()
+        rp = env.unwrapped.root_pos[0].cpu().numpy()
+        _cur_ep["t"].append(_ep_step * _DT)
+        _cur_ep["wheel_vel"].append(ob[0:6]   * _VEL_LIM)
+        _cur_ep["drive_torque"].append(ob[20:26] * _TRQ_LIM)
+        _cur_ep["slip"].append(ob[6:12])
+        _cur_ep["entrap_flag"].append(ob[26])
+        _cur_ep["torque_anomaly"].append(ob[27])
+        _cur_ep["imu_acc"].append(ob[16:19])
+        _cur_ep["pos_xy"].append(rp[:2] - _env_origin)
+        _cur_ep["reward"].append(float(rew_t[0]))
+        _cur_ep["action"].append(act_t[0].cpu().numpy())
+        _ep_step += 1
+
+    def _end_episode():
+        nonlocal _cur_ep, _ep_step, _env_origin
+        if _cur_ep["t"]:
+            saved_episodes.append({k: np.array(v) for k, v in _cur_ep.items()})
+        _cur_ep   = {k: [] for k in _EP_KEYS}
+        _ep_step  = 0
+        _env_origin = env.unwrapped.scene.env_origins[0].cpu().numpy()[:2]
+    # ─────────────────────────────────────────────────────────────────────────
+
     try:
         while True:
             # Check viewer
@@ -140,6 +186,9 @@ def main():
             ep_reward += reward.squeeze(-1) if reward.dim() > 1 else reward
             step += 1
 
+            if _SAVE_PATH:
+                _collect_step(obs, actions, reward)
+
             _term = terminated.squeeze(-1) if terminated.dim() > 1 else terminated
             _trunc = truncated.squeeze(-1) if truncated.dim() > 1 else truncated
             done = _term | _trunc
@@ -149,6 +198,8 @@ def main():
                         ep_rewards.append(float(ep_reward[i]))
                         ep_count += 1
                 ep_reward[done] = 0.0
+                if _SAVE_PATH and bool(done[0]):
+                    _end_episode()
                 obs, _ = env.reset()
 
             # Periodic log
@@ -165,6 +216,27 @@ def main():
 
     except KeyboardInterrupt:
         print("\n[Eval] Stopped.")
+
+    # ── Save episode data ─────────────────────────────────────────────────────
+    if _SAVE_PATH:
+        if _cur_ep["t"]:                    # flush any in-progress episode
+            _end_episode()
+        if saved_episodes:
+            out_dir = os.path.dirname(os.path.abspath(_SAVE_PATH))
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            arrays = {
+                "n_episodes": np.array([len(saved_episodes)]),
+                "mode":       np.array([mode]),
+            }
+            for ei, ep in enumerate(saved_episodes):
+                for k, v in ep.items():
+                    arrays[f"ep{ei}_{k}"] = v
+            np.savez(_SAVE_PATH, **arrays)
+            print(f"\n[Eval] Episode data saved → {_SAVE_PATH}")
+            print(f"       Plot offline with:")
+            print(f"       python3 scripts/plot_episode.py --from-file {_SAVE_PATH}")
+    # ─────────────────────────────────────────────────────────────────────────
 
     # Summary
     if ep_rewards:

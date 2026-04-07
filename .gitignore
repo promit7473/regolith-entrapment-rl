@@ -76,10 +76,15 @@ logs/
 *.usd
 *.usda
 *.usdc
+# But keep bundled rover assets in the repo
+!assets/**/*.usd
+!assets/**/*.usda
+!assets/**/*.usdc
 
 # Experiment outputs (auto-generated)
 experiments/
 recordings/
+*.npz
 
 # Cache and temporary files
 .cache/
