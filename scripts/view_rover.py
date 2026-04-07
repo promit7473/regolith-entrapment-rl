@@ -26,6 +26,23 @@ import warp as wp
 import newton
 from newton.viewer import ViewerGL
 
+@wp.kernel
+def clamp_escaped_particles(
+    particle_q:        wp.array(dtype=wp.vec3),
+    env_origins:       wp.array(dtype=wp.vec3),
+    particles_per_env: int,
+    half_x: float, half_y: float, depth: float,
+):
+    i   = wp.tid()
+    env = i // particles_per_env
+    o   = env_origins[env]
+    p   = particle_q[i]
+    particle_q[i] = wp.vec3(
+        wp.clamp(p[0], o[0] - half_x,       o[0] + half_x),
+        wp.clamp(p[1], o[1] - half_y,       o[1] + half_y),
+        wp.clamp(p[2], o[2] - float(0.05),  o[2] + depth + float(0.10)),
+    )
+
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROVER_USD = os.path.join(_REPO_ROOT, "assets", "robots", "rover", "Mars_Rover.usd")
 
@@ -43,16 +60,13 @@ def main():
     # ── Build model ──────────────────────────────────────────────────────
     builder = newton.ModelBuilder(up_axis=newton.Axis.Z)
 
-    # Softer contact to prevent violent bounce on landing
-    builder.default_shape_cfg.ke = 1.0e4
-    builder.default_shape_cfg.kd = 1.0e3
-    builder.default_shape_cfg.kf = 5.0e2
+    builder.default_shape_cfg.ke = 1.0e6
+    builder.default_shape_cfg.kd = 1.0e4
+    builder.default_shape_cfg.kf = 1.0e3
     builder.default_shape_cfg.mu = 0.75
 
     # Load Mars rover from USD
     print(f"Loading rover: {ROVER_USD}")
-    # Wheel centers are at z=-0.167, radius=0.10 → bottom at z=-0.267.
-    # So spawn root at z=+0.30 to have wheels just touching ground.
     builder.add_usd(
         ROVER_USD,
         xform=wp.transform(
@@ -102,7 +116,6 @@ def main():
     print(f"Final model: {model.body_count} bodies, {model.shape_count} shapes, "
           f"{model.particle_count} particles")
 
-    # Disable gravity temporarily so rover stays still for inspection
     model.set_gravity(wp.vec3(0.0, 0.0, 0.0))
 
     # ── Solver ───────────────────────────────────────────────────────────
@@ -111,7 +124,7 @@ def main():
     substeps = 4
     sim_dt = frame_dt / substeps
 
-    solver = newton.solvers.SolverXPBD(model, iterations=4)
+    solver = newton.solvers.SolverXPBD(model, iterations=16)
 
     # MPM solver (if sand)
     mpm_solver = None
@@ -165,7 +178,6 @@ def main():
     if model.particle_count > 0:
         viewer.show_particles = True
 
-    # Camera from the run that showed the rover ("flying" run)
     viewer.set_camera(
         pos=wp.vec3(2.0, -2.0, 1.5),
         pitch=-0.25,
@@ -195,6 +207,12 @@ def main():
 
             if mpm_solver:
                 mpm_solver.step(state_0, state_0, contacts=None, control=None, dt=frame_dt)
+                # clamp escaped particles so VDB bounding box stays bounded
+                origin = wp.array(np.array([[0.0, 0.0, 0.0]], dtype=np.float32), dtype=wp.vec3)
+                wp.launch(clamp_escaped_particles,
+                          dim=model.particle_count,
+                          inputs=[state_0.particle_q, origin,
+                                  model.particle_count, 0.6, 0.6, 0.15])
 
             viewer.begin_frame(sim_time)
             viewer.log_state(state_0)
