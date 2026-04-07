@@ -31,8 +31,9 @@ Usage:
     ./launch.sh scripts/eval.py --episodes 3 --checkpoint <ckpt> \\
         --save-data experiments/regolith_recovery/episode_data/run1.npz
 
-    # Then plot anywhere, any time:
-    python3 scripts/plot_episode.py --from-file experiments/regolith_recovery/episode_data/run1.npz
+    # Then plot anywhere, any time (needs conda env for matplotlib, NOT Isaac Sim):
+    conda run -n env_isaaclab python3 scripts/plot_episode.py \\
+        --from-file experiments/regolith_recovery/episode_data/run1.npz
 """
 
 import argparse
