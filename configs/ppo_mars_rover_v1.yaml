@@ -53,8 +53,8 @@ solver:
 
 mpm:
   voxel_size: 0.05
-  sand_half_x: 0.6
-  sand_half_y: 0.6
+  sand_half_x: 1.0          # 2.0 m × 2.0 m patch (up from 1.2 m × 1.2 m)
+  sand_half_y: 1.0
   sand_depth: 0.15
   particle_mu: 0.7
   particle_ke: 5.0e4     # 5e4 Pa (lower to avoid CFL violations; higher causes particle explosions)

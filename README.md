@@ -296,7 +296,7 @@ python sim2real/rpi5_deploy/rover_controller.py \
 - **Physics (viewer)**: Newton `SolverMuJoCo` (rigid bodies) + Newton `SolverImplicitMPM` (sand)
 - **Solver**: 4 substeps, 50 Hz physics / 25 Hz policy
 - **Note**: Standalone viewer uses MuJoCo solver — Newton's XPBD cannot stably support an articulated rover on a ground plane (329 mesh collision shapes → contact buffer overflow). Mesh collision disabled; 6 invisible proxy spheres on wheel bodies used instead.
-- **MPM**: voxel_size=0.05m, sand 1.2m×1.2m×0.15m, µ=0.7
+- **MPM**: voxel_size=0.05m, sand 2.0m×2.0m×0.15m, µ=0.7 (~38k particles/env)
 
 **Observation Space (29D)**:
 - `wheel_vel` (6) — drive joint velocities normalized by 6 rad/s

@@ -73,8 +73,11 @@ STEER_POS_LIMIT = 0.6                       # rad  (~34°)
 ESCAPE_DISTANCE = 1.5                       # m — escape the entrapment zone
 
 # Regolith pit geometry (per env, centred at env origin)
-SAND_HALF_X  = 0.6
-SAND_HALF_Y  = 0.6
+# 2.0 m × 2.0 m patch — wide enough that all 6 wheels stay fully buried during
+# rocking maneuvers and the rover can't trivially escape sideways off the edge.
+# Particle count per env ≈ 38 400 (80×80×6 at PPC=2, voxel=0.05 m).
+SAND_HALF_X  = 1.0
+SAND_HALF_Y  = 1.0
 SAND_DEPTH   = 0.15
 VOXEL_SIZE   = 0.05
 PPC          = 2.0
@@ -144,7 +147,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
 
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
         num_envs=16,
-        env_spacing=6.0,     # wider spacing: Mars terrain + rock scatter radius
+        env_spacing=8.0,     # sand 2 m wide + 1.5 m escape distance + buffer
         replicate_physics=True,
         clone_in_fabric=True,
     )
