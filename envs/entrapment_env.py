@@ -2,7 +2,7 @@
 Mars Rover — Wheel Entrapment Recovery — Newton DirectRLEnv.
 
 Physics stack:
-  • XPBD  (XPBOSolverCfg)  — rigid-body dynamics for the 6-wheel Mars rover
+  • MuJoCo Warp (MJWarpSolverCfg) — rigid-body dynamics for the 6-wheel Mars rover
   • SolverImplicitMPM      — sparse-grid MPM for granular regolith
   • Two-way coupling        — sand impulses → robot bodies, robot SDF → sand grid
 
@@ -47,7 +47,7 @@ from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.sim._impl.newton_manager_cfg import NewtonCfg
-from isaaclab.sim._impl.solvers_cfg import XPBOSolverCfg
+from isaaclab.sim._impl.solvers_cfg import MJWarpSolverCfg
 from isaaclab.sim._impl.newton_manager import NewtonManager
 from isaaclab.utils import configclass
 from isaaclab.utils.math import sample_uniform
@@ -122,11 +122,19 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     dr_obs_noise_std     = 0.02         # additive Gaussian noise on observations
     dr_sinkage_range     = (0.04, 0.10) # m — guaranteed partial burial; curriculum scales up
 
-    solver_cfg = XPBOSolverCfg(
-        iterations=4,
-        rigid_contact_relaxation=0.8,
-        joint_linear_relaxation=0.7,
-        joint_angular_relaxation=0.4,
+    # MuJoCo Warp solver — same choice as view_rover.py.
+    # XPBD cannot stably support an articulated rover regardless of contact settings
+    # (329 mesh shapes → contact buffer overflow → NaN; proxy spheres → slow sink → explosion).
+    # MuJoCo handles articulated body contacts correctly at any env count.
+    solver_cfg = MJWarpSolverCfg(
+        nconmax=50,          # contacts per env (6 wheel spheres + buffer)
+        njmax=200,           # constraints per env
+        iterations=100,
+        ls_iterations=50,
+        cone="elliptic",     # better friction model for wheel-ground contact
+        impratio=100,        # high ratio prevents wheel sinking
+        solver="newton",
+        integrator="euler",
     )
     newton_cfg = NewtonCfg(
         solver_cfg=solver_cfg,
@@ -254,6 +262,12 @@ class EntrapmentEnv(DirectRLEnv):
                     n_wheels += 1
             print(f"[Newton Init] Disabled mesh collision on {n_shapes} shapes, "
                   f"added {n_wheels} wheel proxy spheres.")
+
+            # Fix passive joint effort_limit=0 — MuJoCo Warp rejects actfrcrange=[0,0].
+            # Rocker/Differential joints in the USD have effort_limit=0 (free joints).
+            for i in range(len(builder.joint_effort_limit)):
+                if builder.joint_effort_limit[i] <= 0.0:
+                    builder.joint_effort_limit[i] = 1.0
 
             builder.add_ground_plane()
         NewtonManager.add_on_init_callback(_newton_init_cb)

@@ -47,8 +47,12 @@ reward:
     rew_rocking: 1.0       # Bonus for rocking motion when trapped
 
 solver:
-  type: xpbd
-  iterations: 4
+  type: mujoco_warp       # MJWarpSolverCfg — stable articulated robot contacts
+  nconmax: 50
+  njmax: 200
+  iterations: 100
+  cone: elliptic
+  impratio: 100
   num_substeps: 4
 
 mpm:
