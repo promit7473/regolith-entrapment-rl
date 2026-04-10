@@ -14,7 +14,7 @@ regolith_entrapment_research/
 ├── paths.sh                 # Bash path configuration (env var overrides)
 │
 ├── configs/                 # Configuration
-│   └── ppo_aau_v2.yaml      # PPO hyperparameters
+│   └── ppo_mars_rover_v1.yaml  # PPO hyperparameters
 │
 ├── envs/                    # Environment (core)
 │   ├── entrapment_env.py    # RL environment with MPM coupling
@@ -321,7 +321,7 @@ python sim2real/rpi5_deploy/rover_controller.py \
 
 ## [-] Documentation
 
-- **[Configs]**: `configs/ppo_aau_v2.yaml` — PPO hyperparameters
+- **[Configs]**: `configs/ppo_mars_rover_v1.yaml` — PPO hyperparameters
 - **[Code]**: `envs/entrapment_env.py` — Main environment with detailed comments
 - **[Paths]**: `paths.py` / `paths.sh` — Configurable path system
 
