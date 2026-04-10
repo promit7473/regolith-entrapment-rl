@@ -1,6 +1,6 @@
 """
 Mars Rover — Regolith Escape Recovery — Training Script
-Newton DirectRLEnv + skrl PPO
+Newton DirectRLEnv + skrl Recurrent PPO (GRU)
 
 Usage (via launch.sh from repo root):
     ./launch.sh scripts/train.py --num_envs 64
@@ -36,10 +36,12 @@ simulation_app = app_launcher.app
 import math
 import gymnasium as gym
 import torch
+import torch.nn as nn
 
 from isaaclab_rl.skrl import SkrlVecEnvWrapper
 
-from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
+from skrl.agents.torch.ppo import PPO_RNN
+from skrl.agents.torch.ppo.ppo_rnn import PPO_DEFAULT_CONFIG as PPO_RNN_DEFAULT_CONFIG
 from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.resources.preprocessors.torch import RunningStandardScaler
@@ -52,42 +54,135 @@ sys.path.insert(0, REPO_ROOT)
 import envs  # registers "MarsRover-RegolithEscape-v0"
 from envs.entrapment_env import EntrapmentEnv, EntrapmentEnvCfg
 
+# ── GRU hyperparameters ────────────────────────────────────────────────────────
+GRU_HIDDEN  = 256   # GRU hidden units
+GRU_LAYERS  = 1     # GRU stacked layers
+SEQ_LEN     = 16    # BPTT sequence length (rollouts must be divisible by this)
+ROLLOUTS    = 32    # Steps stored per env per update (32 / 16 = 2 seqs per env)
+
 
 # ── Model definitions ──────────────────────────────────────────────────────────
 
-class PolicyNet(GaussianMixin, Model):
-    def __init__(self, obs_space, act_space, device, clip_actions=False):
+class GRUPolicyNet(GaussianMixin, Model):
+    """
+    Recurrent policy: Linear encoder → GRU → MLP head → Gaussian action.
+
+    Architecture (29D obs → 10D action):
+        encoder : Linear(29→128) + ELU
+        gru     : GRU(128 → 256, 1 layer)
+        head    : Linear(256→64) + ELU + Linear(64→num_actions)
+        log_std : learnable parameter (shared across actions)
+
+    PPO_RNN passes hidden states via inputs["rnn"] = [h_t].
+    The model returns updated states in the output dict: {"rnn": [h_{t+1}]}.
+    During training (BPTT), states arrive as (seq*batch, obs_dim) and are
+    reshaped to (seq, batch, obs_dim) before the GRU call.
+    """
+
+    def __init__(self, obs_space, act_space, device, num_envs, clip_actions=False):
         Model.__init__(self, obs_space, act_space, device)
         GaussianMixin.__init__(self, clip_actions=clip_actions,
                                clip_log_std=True, min_log_std=-20, max_log_std=2)
-        import torch.nn as nn
-        self.net = nn.Sequential(
-            nn.Linear(self.num_observations, 256), nn.ELU(),
-            nn.Linear(256, 128),                   nn.ELU(),
-            nn.Linear(128, 64),                    nn.ELU(),
+
+        self._num_envs  = num_envs
+        self._hidden    = GRU_HIDDEN
+        self._layers    = GRU_LAYERS
+        self._seq_len   = SEQ_LEN
+
+        self.encoder = nn.Sequential(
+            nn.Linear(self.num_observations, 128), nn.ELU(),
+        )
+        self.gru = nn.GRU(128, GRU_HIDDEN, num_layers=GRU_LAYERS, batch_first=False)
+        self.head = nn.Sequential(
+            nn.Linear(GRU_HIDDEN, 64), nn.ELU(),
             nn.Linear(64, self.num_actions),
         )
         self.log_std = nn.Parameter(torch.zeros(self.num_actions))
 
+    def get_specification(self):
+        # GRU has 1 state (hidden h). Shape: (num_layers, num_envs, hidden_size).
+        return {
+            "rnn": {
+                "sequence_length": self._seq_len,
+                "sizes": [(self._layers, self._num_envs, self._hidden)],
+            }
+        }
+
     def compute(self, inputs, role=""):
-        x = self.net(inputs["states"])
-        return x, self.log_std.expand_as(x), {}
+        states = inputs["states"]  # (batch*seq, obs) or (num_envs, obs)
+        rnn_list = inputs.get("rnn", [None])
+        hidden = rnn_list[0] if (rnn_list and rnn_list[0] is not None) else None
+
+        # Determine batch/sequence dimensions.
+        # During rollout: hidden shape is (layers, num_envs, hidden); states is (num_envs, obs).
+        # During training: hidden shape is (layers, mini_batch, hidden); states is (mini_batch*seq, obs).
+        if hidden is not None:
+            batch = hidden.shape[1]
+            seq   = states.shape[0] // batch
+        else:
+            batch = states.shape[0]
+            seq   = 1
+
+        x = self.encoder(states)               # (batch*seq, 128)
+        x = x.view(seq, batch, -1)             # (seq, batch, 128)
+        x, h_n = self.gru(x, hidden)           # x: (seq, batch, hidden), h_n: (layers, batch, hidden)
+        x = x.reshape(seq * batch, -1)         # (seq*batch, hidden)
+        output = self.head(x)                  # (seq*batch, num_actions)
+
+        return output, self.log_std.expand_as(output), {"rnn": [h_n]}
 
 
-class ValueNet(DeterministicMixin, Model):
-    def __init__(self, obs_space, act_space, device, clip_actions=False):
+class GRUValueNet(DeterministicMixin, Model):
+    """
+    Recurrent value critic: same GRU architecture as policy, scalar output.
+    Shares no weights with policy.
+    """
+
+    def __init__(self, obs_space, act_space, device, num_envs, clip_actions=False):
         Model.__init__(self, obs_space, act_space, device)
         DeterministicMixin.__init__(self, clip_actions=clip_actions)
-        import torch.nn as nn
-        self.net = nn.Sequential(
-            nn.Linear(self.num_observations, 256), nn.ELU(),
-            nn.Linear(256, 128),                   nn.ELU(),
-            nn.Linear(128, 64),                    nn.ELU(),
+
+        self._num_envs  = num_envs
+        self._hidden    = GRU_HIDDEN
+        self._layers    = GRU_LAYERS
+        self._seq_len   = SEQ_LEN
+
+        self.encoder = nn.Sequential(
+            nn.Linear(self.num_observations, 128), nn.ELU(),
+        )
+        self.gru = nn.GRU(128, GRU_HIDDEN, num_layers=GRU_LAYERS, batch_first=False)
+        self.head = nn.Sequential(
+            nn.Linear(GRU_HIDDEN, 64), nn.ELU(),
             nn.Linear(64, 1),
         )
 
+    def get_specification(self):
+        return {
+            "rnn": {
+                "sequence_length": self._seq_len,
+                "sizes": [(self._layers, self._num_envs, self._hidden)],
+            }
+        }
+
     def compute(self, inputs, role=""):
-        return self.net(inputs["states"]), {}
+        states = inputs["states"]
+        rnn_list = inputs.get("rnn", [None])
+        hidden = rnn_list[0] if (rnn_list and rnn_list[0] is not None) else None
+
+        if hidden is not None:
+            batch = hidden.shape[1]
+            seq   = states.shape[0] // batch
+        else:
+            batch = states.shape[0]
+            seq   = 1
+
+        x = self.encoder(states)
+        x = x.view(seq, batch, -1)
+        x, h_n = self.gru(x, hidden)
+        x = x.reshape(seq * batch, -1)
+        value = self.head(x)
+
+        return value, {"rnn": [h_n]}
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -102,28 +197,29 @@ def train():
     env = SkrlVecEnvWrapper(env, ml_framework="torch")
 
     device    = env.device
+    num_envs  = env.num_envs
     num_obs   = env_cfg.observation_space
     num_act   = env_cfg.action_space
     obs_space = gym.spaces.Box(low=-math.inf, high=math.inf, shape=(num_obs,))
     act_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(num_act,))
 
-    print(f"\n{'='*55}")
-    print(f"  Mars Rover Regolith Escape — PPO Training")
-    print(f"  Obs: {num_obs}D | Act: {num_act}D | Envs: {env.num_envs}")
+    print(f"\n{'='*60}")
+    print(f"  Mars Rover Regolith Escape — Recurrent PPO (GRU)")
+    print(f"  Obs: {num_obs}D | Act: {num_act}D | Envs: {num_envs}")
+    print(f"  GRU hidden: {GRU_HIDDEN} | Seq len: {SEQ_LEN} | Rollouts: {ROLLOUTS}")
     print(f"  Device: {device} | Seed: {args_cli.seed}")
-    print(f"{'='*55}\n")
+    print(f"{'='*60}\n")
 
-    models  = {
-        "policy": PolicyNet(obs_space, act_space, device),
-        "value":  ValueNet(obs_space, act_space, device),
+    models = {
+        "policy": GRUPolicyNet(obs_space, act_space, device, num_envs=num_envs),
+        "value":  GRUValueNet(obs_space, act_space, device, num_envs=num_envs),
     }
-    rollouts = 24
-    memory   = RandomMemory(memory_size=rollouts, num_envs=env.num_envs, device=device)
+    memory = RandomMemory(memory_size=ROLLOUTS, num_envs=num_envs, device=device)
 
     exp_dir = os.path.join(REPO_ROOT, "experiments", "regolith_recovery")
-    ppo_cfg = PPO_DEFAULT_CONFIG.copy()
+    ppo_cfg = PPO_RNN_DEFAULT_CONFIG.copy()
     ppo_cfg.update({
-        "rollouts":           rollouts,
+        "rollouts":           ROLLOUTS,
         "learning_epochs":    5,
         "mini_batches":       4,
         "discount_factor":    0.99,
@@ -141,24 +237,26 @@ def train():
         "value_preprocessor_kwargs":      {"size": 1, "device": device},
         "experiment": {
             "directory":          exp_dir,
-            "experiment_name":    "ppo_regolith",
+            "experiment_name":    "ppo_gru_regolith",
             "write_interval":     100,
             "checkpoint_interval": 2000,
             "wandb":              False,
         },
     })
 
-    agent = PPO(
+    agent = PPO_RNN(
         models=models, memory=memory, cfg=ppo_cfg,
         observation_space=obs_space, action_space=act_space, device=device,
     )
 
     if args_cli.checkpoint:
+        if not os.path.exists(args_cli.checkpoint):
+            raise FileNotFoundError(f"Checkpoint not found: {args_cli.checkpoint}")
         print(f"Resuming from: {args_cli.checkpoint}")
         agent.load(args_cli.checkpoint)
 
     # Patch: forward Isaac Lab extras["log"] entries to TensorBoard each rollout.
-    # skrl's PPO doesn't auto-log these; we inject via agent.track_data().
+    # skrl's PPO_RNN doesn't auto-log these; we inject via agent.track_data().
     _raw_env = env.unwrapped
     _orig_post = agent.post_interaction
 

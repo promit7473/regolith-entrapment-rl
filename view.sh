@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Standalone Newton viewer for the AAU Mars Rover
 # Usage: ./view.sh [--no-sand] [--num-frames N]
+#
+# Environment variables (optional, see paths.sh):
+#   ISAAC_SIM_PATH     — Isaac Sim installation
+#   CONDA_ENV_PATH     — Conda environment path
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONDA_ENV="/home/mhpromit7473/miniconda3/envs/env_isaaclab"
-PXR_EXT="/home/mhpromit7473/.local/share/ov/data/exts/v2/omni.usd.libs-4fde11c8f289f1f4"
+
+# Source path configuration (with environment variable overrides)
+source "$REPO_DIR/paths.sh"
+
 PYTHON="$CONDA_ENV/bin/python3"
 
-export LD_PRELOAD="/home/mhpromit7473/isaac-sim/kit/libjemalloc.so"
+export LD_PRELOAD="$ISAAC_SIM/kit/libjemalloc.so"
 export LD_LIBRARY_PATH="$PXR_EXT/bin:$CONDA_ENV/lib:${LD_LIBRARY_PATH}"
 export PYTHONUNBUFFERED=1
 

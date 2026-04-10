@@ -57,11 +57,15 @@ from newton.solvers import SolverImplicitMPM
 
 from robots import MARS_ROVER_CFG, ROVER_WHEEL_RADIUS
 from .mpm_kernels import compute_body_forces, subtract_body_force, reset_particle_range, clamp_escaped_particles
+from paths import RLROVER_ASSETS
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 WHEEL_RADIUS    = ROVER_WHEEL_RADIUS        # 0.10 m
+# Offset from chassis root (Body) to wheel-center in Z (from USD geometry).
+# Drive joints sit at z = -0.167 m relative to Body.
+CHASSIS_TO_WHEEL_Z = 0.167                 # m
 DRIVE_JOINTS    = [".*Drive_Continuous"]    # regex — 6 wheels
 STEER_JOINTS    = [".*Steer_Revolute"]      # regex — 4 corners
 DRIVE_VEL_LIMIT = 6.0                       # rad/s
@@ -76,10 +80,9 @@ VOXEL_SIZE   = 0.05
 PPC          = 2.0
 
 # Mars terrain / rock asset paths (from RLRoverLab)
-_RLROVER_ASSETS = "/home/mhpromit7473/RLRoverLab/rover_envs/assets"
-MARS_TERRAIN_USD = os.path.join(_RLROVER_ASSETS, "terrains/mars/terrain1/terrain_merged.usd")
+MARS_TERRAIN_USD = str(RLROVER_ASSETS / "terrains/mars/terrain1/terrain_merged.usd")
 ROCK_USDS = [
-    os.path.join(_RLROVER_ASSETS, f"objects/rocks/rock_{i}/rock_{i}.usd")
+    str(RLROVER_ASSETS / f"objects/rocks/rock_{i}/rock_{i}.usd")
     for i in range(10)
 ]
 ROCKS_PER_ENV   = 6    # how many rocks scattered per env per episode reset
@@ -164,10 +167,10 @@ class EntrapmentEnv(DirectRLEnv):
         self.joint_vel  = wp.to_torch(self.robot.data.joint_vel)
         self.joint_pos  = wp.to_torch(self.robot.data.joint_pos)
         self.root_pos   = wp.to_torch(self.robot.data.root_link_pos_w)
-        self.root_vel_b = wp.to_torch(self.robot.data.root_lin_vel_b)
-        self.ang_vel_b  = wp.to_torch(self.robot.data.root_ang_vel_b)
+        self.root_vel_b = wp.to_torch(self.robot.data.root_com_lin_vel_b)
+        self.ang_vel_b  = wp.to_torch(self.robot.data.root_com_ang_vel_b)
         self.grav_b     = wp.to_torch(self.robot.data.projected_gravity_b)
-        self.lin_acc_w  = wp.to_torch(self.robot.data.body_lin_acc_w)[:, 0, :]
+        self.lin_acc_w  = wp.to_torch(self.robot.data.body_com_lin_acc_w)[:, 0, :]
 
         self.prev_action = torch.zeros(
             self.num_envs, self.cfg.action_space, device=self.device
@@ -205,10 +208,52 @@ class EntrapmentEnv(DirectRLEnv):
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot_cfg)
 
-        # Ground plane via Newton builder callback
-        NewtonManager.add_on_init_callback(
-            lambda: NewtonManager._builder.add_ground_plane()
-        )
+        # Override Isaac Lab's default USD parsing to skip convex hull computation
+        # for all 368 mesh shapes in Mars_Rover.usd. Without this, add_usd(stage)
+        # takes 30+ min computing mesh approximations we don't need (we use proxy
+        # spheres for collision instead). With skip_mesh_approximation=True it's <30s.
+        @classmethod
+        def _fast_instantiate(cls):
+            from pxr import UsdGeom
+            from isaaclab.sim._impl.newton_manager import get_current_stage
+            stage = get_current_stage()
+            up_axis = UsdGeom.GetStageUpAxis(stage)
+            builder = nt.ModelBuilder(up_axis=up_axis)
+            builder.add_usd(stage, skip_mesh_approximation=True)
+            NewtonManager.set_builder(builder)
+        NewtonManager.instantiate_builder_from_stage = _fast_instantiate
+
+        # Ground plane + proxy collision shapes via Newton builder callback.
+        # The USD mesh collision shapes (329 of them) flood XPBD's contact buffer
+        # → NaN. Fix: disable mesh collision, add 6 invisible proxy spheres on
+        # wheel bodies only (same fix as view_rover.py).
+        def _newton_init_cb():
+            builder = NewtonManager._builder
+            n_shapes = getattr(builder, 'shape_count', 0)
+            n_bodies = getattr(builder, 'body_count', 0)
+            print(f"[Newton Init] bodies={n_bodies}  mesh_shapes={n_shapes}")
+
+            # Disable collision on all USD mesh shapes — keep VISIBLE for rendering.
+            for s in range(n_shapes):
+                builder.shape_flags[s] = builder.shape_flags[s] & ~nt.ShapeFlags.COLLIDE_SHAPES
+
+            # Add proxy sphere ONLY on wheel bodies — sole collision geometry.
+            cfg = nt.ModelBuilder.ShapeConfig(
+                ke=2e3, kd=1e2, kf=1e3, mu=0.75, density=0.0,
+                has_shape_collision=True, is_visible=False,
+            )
+            body_keys = builder.body_key if hasattr(builder, 'body_key') else []
+            n_wheels = 0
+            for b in range(n_bodies):
+                name = body_keys[b] if b < len(body_keys) else ''
+                if 'Drive' in name:
+                    builder.add_shape_sphere(body=b, radius=WHEEL_RADIUS, cfg=cfg)
+                    n_wheels += 1
+            print(f"[Newton Init] Disabled mesh collision on {n_shapes} shapes, "
+                  f"added {n_wheels} wheel proxy spheres.")
+
+            builder.add_ground_plane()
+        NewtonManager.add_on_init_callback(_newton_init_cb)
 
         # Mars terrain static mesh — single copy at world origin (not per-env)
         # NOTE: terrain_merged.usd is 158 MB. Set LOAD_MARS_TERRAIN=1 to enable;
@@ -244,7 +289,6 @@ class EntrapmentEnv(DirectRLEnv):
             NewtonManager.add_on_start_callback(self._init_viewer_only)
 
         # copy_from_source=True: Newton loads from USD stage directly (lower VRAM).
-        # Simplified rover USD (16 meshes / 3.6k verts) keeps init fast.
         print(f"[Scene] Cloning {self.num_envs} environments ...")
         self.scene.clone_environments(copy_from_source=True)
         print(f"[Scene] Clone done.")
@@ -418,16 +462,38 @@ class EntrapmentEnv(DirectRLEnv):
         self._mpm_ready = True
         self._init_sand_visual()
 
-        original_step_fn = NewtonManager.step.__func__
-        env_ref = self
+        # Patch NewtonManager.step to call MPM post-XPBD processing.
+        # Use a guard to prevent re-patching if multiple env instances are created.
+        if not hasattr(NewtonManager, '_mpm_patched'):
+            original_step_fn = NewtonManager.step.__func__
+            NewtonManager._mpm_envs = []  # Track all env instances
+            NewtonManager._viewer_envs = []  # Track viewer instances (viewer-only mode)
+            NewtonManager._mpm_patched = True
 
-        @classmethod          # type: ignore[misc]
-        def _patched_step(cls):
-            original_step_fn(cls)
-            if env_ref._mpm_ready:
-                env_ref._mpm_post_xpbd()
+            @classmethod          # type: ignore[misc]
+            def _patched_step(cls):
+                original_step_fn(cls)
+                # MPM post-processing
+                for env_ref in NewtonManager._mpm_envs:
+                    if env_ref._mpm_ready:
+                        env_ref._mpm_post_xpbd()
+                # Viewer rendering (for viewer-only mode without MPM)
+                for env_ref in NewtonManager._viewer_envs:
+                    if env_ref._viewer and env_ref._viewer.is_running():
+                        env_ref._render_frame += 1
+                        if env_ref._render_frame % 2 == 0:
+                            try:
+                                state_0 = NewtonManager._state_0
+                                env_ref._viewer.begin_frame(env_ref._render_frame / 50.0)
+                                env_ref._viewer.log_state(state_0)
+                                env_ref._viewer.end_frame()
+                            except Exception:
+                                pass
 
-        NewtonManager.step = _patched_step
+            NewtonManager.step = _patched_step
+
+        # Register this env instance for MPM post-processing
+        NewtonManager._mpm_envs.append(self)
 
         n = self.sand_model.particle_count
         print(f"[MPM] Sand: {n} particles | {n // num_envs} per env | "
@@ -536,25 +602,14 @@ class EntrapmentEnv(DirectRLEnv):
             self._viewer.show_collision = True
             self._viewer.show_joints = True
             self._viewer.set_camera(
-                pos=wp.vec3(1.5, -3.0, 1.5),
-                pitch=-0.25,
-                yaw=0.0,
+                pos=wp.vec3(2.5, -2.5, 1.5),
+                pitch=-20.0,
+                yaw=135.0,
             )
-            # Override the render method to just show rigid bodies (no sand)
-            original_step_fn = NewtonManager.step.__func__
-            env_ref = self
-            @classmethod
-            def _patched_step_viewer(cls):
-                original_step_fn(cls)
-                env_ref._render_frame += 1
-                if env_ref._viewer and env_ref._viewer.is_running() and env_ref._render_frame % 2 == 0:
-                    try:
-                        env_ref._viewer.begin_frame(env_ref._render_frame / 50.0)
-                        env_ref._viewer.log_state(NewtonManager._state_0)
-                        env_ref._viewer.end_frame()
-                    except Exception:
-                        pass
-            NewtonManager.step = _patched_step_viewer
+            # Register this env for viewer rendering (same pattern as MPM patch)
+            if not hasattr(NewtonManager, '_viewer_envs'):
+                NewtonManager._viewer_envs = []
+            NewtonManager._viewer_envs.append(self)
             print(f"[Viewer-Only] ViewerGL open — {n_bodies} bodies, no sand")
         except Exception as e:
             import traceback
@@ -591,32 +646,15 @@ class EntrapmentEnv(DirectRLEnv):
             n_bodies = getattr(robot_model, 'body_count', 0)
             print(f"[Sand Visual] Newton model: {n_bodies} bodies, {n_shapes} shapes")
 
-            # If Newton didn't import collision shapes from USD (common with
-            # Isaac Lab cloned scenes), add visual proxy shapes manually so
-            # the viewer can render the rovers.
-            if n_shapes == 0 and n_bodies > 0:
-                print(f"[Sand Visual] No shapes in Newton model — adding rover proxy geometry")
-                self._add_rover_proxy_shapes(robot_model)
-
-            # Side-angle camera so rovers are visible above/through the sand bed
-            grid = int(self.num_envs ** 0.5) + 1
-            span = grid * self.cfg.scene.env_spacing
+            # Camera positioned to see env_0 clearly from above-behind.
+            # env_0 origin is at (0,0,0); rover spawns at z~0.2m.
             self._viewer.set_camera(
-                pos=wp.vec3(span * 0.5, -span * 1.2, span * 0.5),
-                pitch=-0.25,   # shallow angle — see rovers + sand from the side
-                yaw=0.0,
+                pos=wp.vec3(2.5, -2.5, 1.5),
+                pitch=-20.0,   # degrees — tilt down to see sand bed
+                yaw=135.0,     # degrees — look from +X,-Y corner toward origin
             )
-            print(f"[Sand Visual] ViewerGL open — robots:{self.num_envs}  sand pts:{n_vis}")
-            
-            # --- ENHANCEMENT: Entrapment state visualization ---
-            # Track current state to avoid redundant viewer calls
-            self._entrap_visual_active = False
-            self._torque_visual_active = False
-            
-            # --- ENHANCEMENT: Sand particle visualization ---
-            # Make sand points more visible and color by velocity
-            self._sand_size_multiplier = 1.8  # Make sand points 80% larger for visibility
-            self._sand_velocity_color = True  # Color sand by vertical velocity (sinking/splashing)
+            print(f"[Sand Visual] ViewerGL open — robots:{self.num_envs}  sand pts:{n_vis}  "
+                  f"shapes:{n_shapes}")
         except Exception as e:
             print(f"[Sand Visual] ViewerGL setup failed: {e}")
             self._viewer = None
@@ -631,133 +669,23 @@ class EntrapmentEnv(DirectRLEnv):
             robot_state = NewtonManager._state_0
             self._viewer.begin_frame(self._render_frame / 50.0)
             self._viewer.log_state(robot_state)
-            
-            # --- ENHANCEMENT: Entrapment state visualization ---
-            # Get latest entrapment/torque flags (from _get_observations logic)
-            entrap_active = False
-            torque_active = False
-            if hasattr(self, '_entrap_flag') and self._entrap_flag is not None:
-                entrap_active = bool(self._entrap_flag.any().item())
-                if entrap_active and not self._entrap_visual_active:
-                    # Change rover to RED when entrapped
-                    self._viewer.set_model_color(wp.vec3(1.0, 0.2, 0.2))  # RGB red
-                    self._entrap_visual_active = True
-                elif not entrap_active and self._entrap_visual_active:
-                    # Reset to default color
-                    self._viewer.set_model_color(wp.vec3(0.8, 0.8, 0.8))  # Default gray
-                    self._entrap_visual_active = False
 
-            if hasattr(self, '_torque_anomaly_flag') and self._torque_anomaly_flag is not None:
-                torque_active = bool(self._torque_anomaly_flag.any().item())
-                if torque_active and not self._torque_visual_active:
-                    # Change rover to ORANGE when torque anomalous
-                    self._viewer.set_model_color(wp.vec3(1.0, 0.5, 0.2))  # RGB orange
-                    self._torque_visual_active = True
-                elif not torque_active and self._torque_visual_active:
-                    self._viewer.set_model_color(wp.vec3(0.8, 0.8, 0.8))  # Default gray
-                    self._torque_visual_active = False
-            
+
             sand_pts = self.sand_state.particle_q[::self._vis_stride]
             n_vis = len(sand_pts)
             # Reuse pre-allocated arrays to avoid VRAM fragmentation
             if not hasattr(self, '_vis_radii') or len(self._vis_radii) != n_vis:
-                self._vis_radii = wp.full(n_vis, VOXEL_SIZE * 0.55,
-                                          dtype=wp.float32, device=sand_pts.device)
+                self._vis_radii  = wp.full(n_vis, VOXEL_SIZE * 0.6,
+                                           dtype=wp.float32, device=sand_pts.device)
                 self._vis_colors = wp.full(n_vis, wp.vec3(0.76, 0.60, 0.42),
                                            dtype=wp.vec3, device=sand_pts.device)
-            
-            # --- ENHANCEMENT: Sand particle visualization ---
-            # Increase point size for better visibility
-            vis_radii = self._vis_radii * self._sand_size_multiplier
-            
-            # Color sand by vertical velocity (shows movement/sinking/splashing)
-            if self._sand_velocity_color and hasattr(self, 'sand_state') and self.sand_state.particle_qd is not None:
-                sand_vel_z = self.sand_state.particle_qd[::self._vis_stride, 2]  # Z velocity
-                # Normalize velocity to [0,1] range for coloring
-                # Blue = slow sinking (negative Z), Red = fast movement/splashing
-                vel_norm = torch.clamp((sand_vel_z + 0.5) / 1.0, 0.0, 1.0)  # Adjust offset/scale as needed
-                # Create color array: blue channel decreases with velocity, red increases
-                enhanced_colors = wp.zeros(n_vis, dtype=wp.vec3, device=sand_pts.device)
-                enhanced_colors[:, 0] = vel_norm  # Red channel
-                enhanced_colors[:, 2] = 1.0 - vel_norm  # Blue channel
-                # Green channel stays low for blue-red spectrum
-                enhanced_colors[:, 1] = 0.2
-                final_colors = enhanced_colors
-            else:
-                final_colors = self._vis_colors
-            
+
             self._viewer.log_points(
                 name="sand",
                 points=sand_pts,
-                radii=vis_radii,
-                colors=final_colors,
+                radii=self._vis_radii,
+                colors=self._vis_colors,
             )
-            
-            # --- ENHANCEMENT: Action command vectors ---
-            # Visualize drive commands being sent to wheels
-            if hasattr(self, 'actions') and self.actions is not None:
-                try:
-                    # Get drive actions (first 6 dimensions) - shape: (num_envs, 6)
-                    drive_actions = self.actions[:, :6]
-                    # Convert to wheel angular velocity commands (rad/s)
-                    wheel_vel_cmds = drive_actions * DRIVE_VEL_LIMIT  # From config
-                    
-                    # Show action vectors for first environment only to avoid clutter
-                    env_idx = 0
-                    if env_idx < self.num_envs:
-                        # Get rover base position for this environment
-                        base_pos = self.root_pos[env_idx].cpu().numpy()
-                        
-                        # Approximate wheel positions relative to rover base
-                        # Approximate wheel offsets relative to rover base
-                        wheel_offsets = [
-                            [ 0.30,  0.20, 0.05],  # Front-right wheel
-                            [-0.30,  0.20, 0.05],  # Front-left wheel
-                            [ 0.30, -0.20, 0.05],  # Rear-right wheel
-                            [-0.30, -0.20, 0.05]   # Rear-left wheel
-                        ]
-                        
-                        # Scale factor for vector visibility (tune as needed)
-                        action_scale = 0.25
-                        
-                        # For each wheel, draw an action vector
-                        for wheel_idx, (offset_x, offset_y, offset_z) in enumerate(wheel_offsets):
-                            if wheel_idx < wheel_vel_cmds.shape[1]:
-                                # Calculate wheel position
-                                wheel_pos = np.array([
-                                    base_pos[0] + offset_x,
-                                    base_pos[1] + offset_y,
-                                    base_pos[2] + offset_z
-                                ])
-                                
-                                # Get command magnitude
-                                cmd_mag = abs(wheel_vel_cmds[env_idx, wheel_idx].item())
-                                
-                                # Only show significant commands (>0.05 rad/s)
-                                if cmd_mag > 0.05:
-                                    # Direction: simplified forward vector (X-axis in rover frame)
-                                    # In reality, should transform by rover orientation, but X-forward is good approximation
-                                    forward_dir = np.array([1.0, 0.0, 0.0])
-                                    
-                                    # Create vector: from wheel position in direction of command
-                                    action_vec = forward_dir * cmd_mag * action_scale
-                                    end_point = wheel_pos + action_vec
-                                    
-                                    # Log as two points (start and end) with small radius to appear as line
-                                    # Green color for action vectors
-                                    self._viewer.log_points(
-                                        name=f"action_viz_wheel_{wheel_idx}",
-                                        points=np.array([wheel_pos, end_point]),
-                                        radii=wp.full(2, 0.015),  # Thin lines
-                                        colors=wp.array([
-                                            [0.0, 1.0, 0.0],  # Start point green
-                                            [0.0, 1.0, 0.0]   # End point green
-                                        ])
-                                    )
-                except Exception:
-                    # Fail silently to not break main rendering loop
-                    pass
-            
             self._viewer.end_frame()
         except Exception:
             pass
@@ -779,10 +707,10 @@ class EntrapmentEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         self.joint_vel  = wp.to_torch(self.robot.data.joint_vel)
         self.joint_pos  = wp.to_torch(self.robot.data.joint_pos)
-        self.root_vel_b = wp.to_torch(self.robot.data.root_lin_vel_b)
-        self.ang_vel_b  = wp.to_torch(self.robot.data.root_ang_vel_b)
+        self.root_vel_b = wp.to_torch(self.robot.data.root_com_lin_vel_b)
+        self.ang_vel_b  = wp.to_torch(self.robot.data.root_com_ang_vel_b)
         self.grav_b     = wp.to_torch(self.robot.data.projected_gravity_b)
-        self.lin_acc_w  = wp.to_torch(self.robot.data.body_lin_acc_w)[:, 0, :]
+        self.lin_acc_w  = wp.to_torch(self.robot.data.body_com_lin_acc_w)[:, 0, :]
 
         # Drive wheel velocities normalised  (N, 6)
         drive_vel = self.joint_vel[:, self._drive_ids] / DRIVE_VEL_LIMIT
@@ -822,10 +750,6 @@ class EntrapmentEnv(DirectRLEnv):
 
         # Torque-based anomaly detection (inspired by Bi & Ding 2026)
         # Detect when motor torque approaches limits (indicates trapped/spinning state)
-        applied_torque = wp.to_torch(self.robot.data.applied_effort)
-        drive_torque = applied_torque[:, self._drive_ids]
-        effort_limits = wp.to_torch(self.robot.data.joint_effort_limits)
-        drive_effort_lim = effort_limits[:, self._drive_ids].clamp(min=0.1)
         torque_ratio = (drive_torque / drive_effort_lim).clamp(0.0, 2.0)  # Can exceed 1.0 during anomaly
         mean_torque_ratio = torch.mean(torque_ratio, dim=-1)
         is_anomalous   = (mean_torque_ratio > self._TORQUE_ANOMALY_THRESH)
@@ -855,7 +779,7 @@ class EntrapmentEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
         self.root_pos = wp.to_torch(self.robot.data.root_link_pos_w)
-        v_x = wp.to_torch(self.robot.data.root_lin_vel_b)[:, 0]
+        v_x = wp.to_torch(self.robot.data.root_com_lin_vel_b)[:, 0]
 
         # NaN guard: clamp velocities to sane range
         v_x = v_x.nan_to_num(0.0).clamp(-10.0, 10.0)
@@ -896,7 +820,7 @@ class EntrapmentEnv(DirectRLEnv):
         p_slip    = self.cfg.pen_slip * torch.mean(torch.abs(slip), dim=-1) * (1.0 - self._entrap_flag) * self.cfg.sim.dt
 
         # Tilt penalty
-        ang_vel = wp.to_torch(self.robot.data.root_ang_vel_b).nan_to_num(0.0)
+        ang_vel = wp.to_torch(self.robot.data.root_com_ang_vel_b).nan_to_num(0.0)
         p_tilt  = self.cfg.pen_tilt * torch.norm(ang_vel[:, :2], dim=-1) * self.cfg.sim.dt
 
         # Action smoothness penalty
@@ -928,8 +852,9 @@ class EntrapmentEnv(DirectRLEnv):
         if hasattr(self, '_curriculum_progress'):
             # Increment progress by 1 episode (normalized by total expected episodes)
             # Assuming ~200k timesteps / 20s episode_length * 2Hz policy = ~2000 episodes
+            # Note: Don't multiply by num_envs - curriculum tracks overall training progress
             episode_increment = 1.0 / 2000.0  # Adjust based on expected total episodes
-            self._curriculum_progress += episode_increment * self.num_envs
+            self._curriculum_progress += episode_increment
             self._curriculum_progress = torch.clamp(self._curriculum_progress, max=1.0)
 
         self.extras.setdefault("log", {})
@@ -950,10 +875,10 @@ class EntrapmentEnv(DirectRLEnv):
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
         pos_xy  = self.root_pos[:, :2] - self.scene.env_origins[:, :2]
-        escaped = torch.norm(pos_xy, dim=-1) > ESCAPE_DISTANCE
+        escaped = torch.norm(pos_xy, dim=-1) > ESCAPE_DISTANCE * 3.0  # relaxed for eval/viewer
 
         flipped = grav_b[:, 2] > -0.34   # >70° tilt
-        sunk    = self.root_pos[:, 2] < 0.0
+        sunk    = self.root_pos[:, 2] < -0.20  # chassis root below ground plane by >20cm
 
         terminated = escaped | flipped | sunk
         return terminated, time_out
@@ -969,11 +894,13 @@ class EntrapmentEnv(DirectRLEnv):
         default_root_pose[:, :3] += self.scene.env_origins[env_ids]
 
         # Place rover so wheels are partially buried in sand.
-        # Sand surface is at z = env_origin_z + SAND_DEPTH (0.15m).
-        # Rover root (chassis center) when resting ON sand: z = sand_surface + WHEEL_RADIUS.
-        # Sinkage = how deep wheels are buried (randomized per episode).
-        # z = sand_surface + WHEEL_RADIUS - sinkage_depth
-        # Curriculum learning: start shallow, increase sinkage as training progresses (across episodes)
+        # Sand surface is at z = env_origin_z + SAND_DEPTH (0.15 m).
+        # Wheel center (Drive joint) is CHASSIS_TO_WHEEL_Z (0.167 m) below chassis root.
+        # Chassis z when wheel sits ON sand surface:
+        #   z_chassis = env_z + SAND_DEPTH + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS
+        # Sinkage lowers wheel center into sand:
+        #   z_chassis = env_z + SAND_DEPTH + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS - sinkage
+        # Curriculum: start with shallow sinkage, increase as training progresses.
         progress = min(1.0, self._curriculum_progress.mean().item()) if hasattr(self, '_curriculum_progress') else 0.0
         sinkage_min = self.cfg.dr_sinkage_range[0] + (self.cfg.dr_sinkage_range[1] - self.cfg.dr_sinkage_range[0]) * progress
         sinkage_max = self.cfg.dr_sinkage_range[1]
@@ -983,7 +910,7 @@ class EntrapmentEnv(DirectRLEnv):
         )
         default_root_pose[:, 2] = (
             self.scene.env_origins[env_ids, 2]
-            + SAND_DEPTH + WHEEL_RADIUS - sinkage_depth
+            + SAND_DEPTH + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS - sinkage_depth
         )
 
         # Random yaw (Warp xyzw: w at index 6)
@@ -1054,6 +981,14 @@ class EntrapmentEnv(DirectRLEnv):
                     device=self.device,
                 )
             self._col_imp_ids.fill_(-1)
+
+    def close(self):
+        """Cleanup: unregister this env from MPM post-processing and viewer rendering."""
+        if hasattr(NewtonManager, '_mpm_envs') and self in NewtonManager._mpm_envs:
+            NewtonManager._mpm_envs.remove(self)
+        if hasattr(NewtonManager, '_viewer_envs') and self in NewtonManager._viewer_envs:
+            NewtonManager._viewer_envs.remove(self)
+        super().close()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

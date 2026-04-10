@@ -2,7 +2,7 @@
 Mars Rover ArticulationCfg for Newton regolith entrapment training.
 
 Robot:  6-wheel rocker-bogie Mars rover
-USD:    assets/robots/rover/Mars_Rover.usd (bundled in repo)
+USD:    robots/Mars_Rover.usd
 
 Joint layout
   Drive  (velocity control) : FL/ML/RL/FR/MR/RR_Drive_Continuous   ×6
@@ -20,10 +20,8 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
-# Simplified USD with articulation/physics schemas — used for RL simulation
-# (assets/robots/rover/ contains visual-only USDs for the standalone Newton viewer)
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROVER_USD_PATH = os.path.join(_REPO_ROOT, "robots", "Mars_Rover_Simplified.usd")
+ROVER_USD_PATH = os.path.join(_REPO_ROOT, "robots", "Mars_Rover.usd")
 
 # Wheel radius: 0.10 m
 ROVER_WHEEL_RADIUS = 0.10   # m
@@ -49,7 +47,7 @@ MARS_ROVER_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.20),   # SAND_DEPTH(0.15) + WHEEL_RADIUS(0.10) - slight sinkage
+        pos=(0.0, 0.0, 0.50),   # safe spawn above sand — settles onto ground plane via physics
         joint_pos={".*Steer_Revolute": 0.0},
         joint_vel={
             ".*Drive_Continuous": 0.0,

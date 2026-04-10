@@ -4,9 +4,9 @@ Phase 3 — Onboard rover controller for Raspberry Pi 5.
 Runs a 10 Hz control loop:
   1. Read wheel encoders → wheel velocities
   2. Read MPU6050 IMU → linear acceleration
-  3. Build 12D observation (matches training env)
+  3. Build observation vector (dimension configurable)
   4. Run sinkage detector (ONNX) → state classification
-  5. If entrapped: run recovery policy (ONNX) → wheel commands
+  5. If entrapped: run recovery policy (ONNX, GRU) → wheel commands
   6. Command motors via GPIO PWM
 
 Hardware assumptions:
@@ -15,11 +15,33 @@ Hardware assumptions:
   - L298N dual H-bridge ×2 for motor drive
   - Python: RPi.GPIO, smbus2, onnxruntime, numpy (all pip-installable)
 
+IMPORTANT - Robot Configuration:
+  This controller is designed for a 4-wheel DIFFERENTIAL DRIVE rover with 4 motors.
+  The training environment (Mars_Rover.usd) is a 6-wheel rocker-bogie with 10 actions
+  (6 drive + 4 steer). You MUST retrain the policy with appropriate observation/action
+  dimensions for YOUR specific hardware:
+
+  For 4-wheel differential drive:
+    --num_obs 12  --num_actions 4
+
+  For 6-wheel Mars rover (simulation):
+    --num_obs 29  --num_actions 10
+
+GRU hidden state:
+  The recovery policy is a Recurrent PPO (GRU) model. The ONNX model takes two inputs:
+    obs   : (1, num_obs)         — current observation
+    h_in  : (1, 1, gru_hidden)   — GRU hidden state carried across steps
+  And returns:
+    action : (1, num_actions)
+    h_out  : (1, 1, gru_hidden)  — updated hidden state for next step
+  The controller keeps h_out between steps and resets to zeros at startup.
+
 Usage (on RPi5):
     python rover_controller.py \
         --policy_onnx  recovery_policy.onnx \
         --detector_onnx sinkage_detector.onnx \
-        --run_time 300
+        --run_time 300 \
+        --num_obs 12 --num_actions 4
 
 Simulator stub: if GPIO is not available (dev machine), the script
 runs with a software stub so logic can be tested offline.
@@ -35,6 +57,8 @@ import sys
 import numpy as np
 
 # ── Hardware constants ─────────────────────────────────────────────────────
+GRU_HIDDEN         = 256     # must match exported ONNX model
+GRU_LAYERS         = 1
 WHEEL_RADIUS       = 0.098   # m
 ENCODER_PPR        = 1440    # pulses per revolution (encoder spec)
 MAX_WHEEL_VEL      = 10.0    # rad/s (matches training env)
@@ -189,18 +213,26 @@ class MotorDriver:
 class RoverController:
     """
     10 Hz closed-loop controller integrating sinkage detection and recovery policy.
+    
+    NOTE: Observation and action dimensions must match your trained policy.
+    Default is 12D obs / 4D actions for 4-wheel differential drive hardware.
+    For 6-wheel Mars rover simulation, use 29D obs / 10D actions.
     """
 
-    STATE_NORMAL    = 0
-    STATE_SINKING   = 1
-    STATE_ENTRAPPED = 2
+    STATE_NORMAL     = 0
+    STATE_SINKING    = 1
+    STATE_ENTRAPPED  = 2
 
-    def __init__(self, policy_onnx: str, detector_onnx: str):
+    def __init__(self, policy_onnx: str, detector_onnx: str,
+                 num_obs: int = 12, num_actions: int = 4):
         import onnxruntime as ort
         self._policy   = ort.InferenceSession(policy_onnx,
                              providers=["CPUExecutionProvider"])
         self._detector = ort.InferenceSession(detector_onnx,
                              providers=["CPUExecutionProvider"])
+        
+        self._num_obs = num_obs
+        self._num_actions = num_actions
 
         self._enc    = EncoderReader()
         self._imu    = MPU6050()
@@ -214,16 +246,30 @@ class RoverController:
         self._entrapped_count = 0
         self._state           = self.STATE_NORMAL
 
+        # GRU hidden state: (GRU_LAYERS, 1, GRU_HIDDEN) — reset to zeros at start
+        self._gru_hidden = np.zeros((GRU_LAYERS, 1, GRU_HIDDEN), dtype=np.float32)
+
         # Running mean/std for observation normalisation (initialised online)
-        self._obs_mean = np.zeros(12, dtype=np.float32)
-        self._obs_m2   = np.ones(12, dtype=np.float32)
+        self._obs_mean = np.zeros(num_obs, dtype=np.float32)
+        self._obs_m2   = np.ones(num_obs, dtype=np.float32)
         self._obs_n    = 0
 
     # ── Observation builder ───────────────────────────────────────────────
 
     def _build_obs(self, wheel_vel: np.ndarray, imu_acc: np.ndarray,
                    slip: np.ndarray) -> np.ndarray:
-        """Build 12D obs matching the training environment."""
+        """
+        Build observation vector for policy inference.
+        
+        Default (12D for 4-wheel differential drive):
+            wheel_vel (4D) + slip (4D) + imu_acc (3D) + grav_z (1D) = 12D
+        
+        For 6-wheel Mars rover (29D):
+            Must match training environment:
+            wheel_vel (6) + slip (6) + steer_pos (4) + imu_acc (3) +
+            grav_z (1) + drive_torque (6) + entrap_flag (1) +
+            torque_anomaly (1) + dist_norm (1) = 29D
+        """
         grav_z = np.array([-1.0], dtype=np.float32)   # assume upright by default
         obs = np.concatenate([
             wheel_vel / MAX_WHEEL_VEL,   # 4D normalised
@@ -263,9 +309,12 @@ class RoverController:
         return int(np.argmax(logits, axis=-1)[0])
 
     def _run_policy(self, obs: np.ndarray) -> np.ndarray:
-        obs_in = obs[np.newaxis].astype(np.float32)
-        action = self._policy.run(None, {"obs": obs_in})[0][0]    # (4,)
-        return np.clip(action, -1.0, 1.0)
+        obs_in = obs[np.newaxis].astype(np.float32)                # (1, num_obs)
+        action, h_out = self._policy.run(
+            None, {"obs": obs_in, "h_in": self._gru_hidden}
+        )
+        self._gru_hidden = h_out                                   # carry state forward
+        return np.clip(action[0], -1.0, 1.0)                       # (num_actions,)
 
     # ── Main loop ────────────────────────────────────────────────────────
 
@@ -310,6 +359,11 @@ class RoverController:
                     elif pred == self.STATE_SINKING:
                         self._state = self.STATE_SINKING
                     else:
+                        if self._state == self.STATE_ENTRAPPED:
+                            # Reset GRU hidden state when escape is detected
+                            self._gru_hidden = np.zeros(
+                                (GRU_LAYERS, 1, GRU_HIDDEN), dtype=np.float32
+                            )
                         self._state = self.STATE_NORMAL
 
                 # ── Act ────────────────────────────────────────────────
@@ -322,13 +376,30 @@ class RoverController:
                 elif self._state == self.STATE_SINKING:
                     # Rocking maneuver as fallback
                     sign   = 1 if (step // 10) % 2 == 0 else -1
-                    action = np.full(4, sign, dtype=np.float32)
+                    action = np.full(self._num_actions, sign, dtype=np.float32)
                     print(f"  [{step:5d}] SINKING   → rocking: {sign:+d}")
                 else:
                     # Normal: forward drive
-                    action = np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32)
+                    action = np.full(self._num_actions, 0.5, dtype=np.float32)
 
-                self._motors.set_wheel_velocities(action)
+                # Map actions to 4 motors (handle both 4D and 10D action spaces)
+                # For 4D: action = [FL, FR, RL, RR] motor commands
+                # For 10D: action = [drive_FL, drive_ML, drive_RL, drive_FR, drive_MR, drive_RR,
+                #                     steer_FL, steer_RL, steer_FR, steer_RR]
+                if self._num_actions == 10:
+                    # Extract drive commands for 4 motors (FL, FR, RL, RR)
+                    # Note: Mars rover has 6 wheels, but hardware has 4 motors
+                    # Map: FL(0), FR(3), RL(2), RR(5) → average or select relevant
+                    motor_action = np.array([
+                        action[0],   # FL drive
+                        action[3],   # FR drive  
+                        action[2],   # RL drive
+                        action[5],   # RR drive
+                    ], dtype=np.float32)
+                else:
+                    motor_action = action[:4]  # Use first 4 for 4D action space
+
+                self._motors.set_wheel_velocities(motor_action)
 
                 step += 1
                 elapsed = time.time() - t0
@@ -352,6 +423,10 @@ def main():
     parser.add_argument("--detector_onnx", type=str, required=True)
     parser.add_argument("--run_time",      type=float, default=300.0,
                         help="Total run time in seconds")
+    parser.add_argument("--num_obs",       type=int, default=12,
+                        help="Observation dimension (12 for 4-wheel, 29 for 6-wheel Mars rover)")
+    parser.add_argument("--num_actions",   type=int, default=4,
+                        help="Action dimension (4 for 4-wheel, 10 for 6-wheel Mars rover)")
     args = parser.parse_args()
 
     if not os.path.isfile(args.policy_onnx):
@@ -359,7 +434,8 @@ def main():
     if not os.path.isfile(args.detector_onnx):
         raise FileNotFoundError(f"Detector ONNX not found: {args.detector_onnx}")
 
-    ctrl = RoverController(args.policy_onnx, args.detector_onnx)
+    ctrl = RoverController(args.policy_onnx, args.detector_onnx,
+                          num_obs=args.num_obs, num_actions=args.num_actions)
     ctrl.run(args.run_time)
 
 

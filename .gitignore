@@ -76,10 +76,12 @@ logs/
 *.usd
 *.usda
 *.usdc
+*.mdl
 # But keep bundled rover assets in the repo
-!assets/**/*.usd
-!assets/**/*.usda
-!assets/**/*.usdc
+!robots/*.usd
+!robots/*.usda
+!robots/*.usdc
+!robots/SubUSDs/**
 
 # Experiment outputs (auto-generated)
 experiments/
@@ -119,7 +121,9 @@ Thumbs.db
 # Conda
 conda-info/
 
-# AI involvement files - keep locally but don't push to GitHub
+# Private / internal files — keep locally, don't push to GitHub
 CLAUDE.md
 ROADMAP.md
-docs/RESEARCH_PLAN.md
+docs/
+recent_changes/
+related_papers/

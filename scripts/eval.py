@@ -44,8 +44,7 @@ args_cli, hydra_args = parser.parse_known_args()
 # Force SimulationApp creation without heavy RTX rendering stack.
 # LAUNCH_OV_APP=1 avoids "standalone mode" (no SimulationApp) without loading
 # viewport/replicator extensions. Newton ViewerGL handles visualisation.
-import os as _os
-_os.environ["LAUNCH_OV_APP"] = "1"
+os.environ["LAUNCH_OV_APP"] = "1"
 sys.argv = [sys.argv[0]] + hydra_args
 
 app_launcher = AppLauncher(args_cli)
@@ -65,20 +64,24 @@ from envs.entrapment_env import EntrapmentEnvCfg
 
 
 def load_agent(device, num_obs, num_act, num_envs, checkpoint_path):
-    """Load a trained PPO agent from checkpoint."""
-    from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
+    """Load a trained Recurrent PPO (GRU) agent from checkpoint."""
+    from skrl.agents.torch.ppo import PPO_RNN
+    from skrl.agents.torch.ppo.ppo_rnn import PPO_DEFAULT_CONFIG as PPO_RNN_DEFAULT_CONFIG
     from skrl.memories.torch import RandomMemory
-    from train import PolicyNet, ValueNet
+    _scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    if _scripts_dir not in sys.path:
+        sys.path.insert(0, _scripts_dir)
+    from train import GRUPolicyNet, GRUValueNet, ROLLOUTS
 
     obs_space = gym.spaces.Box(low=-math.inf, high=math.inf, shape=(num_obs,))
     act_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(num_act,))
     models = {
-        "policy": PolicyNet(obs_space, act_space, device),
-        "value":  ValueNet(obs_space, act_space, device),
+        "policy": GRUPolicyNet(obs_space, act_space, device, num_envs=num_envs),
+        "value":  GRUValueNet(obs_space, act_space, device, num_envs=num_envs),
     }
-    memory = RandomMemory(memory_size=1, num_envs=num_envs, device=device)
-    agent = PPO(models=models, memory=memory, cfg=PPO_DEFAULT_CONFIG.copy(),
-                observation_space=obs_space, action_space=act_space, device=device)
+    memory = RandomMemory(memory_size=ROLLOUTS, num_envs=num_envs, device=device)
+    agent = PPO_RNN(models=models, memory=memory, cfg=PPO_RNN_DEFAULT_CONFIG.copy(),
+                    observation_space=obs_space, action_space=act_space, device=device)
     agent.load(checkpoint_path)
     agent.set_running_mode("eval")
     return agent

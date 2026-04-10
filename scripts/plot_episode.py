@@ -46,8 +46,9 @@ _pre.add_argument("--from-file", type=str, default=None)
 _pre_ns, _ = _pre.parse_known_args()
 _OFFLINE = (_pre_ns.from_file is not None)
 
+import math
+
 if not _OFFLINE:
-    import math
     from isaaclab.app import AppLauncher
 
     parser = argparse.ArgumentParser(description="Episode dashboard plotter")
@@ -148,8 +149,15 @@ def _snap_heightmap(raw_env, env_idx=0, grid_res=60):
     """
     Bin MPM particle positions into a 2D surface height map (env-local coords).
     Returns (heightmap [grid_res × grid_res], extent_tuple) or (None, None).
+    
+    DISABLED: CUDA memory issues when extracting particle positions during rendering.
+    TODO: Re-enable by:
+      1. Copying particle data to CPU before rendering
+      2. Using a separate CUDA stream for particle extraction
+      3. Reducing grid_res or particle count during extraction
+    
+    Workaround: Run eval.py with --save-data, then use offline plotting mode.
     """
-    # TEMPORARILY DISABLE HEIGHTMAP EXTRACTION TO AVOID CUDA MEMORY ISSUES
     return None, None
 
 

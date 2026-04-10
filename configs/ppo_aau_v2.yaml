@@ -1,9 +1,9 @@
-# PPO hyperparameters for AAU Mars Rover entrapment recovery
-# Used by scripts/train.py
+# PPO hyperparameters for Mars Rover regolith entrapment recovery
+# Reference config — actual hyperparameters are set inline in scripts/train.py
 
 experiment:
-  name: ppo_aau_mars_v2
-  directory: experiments/aau_mars_entrapment
+  name: mars_rover_regolith_v1
+  directory: experiments/regolith_recovery
   checkpoint_interval: 2000
   write_interval: 100
 
@@ -22,12 +22,13 @@ ppo:
   value_loss_scale: 1.0
 
 model:
-  # Recurrent layer configuration for temporal modeling (inspired by Bi & Ding 2026)
-  recurrent_layers: 1
-  recurrence_type: lstm
-  memory_size: 128
-  policy_layers: [128, 64]  # First layer feeds into LSTM
-  value_layers: [128, 64]
+  # Recurrent PPO with GRU (temporal modeling for entrapment detection + rocking)
+  recurrence_type: gru
+  gru_hidden: 256
+  gru_layers: 1
+  sequence_length: 16      # BPTT window; rollouts must be divisible by this
+  encoder_dim: 128
+  head_layers: [64]
   activation: elu
 
 environment:
@@ -43,7 +44,7 @@ reward:
     pen_tilt: 0.3
     pen_action_delta: 0.05
     pen_abnormal: 0.5      # Penalty for sustained anomalous states
-    rew_rocking: 0.1       # Bonus for rocking motion when trapped
+    rew_rocking: 1.0       # Bonus for rocking motion when trapped
 
 solver:
   type: xpbd
@@ -56,7 +57,7 @@ mpm:
   sand_half_y: 0.6
   sand_depth: 0.15
   particle_mu: 0.7
-  particle_ke: 3.0e7
+  particle_ke: 5.0e4     # 5e4 Pa (lower to avoid CFL violations; higher causes particle explosions)
 
 training:
   seed: 42

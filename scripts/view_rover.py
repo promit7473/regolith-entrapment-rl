@@ -13,17 +13,24 @@ import os
 import argparse
 import numpy as np
 
+# Load path configuration
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _REPO_ROOT)
+from paths import PXR_EXT, NEWTON_DIR
+
 # pxr MUST be imported before warp — import order matters to avoid segfault
-_PXR_EXT = "/home/mhpromit7473/.local/share/ov/data/exts/v2/omni.usd.libs-4fde11c8f289f1f4"
-if _PXR_EXT not in sys.path:
-    sys.path.insert(0, _PXR_EXT)
+_PXR_EXT_STR = str(PXR_EXT)
+if _PXR_EXT_STR not in sys.path:
+    sys.path.insert(0, _PXR_EXT_STR)
 from pxr import Usd, UsdGeom, UsdPhysics, Sdf  # noqa: F401 — import before warp
 
 # Newton must be importable
-sys.path.insert(0, "/home/mhpromit7473/newton")
+sys.path.insert(0, str(NEWTON_DIR))
 
+import mujoco
 import warp as wp
 import newton
+import newton.examples
 from newton.viewer import ViewerGL
 
 @wp.kernel
@@ -43,8 +50,7 @@ def clamp_escaped_particles(
         wp.clamp(p[2], o[2] - float(0.05),  o[2] + depth + float(0.10)),
     )
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROVER_USD = os.path.join(_REPO_ROOT, "assets", "robots", "rover", "Mars_Rover.usd")
+ROVER_USD = os.path.join(_REPO_ROOT, "robots", "Mars_Rover.usd")
 
 
 def main():
@@ -59,9 +65,13 @@ def main():
 
     # ── Build model ──────────────────────────────────────────────────────
     builder = newton.ModelBuilder(up_axis=newton.Axis.Z)
+    newton.solvers.SolverMuJoCo.register_custom_attributes(builder)
 
-    builder.default_shape_cfg.ke = 1.0e6
-    builder.default_shape_cfg.kd = 1.0e4
+    builder.default_joint_cfg = newton.ModelBuilder.JointDofConfig(
+        limit_ke=1.0e3, limit_kd=1.0e1, friction=1e-5,
+    )
+    builder.default_shape_cfg.ke = 2.0e3
+    builder.default_shape_cfg.kd = 1.0e2
     builder.default_shape_cfg.kf = 1.0e3
     builder.default_shape_cfg.mu = 0.75
 
@@ -70,16 +80,53 @@ def main():
     builder.add_usd(
         ROVER_USD,
         xform=wp.transform(
-            wp.vec3(0.0, 0.0, 0.30),
+            wp.vec3(0.0, 0.0, 0.50),
             wp.quat_identity(),
         ),
+        collapse_fixed_joints=False,
+        enable_self_collisions=False,
+        hide_collision_shapes=True,
         load_visual_shapes=True,
-        hide_collision_shapes=False,
     )
 
     n_bodies = builder.body_count
     n_joints = builder.joint_count
-    print(f"Rover loaded: {n_bodies} bodies, {n_joints} joints")
+    n_usd_shapes = builder.shape_count
+    print(f"Rover loaded: {n_bodies} bodies, {n_joints} joints, {n_usd_shapes} USD shapes")
+
+    # Disable collision on ALL USD mesh shapes — 329 mesh shapes flood the
+    # contact buffer (nconmax), causing uneven support → rover tears apart.
+    # Keep VISIBLE flag so the rover still renders.
+    for s in range(n_usd_shapes):
+        builder.shape_flags[s] = builder.shape_flags[s] & ~newton.ShapeFlags.COLLIDE_SHAPES
+    print(f"Disabled COLLIDE_SHAPES on {n_usd_shapes} USD mesh shapes")
+
+    # Add proxy collision spheres ONLY on wheel bodies (6 Drive joints).
+    # These are the ONLY shapes that collide with the ground — simple and stable.
+    proxy_cfg = newton.ModelBuilder.ShapeConfig(
+        ke=2.0e3, kd=1.0e2, kf=1.0e3, mu=0.75, density=0.0,
+        has_shape_collision=True,
+        is_visible=False,
+    )
+    body_keys = builder.body_key if hasattr(builder, 'body_key') else []
+    n_wheels = 0
+    for b in range(n_bodies):
+        name = body_keys[b] if b < len(body_keys) else ''
+        if 'Drive' in name:
+            builder.add_shape_sphere(body=b, radius=0.10, cfg=proxy_cfg)
+            n_wheels += 1
+    print(f"Added {n_wheels} proxy collision spheres on wheel bodies")
+
+    # Joint stiffness/damping for all DOFs
+    for i in range(builder.joint_dof_count):
+        builder.joint_target_ke[i] = 150
+        builder.joint_target_kd[i] = 5
+
+    # Fix: MuJoCo requires actfrcrange[0] < actfrcrange[1].
+    # Passive joints in the USD have effort_limit=0 → set small value.
+    for i in range(len(builder.joint_effort_limit)):
+        if builder.joint_effort_limit[i] <= 0.0:
+            builder.joint_effort_limit[i] = 1.0
 
     builder.add_ground_plane()
 
@@ -116,7 +163,7 @@ def main():
     print(f"Final model: {model.body_count} bodies, {model.shape_count} shapes, "
           f"{model.particle_count} particles")
 
-    model.set_gravity(wp.vec3(0.0, 0.0, 0.0))
+    model.set_gravity(wp.vec3(0.0, 0.0, -3.72))  # Mars gravity (3.72 m/s²)
 
     # ── Solver ───────────────────────────────────────────────────────────
     fps = 50
@@ -124,7 +171,19 @@ def main():
     substeps = 4
     sim_dt = frame_dt / substeps
 
-    solver = newton.solvers.SolverXPBD(model, iterations=16)
+    # MuJoCo solver — stable for articulated robots
+    solver = newton.solvers.SolverMuJoCo(
+        model,
+        cone=mujoco.mjtCone.mjCONE_ELLIPTIC,
+        impratio=100,
+        iterations=100,
+        ls_iterations=50,
+        nconmax=50,
+        njmax=200,
+    )
+
+    # Collision pipeline
+    collision_pipeline = newton.examples.create_collision_pipeline(model)
 
     # MPM solver (if sand)
     mpm_solver = None
@@ -142,9 +201,7 @@ def main():
         mpm_opt.air_drag = 1.0
 
         mpm_model = SolverImplicitMPM.Model(model, mpm_opt)
-        mpm_model.setup_collider(
-            body_mass=wp.zeros_like(model.body_mass),
-        )
+        mpm_model.setup_collider(model=model, ground_height=0.0)
         mpm_solver = SolverImplicitMPM(mpm_model, mpm_opt)
         model.particle_mu = 0.7
         model.particle_ke = 5.0e4
@@ -157,9 +214,15 @@ def main():
         mpm_solver.enrich_state(state_0)
         mpm_solver.enrich_state(state_1)
 
+    control = model.control()
+
+    # Forward kinematics
     newton.eval_fk(model, state_0.joint_q, state_0.joint_qd, state_0)
 
-    # Print body positions so we know where the rover actually spawns
+    # Initial collision
+    contacts = model.collide(state_0, collision_pipeline=collision_pipeline)
+
+    # Print body positions
     body_q = state_0.body_q.numpy()
     print("Body positions after FK:")
     for i in range(min(model.body_count, 5)):
@@ -167,21 +230,17 @@ def main():
         name = builder.body_key[i] if hasattr(builder, 'body_key') else f'body_{i}'
         print(f"  {name}: ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f})")
 
-    control = model.control()
-
     # ── Viewer ───────────────────────────────────────────────────────────
     print("Opening ViewerGL...")
     viewer = ViewerGL(width=1440, height=900, vsync=False)
     viewer.set_model(model)
-    viewer.show_visual = True
-    viewer.show_collision = True   # USD shapes load as collision — needed to see them
     if model.particle_count > 0:
         viewer.show_particles = True
 
     viewer.set_camera(
-        pos=wp.vec3(2.0, -2.0, 1.5),
-        pitch=-0.25,
-        yaw=0.4,
+        pos=wp.vec3(2.5, -2.5, 1.5),
+        pitch=-20.0,
+        yaw=135.0,
     )
 
     # ── Simulation loop ──────────────────────────────────────────────────
@@ -190,9 +249,11 @@ def main():
 
     print(f"\n{'='*50}")
     print(f"  Mars Rover (6-wheel) — Newton Standalone Viewer")
+    print(f"  Solver: MuJoCo (stable for articulated robots)")
     print(f"  Bodies: {model.body_count} | Shapes: {model.shape_count} | "
           f"Particles: {model.particle_count}")
     print(f"  Sand: {'ON' if mpm_solver else 'OFF'}")
+    print(f"  Gravity: Mars (3.72 m/s²)")
     print(f"  Controls: WASD + mouse drag to move camera")
     print(f"{'='*50}\n")
 
@@ -201,13 +262,12 @@ def main():
             for _ in range(substeps):
                 state_0.clear_forces()
                 viewer.apply_forces(state_0)
-                contacts = model.collide(state_0)
+                contacts = model.collide(state_0, collision_pipeline=collision_pipeline)
                 solver.step(state_0, state_1, control, contacts=contacts, dt=sim_dt)
                 state_0, state_1 = state_1, state_0
 
             if mpm_solver:
                 mpm_solver.step(state_0, state_0, contacts=None, control=None, dt=frame_dt)
-                # clamp escaped particles so VDB bounding box stays bounded
                 origin = wp.array(np.array([[0.0, 0.0, 0.0]], dtype=np.float32), dtype=wp.vec3)
                 wp.launch(clamp_escaped_particles,
                           dim=model.particle_count,
@@ -216,6 +276,7 @@ def main():
 
             viewer.begin_frame(sim_time)
             viewer.log_state(state_0)
+            viewer.log_contacts(contacts, state_0)
             viewer.end_frame()
 
             sim_time += frame_dt
@@ -224,8 +285,10 @@ def main():
             if args.num_frames > 0 and frame >= args.num_frames:
                 break
 
-            if frame % 100 == 0:
-                print(f"  frame {frame}  sim_time={sim_time:.1f}s")
+            if frame % 200 == 0:
+                bq = state_0.body_q.numpy()
+                z0 = bq[0][2]
+                print(f"  frame {frame}  sim_time={sim_time:.1f}s  body_z={z0:.4f}")
 
     except KeyboardInterrupt:
         print("\nStopped.")

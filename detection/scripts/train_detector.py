@@ -2,12 +2,15 @@
 Phase 1 — Train the CNN-GRU sinkage detector.
 
 Usage:
-    python phase1_detection/scripts/train_detector.py \
-        --data_dir phase1_detection/data \
-        --out_dir  phase1_detection/models/saved \
+    python detection/scripts/train_detector.py \
+        --data_dir detection/data \
+        --out_dir  detection/models/saved \
         --epochs 50 --batch_size 256
 
 Loads all .npz files from data_dir, trains SinkageDetector, saves best checkpoint.
+
+Note: Data collection scripts are in detection/scripts/. Generate training data
+using eval.py --save-data or a custom data collection script.
 """
 
 import argparse
@@ -24,14 +27,17 @@ from sklearn.metrics import classification_report, confusion_matrix
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from phase1_detection.models.cnn_gru import SinkageDetector, LABEL_NAMES
+from detection.models.cnn_gru import SinkageDetector, LABEL_NAMES
 
 
 def load_dataset(data_dir: str):
     files = sorted(glob.glob(os.path.join(data_dir, "sequences_*.npz")))
     if not files:
-        raise FileNotFoundError(f"No sequence files found in {data_dir}. "
-                                f"Run scripts/collect_data.py first.")
+        raise FileNotFoundError(
+            f"No sequence files found in {data_dir}. "
+            f"Generate training data using eval.py --save-data or create a custom "
+            f"data collection script to produce sequences_*.npz files."
+        )
     Xs, ys = [], []
     for f in files:
         d = np.load(f)
@@ -46,9 +52,9 @@ def load_dataset(data_dir: str):
 def train():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir",   type=str,
-                        default=os.path.join(REPO_ROOT, "phase1_detection", "data"))
+                        default=os.path.join(REPO_ROOT, "detection", "data"))
     parser.add_argument("--out_dir",    type=str,
-                        default=os.path.join(REPO_ROOT, "phase1_detection", "models", "saved"))
+                        default=os.path.join(REPO_ROOT, "detection", "models", "saved"))
     parser.add_argument("--epochs",     type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--lr",         type=float, default=3e-4)
@@ -88,6 +94,7 @@ def train():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     best_f1 = 0.0
+    ckpt = None
     print(f"\nTraining for {args.epochs} epochs on {device} ...\n")
 
     for epoch in range(1, args.epochs + 1):
@@ -145,7 +152,10 @@ def train():
     # ── Final report ──────────────────────────────────────────────────────
     print(f"\n{'='*55}")
     print(f"  Best val macro F1: {best_f1:.3f}")
-    print(f"  Checkpoint: {ckpt}")
+    if ckpt:
+        print(f"  Checkpoint: {ckpt}")
+    else:
+        print("  No checkpoint saved (no improvement during training)")
     print(f"\nClassification report (final epoch):")
     print(classification_report(all_true, all_pred, target_names=LABEL_NAMES,
                                 zero_division=0))

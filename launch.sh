@@ -4,18 +4,24 @@
 #
 # Usage:
 #   ./launch.sh scripts/train.py --headless --num_envs 64              # Headless training
-#   ./launch.sh scripts/view.py  --num_envs 4 --visualizer omniverse   # Full Isaac Sim GUI
-#   ./launch.sh scripts/view.py  --headless  --num_envs 4              # Newton ViewerGL (particles only)
+#   ./launch.sh scripts/eval.py  --num_envs 4                           # Newton ViewerGL
+#   ./launch.sh scripts/eval.py  --headless  --num_envs 4               # Headless evaluation
 #
 # For full Isaac Sim GUI from desktop: open view_gui.sh from your GNOME Terminal.
+#
+# Environment variables (optional, see paths.py):
+#   ISAAC_SIM_PATH     — Isaac Sim installation
+#   ISAACLAB_SRC_PATH  — Isaac Lab source directory
+#   NEWTON_PATH        — Newton installation
+#   CONDA_ENV_PATH     — Conda environment path
+#   RLROVER_ASSETS     — RLRoverLab assets directory
 # ─────────────────────────────────────────────────────────────────────────────
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ISAAC_SIM="/home/mhpromit7473/isaac-sim"
-ISAACLAB_SRC="/home/mhpromit7473/IsaacLab/source"
-NEWTON_DIR="/home/mhpromit7473/newton"
-CONDA_ENV="/home/mhpromit7473/miniconda3/envs/env_isaaclab"
-PXR_EXT="/home/mhpromit7473/.local/share/ov/data/exts/v2/omni.usd.libs-4fde11c8f289f1f4"
+
+# Source path configuration (with environment variable overrides)
+source "$REPO_DIR/paths.sh"
+
 PYTHON="$CONDA_ENV/bin/python3"
 
 # Kit kernel must be importable BEFORE sourcing Isaac Sim env (for omni.kit bootstrap)
