@@ -1526,6 +1526,14 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
     da/.style={-Stealth, thick, dashed, color=black!35},
 ]
 
+%% ─── RPi5 bounding box FIRST so all nodes render on top ───
+\node[rectangle, draw=black!45, thick, rounded corners=8pt,
+      dashed, fill=blue!2,
+      minimum width=11.6cm, minimum height=10.4cm]
+      (rpi) at (0, 1.6) {};
+\node[anchor=north west, font=\footnotesize\itshape, text=black!50]
+    at (rpi.north west) {Onboard Computer \ (RPi\,5)};
+
 %% ─── nodes ───────────────────────────────────────────────────
 \node[sbox] (imu) at (-4,  5.6) {\textbf{IMU}\\{\scriptsize acc, gyro}};
 \node[sbox] (enc) at ( 0,  5.6) {\textbf{Wheel Encoders}\\{\scriptsize vel, torque}};
@@ -1551,14 +1559,6 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
 
 \node[mbox] (mot) at (0, -2.6)
     {\textbf{Motor Commands}\\{\scriptsize drive\,(6)\,+\,steer\,(4)}};
-
-%% ─── RPi5 bounding box (drawn before arrows so it sits behind) ───
-\node[rectangle, draw=black!45, thick, rounded corners=8pt,
-      dashed, fill=blue!2,
-      minimum width=11.6cm, minimum height=10.4cm]
-      (rpi) at (0, 1.6) {};
-\node[anchor=north west, font=\footnotesize\itshape, text=black!50]
-    at (rpi.north west) {Onboard Computer \ (RPi\,5)};
 
 %% ─── arrows ──────────────────────────────────────────────────
 
