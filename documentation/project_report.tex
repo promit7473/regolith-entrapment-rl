@@ -32,13 +32,26 @@
 \usepackage{fancyhdr}
 \usepackage{titlesec}
 \usepackage{todonotes}
+\usepackage[most]{tcolorbox}
+\usepackage{colortbl}
+% Reusable dashed equation/table box (defined after xcolor so headerblue is available)
+\AtBeginDocument{%
+  \tcbset{
+    dashedbox/.style={
+      enhanced, colback=white, colframe=white,
+      borderline={0.8pt}{0pt}{headerblue, dashed},
+      arc=6pt, boxrule=0pt,
+      left=14pt, right=14pt, top=6pt, bottom=6pt
+    }
+  }%
+}
 
 % ──────────────────────────── Page Geometry ────────────────────────
 \usepackage[
     top=2.5cm,
     bottom=2.5cm,
-    left=3cm,
-    right=2.5cm,
+    left=1.8cm,
+    right=1.8cm,
     headheight=14pt
 ]{geometry}
 
@@ -162,41 +175,103 @@ Future work includes scaling training to 2M+ timesteps, developing a CNN-GRU sin
 \newpage
 \section{Introduction}
 
+% ── Opening highlight box ──────────────────────────────────────────────────
+\begin{tcolorbox}[
+    enhanced, colback=white, colframe=headerblue,
+    boxrule=0.8pt, arc=5pt,
+    left=12pt, right=12pt, top=8pt, bottom=8pt
+]
+{\color{black!60} On May 1, 2009, NASA's Spirit rover drove into soft sulfate-rich soil and
+never moved again. Eight months of recovery attempts, thousands of ground-based
+tests, and 150 million kilometres of communication delay could not save it.
+This project asks: \textbf{what if the rover could have saved itself?}}
+\end{tcolorbox}
+
+\vspace{8pt}
+
 \subsection{Problem Statement}
 
-Planetary exploration rovers operating on Mars and other celestial bodies face a critical operational challenge: wheel entrapment in granular regolith. When a rover's wheels sink into loose sand or soil, the vehicle loses mobility and may become permanently immobilized. This problem is particularly acute for several reasons:
+Planetary exploration rovers operating on Mars and other celestial bodies face a critical operational challenge: \textbf{wheel entrapment in granular regolith}. When a rover's wheels sink into loose sand or soil, the vehicle loses mobility and may become permanently immobilized. This problem is particularly acute for several reasons:
 
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Wheeled rovers with limited articulation}: The rocker-bogie suspension system, while excellent for traversing rough terrain, distributes weight in ways that can cause individual wheels to sink disproportionately in soft soil.
+\begin{itemize}[leftmargin=*, itemsep=3pt]
+    \item \textbf{Rocker-bogie suspension}: While excellent for rough terrain, it distributes weight in ways that can cause individual wheels to sink disproportionately in soft soil.
     \item \textbf{Sandy and cratered terrain}: The Martian surface contains extensive dune fields, impact craters filled with fine regolith, and wind-blown sand deposits that present persistent mobility hazards.
-    \item \textbf{Long communication delays}: With Earth--Mars communication latencies of 4--24 minutes one-way, real-time teleoperation for recovery is impractical, necessitating autonomous solutions.
-    \item \textbf{Extended mission lifetimes}: As missions extend beyond planned durations, rovers inevitably encounter terrain types not anticipated in original mission planning.
+    \item \textbf{Long communication delays}: With Earth--Mars one-way latencies of 4--24 minutes, real-time teleoperation for recovery is impractical, necessitating fully autonomous solutions.
+    \item \textbf{Extended mission lifetimes}: As missions extend beyond planned durations, rovers inevitably encounter terrain types not anticipated during original mission planning.
 \end{itemize}
 
-Wheel entrapment can be formally characterized by the conjunction of three conditions:
+\vspace{4pt}
+Wheel entrapment is formally characterised by the simultaneous satisfaction of three conditions:
+
+\begin{tcolorbox}[dashedbox]
 \begin{equation}
-    \text{Entrapment} \Leftrightarrow \left( |v_x| < v_{\text{thresh}} \right) \wedge \left( \bar{\sigma}_{\text{slip}} > \sigma_{\text{thresh}} \right) \wedge \left( d_{\text{sinkage}} > 0 \right)
+    f_{\text{ent}} = 1 \;\iff\;
+    \begin{cases}
+        |v_x| < 0.15\;\text{m/s} & \text{(near-zero forward velocity)} \\[4pt]
+        \bar{\sigma}_{\text{slip}} > 0.4 & \text{(high mean wheel slip)} \\[4pt]
+        d_{\text{sinkage}} > 0 & \text{(positive wheel sinkage)}
+    \end{cases}
     \label{eq:entrapment_definition}
 \end{equation}
-where $v_x$ is the body-frame forward velocity, $\bar{\sigma}_{\text{slip}}$ is the mean slip ratio across all wheels, and $d_{\text{sinkage}}$ is the wheel sinkage depth into the granular medium.
+\end{tcolorbox}
+
+\noindent where $v_x$ is the body-frame forward velocity, $\bar{\sigma}_{\text{slip}} = \frac{1}{6}\sum_i \sigma_i$ is the mean slip ratio across all six drive wheels, and $d_{\text{sinkage}}$ is the wheel sinkage depth into the granular medium. All three conditions must hold for at least \textbf{15 consecutive steps} ($0.6\,\text{s}$) before the entrapment flag $f_{\text{ent}}$ is raised.
 
 \subsection{Problem Definition}
 
-The entrapment recovery problem is formulated as a partially observable Markov decision process (POMDP). At each timestep $t$, the rover receives a proprioceptive observation $\mathbf{o}_t \in \mathbb{R}^{29}$ and must select an action $\mathbf{a}_t \in \mathbb{R}^{10}$ to maximize the expected cumulative reward:
+The entrapment recovery problem is formulated as a \textbf{partially observable Markov decision process (POMDP)}. At each timestep $t$, the rover receives a proprioceptive observation $\mathbf{o}_t \in \mathbb{R}^{29}$ and must select an action $\mathbf{a}_t \in \mathbb{R}^{10}$ to maximise the expected discounted return:
+\begin{tcolorbox}[dashedbox]
 \begin{equation}
-    J(\pi_\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \gamma^t R(\mathbf{s}_t, \mathbf{a}_t) \right]
+    J(\pi_\theta) = \mathbb{E}_{\tau \sim \pi_\theta}
+    \left[ \sum_{t=0}^{T} \gamma^t\, R(\mathbf{s}_t, \mathbf{a}_t) \right], \qquad \gamma = 0.99
     \label{eq:objective}
 \end{equation}
-where $\pi_\theta$ is the parameterized policy, $\gamma = 0.99$ is the discount factor, and $R$ is the shaped reward function that encourages forward progress, escape milestones, and penalizes excessive slip, tilt, and jerky actions.
+\end{tcolorbox}
 
-The partial observability arises because the rover cannot directly sense:
-\begin{itemize}
-    \item The depth of sinkage for each wheel
-    \item The local terrain composition (particle density, cohesion)
-    \item The global position relative to the entrapment zone boundary
-\end{itemize}
+The shaped reward $R$ is the sum of seven terms — three incentives and four penalties — designed to reward escape while discouraging dangerous manoeuvres:
 
-This motivates the use of \textbf{recurrent} policy networks (GRU) that maintain a hidden state $\mathbf{h}_t$ to implicitly estimate unobserved state variables from the history of observations.
+\begin{tcolorbox}[dashedbox]
+\begin{equation}
+    R_t \;=\; \underbrace{r_{\text{progress}} + r_{\text{escape}} + r_{\text{rocking}}}_{\text{incentives}}
+          \;-\; \underbrace{p_{\text{slip}} + p_{\text{tilt}} + p_{\text{smooth}} + p_{\text{abnormal}}}_{\text{penalties}}
+    \label{eq:reward_total}
+\end{equation}
+\end{tcolorbox}
+
+\vspace{6pt}
+
+\begin{tcolorbox}[dashedbox, left=0pt, right=0pt, top=4pt, bottom=4pt]
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{8pt}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\linewidth}{llX}
+\toprule
+\rowcolor{lightblue}
+\textbf{Term} & \textbf{Weight} & \textbf{Formula \& Description} \\
+\midrule
+\multicolumn{3}{l}{\textit{\small\color{headerblue} Incentives}} \\
+\midrule
+$r_{\text{progress}}$ & $+1.5$  & $v_x \cdot \Delta t \cdot (1 - f_{\text{ent}})$ \quad — forward velocity reward, suppressed when trapped so rocking takes over \\
+$r_{\text{escape}}$   & $+20.0$ & Sparse milestones at 0.5\,m ($\times0.2$), 1.0\,m ($\times0.4$), 1.5\,m ($\times1.0$) scaled by $\tau_{\text{time}}$; plus dense shaping $0.5\,d\,\Delta t$ per step \\
+$r_{\text{rocking}}$  & $+2.0$  & $\Delta v_x \cdot f_{\text{ent}} \cdot \Delta t$ \quad — rewards velocity change during entrapment to encourage active rocking manoeuvres \\
+\midrule
+\multicolumn{3}{l}{\textit{\small\color{marsred} Penalties}} \\
+\midrule
+$p_{\text{slip}}$     & $0.5$  & $\bar{\sigma}_{\text{slip}} \cdot (1 - f_{\text{ent}}) \cdot \Delta t$ \quad — penalises excessive wheel slip during normal driving \\
+$p_{\text{tilt}}$     & $0.3$  & $\|\boldsymbol{\omega}_{xy}\|_2 \cdot \Delta t$ \quad — penalises roll/pitch angular velocity to maintain rover stability \\
+$p_{\text{smooth}}$   & $0.05$ & $\|\mathbf{a}_t - \mathbf{a}_{t-1}\|_2 \cdot \Delta t$ \quad — penalises jerky action changes to encourage smooth control \\
+$p_{\text{abnormal}}$ & $0.3$  & $(-v_x)^{+} \cdot f_{\text{anomaly}} \cdot (1 - f_{\text{ent}}) \cdot \Delta t$ \quad — penalises backward motion under torque anomaly when not trapped \\
+\bottomrule
+\multicolumn{3}{l}{\footnotesize $f_{\text{ent}}$: entrapment flag;\enspace $f_{\text{anomaly}}$: torque anomaly flag;\enspace $d$: distance from spawn;\enspace $\Delta t = 0.04\,\text{s}$}
+\end{tabularx}
+\caption{Reward function v4 used during PPO training. The escape bonus (weight 20) dominates during entrapment, while the rocking bonus encourages active self-extraction. Compared to Bi \& Ding (2026), who use GAIL-fused rewards ($R = 0.9R_H + 0.1R_D$) with expert demonstrations, our reward is fully handcrafted and designed for 6-DOF steering under Martian gravity without requiring any expert data.}
+\label{tab:reward_function}
+\end{table}
+\end{tcolorbox}
+
+The partial observability arises because the rover cannot directly sense the depth of sinkage per wheel, the local terrain composition, or its position relative to the entrapment zone boundary. This motivates a \textbf{recurrent policy} (GRU) that maintains a hidden state $\mathbf{h}_t$ to implicitly estimate these unobserved variables from the history of observations.
 
 \subsection{Motivation: The Spirit Rover Incident (2009)}
 
@@ -257,17 +332,61 @@ Key lessons from the Spirit incident that inform this research:
     \item \textbf{Granular physics are critical}: The behavior of the sulfate-rich soil was poorly understood, leading to extraction commands that inadvertently worsened the entrapment.
 \end{enumerate}
 
+\newpage
 \subsection{Objectives}
 
-This research aims to develop a complete autonomous entrapment detection and recovery system for Mars rovers. The specific objectives are:
+This research aims to develop a complete autonomous entrapment detection and recovery system for Mars rovers. The five specific objectives are:
 
-\begin{enumerate}[label=\textbf{OBJ\arabic*:}]
-    \item \textbf{Realistic Simulation}: Build a high-fidelity simulation environment coupling granular material physics (Newton MPM) with articulated rover dynamics (Isaac Lab) under Martian gravity.
-    \item \textbf{Entrapment Detection}: Develop dual-sensor detection combining slip-based and torque-based indicators for robust, real-time entrapment classification.
-    \item \textbf{Recovery Policy}: Train a recurrent RL policy (PPO-GRU) that discovers and executes effective escape maneuvers from varying degrees of wheel sinkage.
-    \item \textbf{Curriculum Learning}: Implement progressive training with increasing sinkage difficulty to enable learning of robust escape strategies.
-    \item \textbf{Sim-to-Real Transfer}: Establish an ONNX export pipeline for deployment on embedded hardware (Raspberry Pi 5) for real-time onboard inference.
-\end{enumerate}
+\tcbset{
+    objbox/.style={
+        enhanced,
+        colback=white,
+        colframe=headerblue,
+        boxrule=0.8pt,
+        arc=4pt,
+        left=10pt, right=8pt, top=5pt, bottom=5pt,
+        fonttitle=\small\bfseries,
+        coltitle=black,
+        attach title to upper,
+        title after break={},
+    }
+}
+
+\vspace{6pt}
+\begin{tcolorbox}[objbox, colframe=headerblue, title={1.\enspace Realistic Simulation\enspace---\enspace}]
+Build a high-fidelity simulation environment coupling granular material physics (Newton MPM)
+with articulated rover dynamics (Isaac Lab) under Martian gravity ($3.72\,\text{m/s}^2$),
+enabling realistic wheel--soil interaction for RL training.
+\end{tcolorbox}
+
+\vspace{4pt}
+\begin{tcolorbox}[objbox, colframe=headerblue, title={2.\enspace Entrapment Detection\enspace---\enspace}]
+Develop a dual-sensor detection scheme combining slip-ratio monitoring and drive-torque
+anomaly detection for robust, real-time entrapment classification without external
+sensing or GPS.
+\end{tcolorbox}
+
+\vspace{4pt}
+\begin{tcolorbox}[objbox, colframe=headerblue, title={3.\enspace Recovery Policy\enspace---\enspace}]
+Train a recurrent RL policy (PPO + GRU) that autonomously discovers and executes
+effective escape manoeuvres — including rocking, steering pivots, and differential
+drive — from varying degrees of wheel sinkage (6–12\,cm curriculum).
+\end{tcolorbox}
+
+\vspace{4pt}
+\begin{tcolorbox}[objbox, colframe=headerblue, title={4.\enspace Curriculum Learning\enspace---\enspace}]
+Implement progressive difficulty scheduling that begins with shallow sinkage and
+gradually increases entrapment severity, enabling the policy to learn robust escape
+strategies that generalise across terrain conditions.
+\end{tcolorbox}
+
+\vspace{4pt}
+\begin{tcolorbox}[objbox, colframe=headerblue, title={5.\enspace Sim-to-Real Transfer\enspace---\enspace}]
+Establish a complete deployment pipeline — domain randomisation during training,
+ONNX export of the trained GRU policy, and real-time inference on a Raspberry Pi 5
+— bridging the simulation--reality gap for onboard autonomous operation.
+\end{tcolorbox}
+\vspace{6pt}
 
 
 % ══════════════════════════════════════════════════════════════════
@@ -375,25 +494,37 @@ The Material Point Method (MPM) has emerged as the gold standard for simulating 
 
 Table~\ref{tab:related_work_comparison} positions our contribution relative to the reviewed literature.
 
+\begin{tcolorbox}[dashedbox, left=0pt, right=0pt, top=4pt, bottom=4pt]
 \begin{table}[H]
 \centering
 \caption{Comparison of related works on wheeled robot entrapment and recovery}
 \label{tab:related_work_comparison}
 \small
-\begin{tabular}{@{}p{2.2cm}p{1.6cm}p{1.4cm}p{1.4cm}p{1.3cm}p{1.5cm}p{2.5cm}@{}}
+\setlength{\tabcolsep}{8pt}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\linewidth}{>{\raggedright}p{1.8cm} >{\raggedright}p{2cm} X >{\raggedright}p{1.6cm} >{\raggedright}p{1.5cm} >{\centering}p{0.7cm} >{\centering\arraybackslash}p{0.8cm}}
 \toprule
-\textbf{Work} & \textbf{Robot} & \textbf{Terrain} & \textbf{Method} & \textbf{Gravity} & \textbf{Escape Rate} & \textbf{Key Limitation} \\
+\rowcolor{lightblue}
+\rotatebox{55}{\textbf{Work}} &
+\rotatebox{55}{\textbf{Robot}} &
+\textbf{Key Limitation} &
+\rotatebox{55}{\textbf{Terrain}} &
+\rotatebox{55}{\textbf{Method}} &
+\rotatebox{55}{\textbf{Gravity}} &
+\rotatebox{55}{\textbf{Escape}} \\
 \midrule
-Bi \& Ding (2026) & 4-wheel SSMR & Rigid (Unity) & PPO+LSTM +GAIL & Earth & 90\% & No granular physics \\
-Inotsume (2020) & 6-wheel rover & Bekker model & Kalman filter & Mars & N/A (detect) & No recovery policy \\
-Ding (2011) & Multi-wheel & Analytical & Physics model & Any & N/A (model) & Steady-state only \\
-Jain (2019) & 6-wheel rover & Approx. & DQN & Mars & N/A & Discrete actions \\
-Fankhauser (2018) & ANYmal & Rigid & Opt.+RL & Earth & N/A & Legged, not wheeled \\
+Bi \& Ding (2026)  & 4-wheel SSMR        & No granular physics; Earth only; needs expert demonstrations for GAIL  & Rigid (Unity)  & PPO+LSTM +GAIL & Earth & 90\%  \\
+Inotsume (2020)    & 6-wheel rover       & Detection only; no recovery policy trained                             & Bekker model   & Kalman filter  & Mars  & N/A   \\
+Ding (2011)        & Multi-wheel         & Steady-state model only; no real-time closed-loop control              & Analytical     & Physics model  & Any   & N/A   \\
+Jain (2019)        & 6-wheel rover       & Discrete action space; no granular physics coupling                    & Approx.        & DQN            & Mars  & N/A   \\
+Fankhauser (2018)  & ANYmal (legged)     & Legged robot; constraints not applicable to wheeled entrapment         & Rigid          & Opt.+RL        & Earth & N/A   \\
 \midrule
-\textbf{Ours} & \textbf{6-wheel rocker-bogie} & \textbf{MPM granular} & \textbf{PPO+GRU} & \textbf{Mars} & \textbf{80\%} & \textbf{200K steps (early)} \\
+\rowcolor{lightblue!60}
+\textbf{Ours}      & \textbf{6-wheel rocker-bogie} & \textbf{Early training (200K steps); sim-to-real transfer not yet validated in hardware} & \textbf{MPM granular} & \textbf{PPO+GRU} & \textbf{Mars} & \textbf{80\%} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
+\end{tcolorbox}
 
 
 % ══════════════════════════════════════════════════════════════════
