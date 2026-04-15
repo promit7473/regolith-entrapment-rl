@@ -1587,9 +1587,9 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
 % escape → motor
 \draw[ra] (esc.south) |- (mot.east);
 
-% "escaped" dashed feedback: esc.west → left → up → dmd
-\draw[da] (esc.west) -- (1.5, -0.3) -- (1.5, 1.7) -- (dmd)
-    node[pos=0.55, right=3pt, font=\scriptsize\itshape,
+% "escaped" dashed feedback: esc.west → left to x=0 → up to dmd.south
+\draw[da] (esc.west) -- (dmd.south -| esc.west) -- (dmd.south)
+    node[pos=0.75, right=3pt, font=\scriptsize\itshape,
          text=black!45] {escaped};
 
 \end{tikzpicture}
