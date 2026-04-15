@@ -3,7 +3,7 @@
 \contentsline {table}{\numberline {3}{\ignorespaces Environment configuration parameters\relax }}{19}{table.caption.10}%
 \contentsline {table}{\numberline {4}{\ignorespaces AAU Mars rover joint configuration\relax }}{20}{table.caption.12}%
 \contentsline {table}{\numberline {5}{\ignorespaces Observation space components (29D total)\relax }}{21}{table.caption.13}%
-\contentsline {table}{\numberline {6}{\ignorespaces Reward function components (v3 --- methodology reference)\relax }}{22}{table.caption.14}%
+\contentsline {table}{\numberline {6}{\ignorespaces Reward function components (v3 methodology reference)\relax }}{22}{table.caption.14}%
 \contentsline {table}{\numberline {7}{\ignorespaces PPO training hyperparameters and GRU architecture\relax }}{23}{table.caption.15}%
 \contentsline {table}{\numberline {8}{\ignorespaces Training results at 200{,}000 timesteps (RTX 5070 Ti, 64 parallel environments)\relax }}{26}{table.caption.19}%
 \contentsline {table}{\numberline {9}{\ignorespaces Comparison with Bi and Ding (2026)\nobreakspace {}\cite {bi2026escape}\relax }}{29}{table.caption.25}%
