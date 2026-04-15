@@ -204,29 +204,47 @@ The most prominent example of wheel entrapment in planetary exploration occurred
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[scale=0.85, transform shape]
-    \draw[->, thick, line width=1.2pt] (0,0) -- (14,0) node[right] {\small Time};
-    \foreach \x/\label in {1/Jan 2004, 3.5/Apr 2009, 5.5/May 2009, 8/Jun--Dec 2009, 11/Jan 2010, 13/May 2011} {
-        \draw[thick] (\x,0.1) -- (\x,-0.1);
-        \node[below, font=\scriptsize, text width=1.5cm, align=center] at (\x,-0.15) {\label};
+% --- RESIZEBOX IS THE FIX ---
+% This forces the diagram to fit exactly within the text width of your document.
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=3pt, draw=black, fill=white,
+                minimum height=0.9cm, align=center, font=\footnotesize\bfseries},
+    arrow/.style={->, >=stealth, thick}
+]
+    % Place boxes with explicit spacing
+    \node[box, minimum width=2.3cm] (b1) at (0,0) {Spirit\\Landed};
+    \node[box, minimum width=2.8cm] (b2) at (3.2,0) {5 Years of\\Exploration};
+    \node[box, minimum width=2.4cm, fill=gray!20] (b3) at (6.2,0) {Entrapped\\at Troy};
+    \node[box, minimum width=2.8cm] (b4) at (9.2,0) {8-Month\\Rescue Attempt};
+    \node[box, minimum width=2.4cm] (b5) at (12.4,0) {Stationary\\Science};
+    \node[box, minimum width=2.2cm, fill=gray!40] (b6) at (15.2,0) {Contact\\Lost};
+
+    % Draw unidirectional arrows (right only)
+    \draw[arrow] (b1) -- (b2);
+    \draw[arrow] (b2) -- (b3);
+    \draw[arrow] (b3) -- (b4);
+    \draw[arrow] (b4) -- (b5);
+    \draw[arrow] (b5) -- (b6);
+
+    % Timeline
+    \draw[->, thick] (-1,-1.8) -- (16.5,-1.8) node[right] {\textbf{Time}};
+
+    % Timeline markers
+    \foreach \x/\lbl in {0/Jan 2004, 3.2/Apr 2009, 6.2/May 2009,
+                          9.2/Jun--Dec 2009, 12.4/Jan 2010, 15.2/May 2011} {
+        \draw (\x,-1.7) -- (\x,-1.9);
+        \node[font=\footnotesize] at (\x,-2.2) {\lbl};
     }
-    \node[draw, fill=headerblue!15, rounded corners, minimum width=2cm, minimum height=0.9cm, font=\scriptsize, align=center] (landed) at (1,1.5) {\textbf{Spirit}\\\textbf{Landed}};
-    \node[draw, fill=softgreen!20, rounded corners, minimum width=2cm, minimum height=0.9cm, font=\scriptsize, align=center] (explore) at (3.5,1.5) {\textbf{5 Years of}\\\textbf{Exploration}};
-    \node[draw, fill=marsred!30, rounded corners, minimum width=2cm, minimum height=0.9cm, font=\scriptsize, align=center] (trapped) at (5.5,1.5) {\textbf{Entrapped}\\\textbf{at Troy}};
-    \node[draw, fill=accentorange!25, rounded corners, minimum width=2.2cm, minimum height=0.9cm, font=\scriptsize, align=center] (rescue) at (8,1.5) {\textbf{8-Month}\\\textbf{Rescue Attempt}};
-    \node[draw, fill=softpurple!20, rounded corners, minimum width=2cm, minimum height=0.9cm, font=\scriptsize, align=center] (station) at (11,1.5) {\textbf{Stationary}\\\textbf{Science}};
-    \node[draw, fill=gray!30, rounded corners, minimum width=1.8cm, minimum height=0.9cm, font=\scriptsize, align=center] (lost) at (13,1.5) {\textbf{Contact}\\\textbf{Lost}};
-    \draw[->, thick, color=black!50] (landed) -- (explore);
-    \draw[->, thick, color=black!50] (explore) -- (trapped);
-    \draw[->, thick, color=marsred!70] (trapped) -- (rescue);
-    \draw[->, thick, color=black!50] (rescue) -- (station);
-    \draw[->, thick, color=black!50] (station) -- (lost);
-    \node[below, text width=12cm, align=center, font=\small\itshape, text=marsred!80] at (7,-1.2) {
-        Spirit's wheels broke through a thin crusty surface into soft sulfate-rich soil.\\
-        Despite 8 months of ground-based testing and careful extraction commands,\\
+
+    % Description text
+    \node[text width=15cm, align=center, font=\small\itshape] at (7.6,-3.2) {
+        Spirit's wheels broke through a thin crusty surface into soft sulfate-rich soil.
+        Despite 8 months of ground-based testing and careful extraction commands,
         the rover remained permanently trapped --- ending its mobile mission.
     };
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{Timeline of the Spirit Rover entrapment incident. After 5 years of successful exploration, Spirit became permanently immobilized in soft regolith, motivating autonomous entrapment recovery research.}
 \label{fig:spirit_timeline}
 \end{figure}
