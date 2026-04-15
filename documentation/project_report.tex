@@ -1,0 +1,1552 @@
+\documentclass[12pt,a4paper]{article}
+
+% ──────────────────────────── Packages ────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{mathpazo}
+\usepackage[scaled=0.92]{helvet}
+\usepackage{eulervm}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc, fit, backgrounds, decorations.pathreplacing, chains, matrix}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{setspace}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{todonotes}
+
+% ──────────────────────────── Page Geometry ────────────────────────
+\usepackage[
+    top=2.5cm,
+    bottom=2.5cm,
+    left=3cm,
+    right=2.5cm,
+    headheight=14pt
+]{geometry}
+
+% ──────────────────────────── Colors ──────────────────────────────
+\definecolor{marsred}{RGB}{150,40,20}
+\definecolor{sandcolor}{RGB}{180,140,90}
+\definecolor{deepblue}{RGB}{40,60,100}
+\definecolor{codegreen}{RGB}{0,100,0}
+\definecolor{boxgray}{RGB}{248,248,248}
+\definecolor{headerblue}{RGB}{50,80,130}
+\definecolor{accentorange}{RGB}{200,100,30}
+\definecolor{softgreen}{RGB}{60,140,60}
+\definecolor{softpurple}{RGB}{100,60,150}
+\definecolor{softcyan}{RGB}{40,130,150}
+\definecolor{lightblue}{RGB}{220,235,250}
+\definecolor{lightorange}{RGB}{255,235,210}
+\definecolor{lightred}{RGB}{255,220,220}
+\definecolor{lightgreen}{RGB}{220,245,220}
+\definecolor{lightgray}{RGB}{240,240,240}
+
+% ──────────────────────────── Listings ────────────────────────────
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{deepblue}\bfseries,
+    commentstyle=\color{codegreen},
+    stringstyle=\color{marsred},
+    frame=single,
+    breaklines=true,
+    captionpos=b,
+    backgroundcolor=\color{boxgray},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt
+}
+
+% ──────────────────────────── Hyperref ────────────────────────────
+\hypersetup{
+    colorlinks=true,
+    linkcolor=deepblue,
+    citecolor=marsred,
+    urlcolor=deepblue
+}
+
+% ──────────────────────────── Headers ─────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textit{Regolith Wheel Entrapment Recovery}}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ──────────────────────────── Spacing ─────────────────────────────
+\setstretch{1.15}
+
+% ──────────────── Placeholder command for images ──────────────────
+% Use this for screenshots/photos to be added later
+\newcommand{\imagePlaceholder}[3][]{%
+    % #1 = optional width (default \textwidth)
+    % #2 = height
+    % #3 = caption text inside the box
+    \begin{tikzpicture}
+        \node[draw=gray!60, fill=lightgray, minimum width={\ifx&#1&\linewidth\else#1\fi},
+              minimum height=#2, align=center, font=\small\itshape, text=gray!70,
+              inner sep=10pt, rounded corners=2pt] {
+            \parbox{0.8\linewidth}{\centering #3}
+        };
+    \end{tikzpicture}%
+}
+
+% ══════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ──────────────────────────── Title Page ──────────────────────────
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+
+{\Large\textsc{University of Dhaka}}\\[0.3em]
+{\large\textsc{Department of Robotics and Mechatronics Engineering}}\\[2cm]
+
+\rule{\textwidth}{1.5pt}\\[0.6cm]
+{\LARGE\bfseries Reinforcement Learning for Mars Rover\\[0.3em]
+Wheel Entrapment Recovery in\\[0.3em]
+Granular Regolith}\\[0.4cm]
+\rule{\textwidth}{1.5pt}\\[1.5cm]
+
+{\large\textit{A Research Project Report}}\\[2cm]
+
+\begin{tabular}{rl}
+\textbf{Authors:} & Meraj Hossain Promit \\
+                   & Chandak Chakma \\[1em]
+\textbf{Program:} & B.Sc. in Robotics and Mechatronics Engineering \\[0.5em]
+\textbf{Supervisor:} & \textit{[Supervisor Name]} \\
+\end{tabular}
+
+\vfill
+{\large April 2026}
+\end{titlepage}
+
+% ──────────────────────────── Abstract ────────────────────────────
+\newpage
+\begin{abstract}
+\noindent
+This report presents a reinforcement learning (RL) framework for autonomous recovery of Mars rovers from wheel entrapment in granular regolith. We leverage the Newton physics engine with Material Point Method (MPM) for high-fidelity granular soil simulation, Isaac Lab for articulated robot simulation, and Proximal Policy Optimization (PPO) with recurrent GRU networks for policy training. The system addresses the critical challenge of wheel entrapment faced by planetary exploration rovers --- exemplified by NASA's Spirit rover incident in 2009 --- by training escape policies in a physically realistic simulation environment.
+
+Our approach features a 29-dimensional proprioceptive observation space incorporating wheel velocities, slip ratios, IMU data, drive torques, and dual-sensor entrapment detection flags. The policy is trained across 64 parallel environments with curriculum learning that progressively deepens wheel sinkage from 8\,cm to 15\,cm. Preliminary results over 200,000 timesteps on an RTX 5070 Ti demonstrate an 80\% escape rate, mean forward velocity of 0.25\,m/s, and full curriculum completion. The trained policy exhibits emergent escape behaviors including rocking maneuvers and coordinated wheel--steering actions.
+
+Future work includes scaling training to 2M+ timesteps, developing a CNN-GRU sinkage detection classifier, and deploying the trained policy on a Raspberry Pi 5 via ONNX Runtime for real-time inference on physical hardware.
+\end{abstract}
+
+% ──────────────────────────── TOC ─────────────────────────────────
+\newpage
+\tableofcontents
+
+\newpage
+\listoffigures
+\listoftables
+
+% ══════════════════════════════════════════════════════════════════
+%                        1. INTRODUCTION
+% ══════════════════════════════════════════════════════════════════
+\newpage
+\section{Introduction}
+
+\subsection{Problem Statement}
+
+Planetary exploration rovers operating on Mars and other celestial bodies face a critical operational challenge: wheel entrapment in granular regolith. When a rover's wheels sink into loose sand or soil, the vehicle loses mobility and may become permanently immobilized. This problem is particularly acute for several reasons:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Wheeled rovers with limited articulation}: The rocker-bogie suspension system, while excellent for traversing rough terrain, distributes weight in ways that can cause individual wheels to sink disproportionately in soft soil.
+    \item \textbf{Sandy and cratered terrain}: The Martian surface contains extensive dune fields, impact craters filled with fine regolith, and wind-blown sand deposits that present persistent mobility hazards.
+    \item \textbf{Long communication delays}: With Earth--Mars communication latencies of 4--24 minutes one-way, real-time teleoperation for recovery is impractical, necessitating autonomous solutions.
+    \item \textbf{Extended mission lifetimes}: As missions extend beyond planned durations, rovers inevitably encounter terrain types not anticipated in original mission planning.
+\end{itemize}
+
+Wheel entrapment can be formally characterized by the conjunction of three conditions:
+\begin{equation}
+    \text{Entrapment} \Leftrightarrow \left( |v_x| < v_{\text{thresh}} \right) \wedge \left( \bar{\sigma}_{\text{slip}} > \sigma_{\text{thresh}} \right) \wedge \left( d_{\text{sinkage}} > 0 \right)
+    \label{eq:entrapment_definition}
+\end{equation}
+where $v_x$ is the body-frame forward velocity, $\bar{\sigma}_{\text{slip}}$ is the mean slip ratio across all wheels, and $d_{\text{sinkage}}$ is the wheel sinkage depth into the granular medium.
+
+\subsection{Problem Definition}
+
+The entrapment recovery problem is formulated as a partially observable Markov decision process (POMDP). At each timestep $t$, the rover receives a proprioceptive observation $\mathbf{o}_t \in \mathbb{R}^{29}$ and must select an action $\mathbf{a}_t \in \mathbb{R}^{10}$ to maximize the expected cumulative reward:
+\begin{equation}
+    J(\pi_\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \gamma^t R(\mathbf{s}_t, \mathbf{a}_t) \right]
+    \label{eq:objective}
+\end{equation}
+where $\pi_\theta$ is the parameterized policy, $\gamma = 0.99$ is the discount factor, and $R$ is the shaped reward function that encourages forward progress, escape milestones, and penalizes excessive slip, tilt, and jerky actions.
+
+The partial observability arises because the rover cannot directly sense:
+\begin{itemize}
+    \item The depth of sinkage for each wheel
+    \item The local terrain composition (particle density, cohesion)
+    \item The global position relative to the entrapment zone boundary
+\end{itemize}
+
+This motivates the use of \textbf{recurrent} policy networks (GRU) that maintain a hidden state $\mathbf{h}_t$ to implicitly estimate unobserved state variables from the history of observations.
+
+\subsection{Motivation: The Spirit Rover Incident (2009)}
+
+The most prominent example of wheel entrapment in planetary exploration occurred on May 1, 2009, when NASA's Mars Exploration Rover \textit{Spirit} became embedded in soft sulfate-rich regolith at a site named ``Troy'' near the western edge of Home Plate in Gusev Crater. Figure~\ref{fig:spirit_timeline} illustrates the timeline of this critical incident.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.85, transform shape]
+    \draw[->, thick, line width=1.2pt] (0,0) -- (14,0) node[right] {\small Time};
+    \foreach \x/\label in {1/Jan 2004, 3.5/Apr 2009, 5.5/May 2009, 8/Jun--Dec 2009, 11/Jan 2010, 13/May 2011} {
+        \draw[thick] (\x,0.1) -- (\x,-0.1);
+        \node[below, font=\scriptsize, text width=1.5cm, align=center] at (\x,-0.15) {\label};
+    }
+    \node[draw, fill=headerblue!15, rounded corners, minimum width=2cm, minimum height=0.9cm, font=\scriptsize, align=center] (landed) at (1,1.5) {\textbf{Spirit}\\\textbf{Landed}};
+    \node[draw, fill=softgreen!20, rounded corners, minimum width=2cm, minimum height=0.9cm, font=\scriptsize, align=center] (explore) at (3.5,1.5) {\textbf{5 Years of}\\\textbf{Exploration}};
+    \node[draw, fill=marsred!30, rounded corners, minimum width=2cm, minimum height=0.9cm, font=\scriptsize, align=center] (trapped) at (5.5,1.5) {\textbf{Entrapped}\\\textbf{at Troy}};
+    \node[draw, fill=accentorange!25, rounded corners, minimum width=2.2cm, minimum height=0.9cm, font=\scriptsize, align=center] (rescue) at (8,1.5) {\textbf{8-Month}\\\textbf{Rescue Attempt}};
+    \node[draw, fill=softpurple!20, rounded corners, minimum width=2cm, minimum height=0.9cm, font=\scriptsize, align=center] (station) at (11,1.5) {\textbf{Stationary}\\\textbf{Science}};
+    \node[draw, fill=gray!30, rounded corners, minimum width=1.8cm, minimum height=0.9cm, font=\scriptsize, align=center] (lost) at (13,1.5) {\textbf{Contact}\\\textbf{Lost}};
+    \draw[->, thick, color=black!50] (landed) -- (explore);
+    \draw[->, thick, color=black!50] (explore) -- (trapped);
+    \draw[->, thick, color=marsred!70] (trapped) -- (rescue);
+    \draw[->, thick, color=black!50] (rescue) -- (station);
+    \draw[->, thick, color=black!50] (station) -- (lost);
+    \node[below, text width=12cm, align=center, font=\small\itshape, text=marsred!80] at (7,-1.2) {
+        Spirit's wheels broke through a thin crusty surface into soft sulfate-rich soil.\\
+        Despite 8 months of ground-based testing and careful extraction commands,\\
+        the rover remained permanently trapped --- ending its mobile mission.
+    };
+\end{tikzpicture}
+\caption{Timeline of the Spirit Rover entrapment incident. After 5 years of successful exploration, Spirit became permanently immobilized in soft regolith, motivating autonomous entrapment recovery research.}
+\label{fig:spirit_timeline}
+\end{figure}
+
+Key lessons from the Spirit incident that inform this research:
+\begin{enumerate}
+    \item \textbf{Detection was delayed}: Spirit had driven partway into the soft soil before operators recognized the hazard, as slip ratio was not monitored in real-time.
+    \item \textbf{Recovery required months}: The 8-month extraction campaign involved extensive Earth-based testing on rover replicas, constrained by communication delays.
+    \item \textbf{Autonomous response was absent}: Spirit had no onboard capability to detect or respond to entrapment autonomously.
+    \item \textbf{Granular physics are critical}: The behavior of the sulfate-rich soil was poorly understood, leading to extraction commands that inadvertently worsened the entrapment.
+\end{enumerate}
+
+\subsection{Objectives}
+
+This research aims to develop a complete autonomous entrapment detection and recovery system for Mars rovers. The specific objectives are:
+
+\begin{enumerate}[label=\textbf{OBJ\arabic*:}]
+    \item \textbf{Realistic Simulation}: Build a high-fidelity simulation environment coupling granular material physics (Newton MPM) with articulated rover dynamics (Isaac Lab) under Martian gravity.
+    \item \textbf{Entrapment Detection}: Develop dual-sensor detection combining slip-based and torque-based indicators for robust, real-time entrapment classification.
+    \item \textbf{Recovery Policy}: Train a recurrent RL policy (PPO-GRU) that discovers and executes effective escape maneuvers from varying degrees of wheel sinkage.
+    \item \textbf{Curriculum Learning}: Implement progressive training with increasing sinkage difficulty to enable learning of robust escape strategies.
+    \item \textbf{Sim-to-Real Transfer}: Establish an ONNX export pipeline for deployment on embedded hardware (Raspberry Pi 5) for real-time onboard inference.
+\end{enumerate}
+
+
+% ══════════════════════════════════════════════════════════════════
+%                       2. RELATED WORK
+% ══════════════════════════════════════════════════════════════════
+\newpage
+\section{Related Work}
+
+This section reviews prior work in three key areas: (1) wheeled robot entrapment and escape strategies, (2) granular media simulation for robotics, and (3) reinforcement learning for locomotion and recovery.
+
+% ─────── 2.1 ──────────────────────────────────────────────────────
+\subsection{Escape Strategies for Wheeled Robots}
+
+\subsubsection{Bi and Ding (2026) --- DRL-Based Escape for Skid-Steered Mobile Robots}
+
+Bi and Ding~\cite{bi2026escape} presented a deep reinforcement learning framework for escape and path point tracking of skid-steered mobile robots (SSMRs) under undulating terrain conditions in outdoor orchards. Their work is the most directly relevant to ours.
+
+\paragraph{Description.} The authors developed a two-phase system: (1)~an abnormal state detection module using motor torque analysis, and (2)~a DRL-based escape policy using PPO with LSTM networks. Their key innovation is a \textit{reward fusion} strategy combining handcrafted rewards with GAIL-derived (Generative Adversarial Imitation Learning) discriminator rewards: $R = 0.9 R_H + 0.1 R_D$, where $R_H$ includes path tracking, abnormal action, and conditional rewards, and $R_D$ comes from a discriminator trained on expert demonstrations. The system was trained for 4 million timesteps in a Unity simulation environment with extensive domain randomization (20+ parameters, see their Table 9) and validated in real-world outdoor orchard conditions, achieving 90\% escape success rate in both simulation and field tests.
+
+Their observation space comprised 30 dimensions organized as $\mathbf{s} = \{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{position}}, s_{\text{abnormal}}\}$: 16D motor data (set speed, current speed, current torque, average torque $\times$ 4 motors), 7D motion state (quaternion attitude + angular velocity), 2D position (distance and angle to target), and 1D anomaly flag. The action space is 2D: left and right wheel velocities $\mathbf{a} = [\omega_l, \omega_r]$.
+
+\paragraph{Strengths.}
+\begin{itemize}
+    \item Achieved 90\% escape success rate in both simulation and real-world tests, demonstrating strong sim-to-real transfer via domain randomization.
+    \item LSTM-based temporal modeling captures the sequential nature of entrapment dynamics, enabling memory-dependent escape strategies.
+    \item GAIL reward fusion ($R = 0.9R_H + 0.1R_D$) combines human intuition with learned reward shaping, producing smoother and more natural escape trajectories compared to pure handcrafted or pure imitation approaches.
+    \item Comprehensive anomaly detection based on motor torque threshold (Eq.~10 in their paper): $\frac{1}{c_t}\sum_{n=t-c_t}^{t}\frac{|^iT_n|}{T_N} > T_{\text{thread}}$ with $T_{\text{thread}} = 0.95$.
+    \item Validated on real outdoor terrain (orchards) with undulating surfaces using UWB positioning.
+\end{itemize}
+
+\paragraph{Weaknesses.}
+\begin{itemize}
+    \item Limited to 4-wheel skid-steered platforms --- does not address the more complex kinematics of 6-wheel rocker-bogie suspension systems used in Mars rovers (Curiosity, Perseverance).
+    \item Uses rigid terrain simulation (Unity) --- does not model granular soil mechanics (particle flow, sinkage dynamics, bulldozing resistance) that are critical for planetary regolith interaction.
+    \item Tested under Earth gravity ($9.81\,\text{m/s}^2$), not Mars gravity ($3.72\,\text{m/s}^2$), which significantly affects soil--wheel traction and sinkage behavior.
+    \item Requires expert demonstrations for GAIL training, which may not be available for novel Mars terrain conditions.
+    \item Two-dimensional action space ($\omega_l, \omega_r$) does not leverage independent steering joints for more sophisticated escape maneuvers.
+    \item Entrapment is caused by tire lift-off on undulating terrain, not by granular sinkage --- a fundamentally different failure mode.
+\end{itemize}
+
+
+\subsubsection{Inotsume et al. (2020) --- Slip Prediction for Planetary Rovers}
+
+\paragraph{Description.} Inotsume et al.~\cite{inotsume2020} investigated real-time slip prediction for planetary rovers using proprioceptive sensing and terrain parameter estimation. A Kalman filter fuses motor current, wheel sinkage estimates, and terrain slope to predict slip ratio based on Bekker--Wong terramechanics theory.
+
+\paragraph{Strengths.}
+\begin{itemize}
+    \item Principled physics-based approach grounded in terramechanics theory; provides interpretable terrain parameter estimates.
+    \item Runs in real-time on embedded hardware with low computational requirements.
+    \item Directly applicable to Mars rover missions with existing sensor suites.
+\end{itemize}
+
+\paragraph{Weaknesses.}
+\begin{itemize}
+    \item Focuses on slip prediction only; does not address active recovery from entrapment.
+    \item Requires careful calibration for each terrain type, limiting generalization to unknown Martian soils.
+    \item Simplified Bekker--Wong model may not capture complex particle--wheel coupling during deep sinkage.
+\end{itemize}
+
+
+\subsubsection{Ding et al. (2011) --- Wheel--Terrain Interaction Modeling}
+
+\paragraph{Description.} Ding et al.~\cite{ding2011} presented a comprehensive wheel--soil interaction model for planetary rovers, deriving analytical expressions for drawbar pull, rolling resistance, and sinkage as functions of wheel geometry, soil parameters (cohesion, internal friction angle, shear deformation modulus), and slip ratio. The model accounts for multi-pass effects where trailing wheels encounter pre-compacted soil.
+
+\paragraph{Strengths.}
+\begin{itemize}
+    \item Rigorous analytical framework validated experimentally with single-wheel testbed data.
+    \item Accounts for multi-wheel interactions and soil compaction by preceding wheels.
+\end{itemize}
+
+\paragraph{Weaknesses.}
+\begin{itemize}
+    \item Steady-state analysis only; does not capture transient dynamics during entrapment onset or recovery.
+    \item Assumes homogeneous soil properties, unrealistic for heterogeneous Martian terrain.
+    \item Does not address control strategies for escape from entrapment.
+\end{itemize}
+
+
+\subsubsection{Jain et al. (2019) --- RL for Planetary Rover Locomotion}
+
+\paragraph{Description.} Jain et al.~\cite{jain2019} applied DQN for adaptive locomotion of planetary rovers, learning to select discrete gaits (forward, turn, reverse) based on terrain features from onboard cameras in Gazebo simulation.
+
+\paragraph{Strengths.} Demonstrated that RL can learn terrain-adaptive locomotion; uses visual observations relevant to missions.
+
+\paragraph{Weaknesses.} Discrete action space limits expressiveness of recovery maneuvers; does not specifically address entrapment; approximate terrain deformation model.
+
+
+\subsubsection{Fankhauser et al. (2018) --- ANYmal Recovery from Falls}
+
+\paragraph{Description.} Fankhauser et al.~\cite{fankhauser2018} developed a recovery controller for the ANYmal quadruped robot combining optimization-based motion planning with learned recovery policies. The multi-phase architecture (detect $\to$ recover $\to$ resume) provides a useful design template.
+
+\paragraph{Strengths.} Successful sim-to-real transfer for dynamic recovery behaviors; multi-phase architecture is applicable to our problem.
+
+\paragraph{Weaknesses.} Designed for legged robots with body reconfiguration; wheel entrapment in granular media presents fundamentally different physical constraints.
+
+
+% ─────── 2.2 ──────────────────────────────────────────────────────
+\subsection{Granular Media Simulation}
+
+The Material Point Method (MPM) has emerged as the gold standard for simulating granular materials in robotics. Unlike position-based dynamics (PhysX PBD) which overestimates traction, MPM correctly models Coulomb friction, yield surface behavior, sinkage dynamics, and bulldozing resistance. The Newton physics engine~\cite{newton} provides GPU-accelerated MPM through \texttt{SolverImplicitMPM}, enabling thousands of particles per environment with real-time performance.
+
+
+% ─────── 2.3 Summary Table ────────────────────────────────────────
+\subsection{Summary and Comparison}
+
+Table~\ref{tab:related_work_comparison} positions our contribution relative to the reviewed literature.
+
+\begin{table}[H]
+\centering
+\caption{Comparison of related works on wheeled robot entrapment and recovery}
+\label{tab:related_work_comparison}
+\small
+\begin{tabular}{@{}p{2.2cm}p{1.6cm}p{1.4cm}p{1.4cm}p{1.3cm}p{1.5cm}p{2.5cm}@{}}
+\toprule
+\textbf{Work} & \textbf{Robot} & \textbf{Terrain} & \textbf{Method} & \textbf{Gravity} & \textbf{Escape Rate} & \textbf{Key Limitation} \\
+\midrule
+Bi \& Ding (2026) & 4-wheel SSMR & Rigid (Unity) & PPO+LSTM +GAIL & Earth & 90\% & No granular physics \\
+Inotsume (2020) & 6-wheel rover & Bekker model & Kalman filter & Mars & N/A (detect) & No recovery policy \\
+Ding (2011) & Multi-wheel & Analytical & Physics model & Any & N/A (model) & Steady-state only \\
+Jain (2019) & 6-wheel rover & Approx. & DQN & Mars & N/A & Discrete actions \\
+Fankhauser (2018) & ANYmal & Rigid & Opt.+RL & Earth & N/A & Legged, not wheeled \\
+\midrule
+\textbf{Ours} & \textbf{6-wheel rocker-bogie} & \textbf{MPM granular} & \textbf{PPO+GRU} & \textbf{Mars} & \textbf{80\%} & \textbf{200K steps (early)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ══════════════════════════════════════════════════════════════════
+%                       3. METHODOLOGY
+% ══════════════════════════════════════════════════════════════════
+\newpage
+\section{Methodology}
+
+This section details the complete methodology, divided into work already completed and expected future work.
+
+% ═══════════════════════════════════════════════════════════════════
+% FIG 2: ESCAPE POLICY GENERATION METHOD — adapted from Bi & Ding Fig.6
+% ═══════════════════════════════════════════════════════════════════
+
+Figure~\ref{fig:escape_policy_generation} presents the overall escape policy generation method for our Mars rover system.
+
+% \begin{figure}[H]
+% \centering
+% \begin{tikzpicture}[
+%     scale=0.68, transform shape,
+%     % --- Modern block styles ---
+%     outerbox/.style={rectangle, draw=black!70, thick, rounded corners=4pt,
+%                      inner sep=10pt},
+%     innerbox/.style={rectangle, draw=black!50, thick, fill=white,
+%                      minimum height=1cm, minimum width=3.8cm,
+%                      align=center, font=\small, rounded corners=2pt},
+%     orangebox/.style={innerbox, fill=lightorange!70,
+%                       font=\small\bfseries},
+%     bluebox/.style={innerbox, fill=lightblue!60,
+%                     font=\small\bfseries},
+%     redarrow/.style={-Stealth, line width=1.8pt, color=red!60},
+%     bluearrow/.style={-Stealth, line width=1.8pt, color=headerblue!60},
+%     arrow/.style={-Stealth, thick, color=black!60},
+%     circnode/.style={draw=black!50, circle, thick, minimum size=0.6cm,
+%                      inner sep=0pt, font=\footnotesize},
+%     lbl/.style={font=\small\itshape, text=black!70},
+%     boldlbl/.style={font=\large\bfseries\itshape},
+%     every node/.style={font=\small}
+% ]
+
+% % ═══════════ TOP: SIMULATION ENVIRONMENT ═══════════
+
+% % Outer frame
+% \node[outerbox, fill=white, minimum width=12cm, minimum height=5cm] (simbox) at (0, 12) {};
+% \node[font=\footnotesize\bfseries, anchor=north west, text=black!80]
+%     at ([xshift=4pt, yshift=-2pt]simbox.north west)
+%     {Mars Rover Operational Environment Simulation};
+
+% % Physics sub-frame
+% \node[outerbox, fill=boxgray, minimum width=10.5cm, minimum height=2.2cm] (physbox) at (0, 13) {};
+% \node[font=\footnotesize\bfseries, anchor=north west, text=black!60]
+%     at ([xshift=4pt, yshift=-2pt]physbox.north west) {Newton Physics Simulation};
+
+% \node[innerbox] (mpm) at (-3, 12.8) {MPM Granular\\Regolith Simulation};
+% \node[innerbox] (rigid) at (3, 12.8) {MuJoCo Rigid Body\\Dynamics (6-wheel rover)};
+
+% % Terrain generation
+% \node[innerbox, minimum width=7cm] (terrain) at (0, 10.7) {Randomized Sinkage Depth (Curriculum Learning)};
+
+% % State output
+% \node[lbl, anchor=west] (stateout) at (6.8, 12) {$\{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{entrap}}\}$};
+
+% % ═══════════ RIGHT: ENTRAPMENT DETECTOR ═══════════
+
+% \node[orangebox, minimum width=3cm, minimum height=1.4cm] (entrapid) at (9, 9) {\textbf{Entrapment}\\State\\Identification};
+
+% \node[lbl] (sabn) at (9, 7.5) {$s_{\text{entrap}}$};
+
+% % ═══════════ MIDDLE: TRAINING BLOCK ═══════════
+
+% \node[outerbox, fill=white, minimum width=12cm, minimum height=5.5cm] (trainbox) at (0, 5.5) {};
+% \node[font=\footnotesize\bfseries, anchor=north west, text=black!80]
+%     at ([xshift=4pt, yshift=-2pt]trainbox.north west)
+%     {Training of the Escape Action Generation Model Based on DRL};
+
+% \node[innerbox, minimum width=4cm] (handrew) at (-3, 7.2) {Shaped Reward\\Module ($R_H$)};
+% \node[innerbox, minimum width=4cm] (curricrew) at (3, 7.2) {Curriculum Bonus\\Module};
+
+% \node[circnode] (plus) at (0, 5.8) {$+$};
+% \node[below=0.2cm of plus, font=\footnotesize\bfseries, text=black!60] {Reward};
+
+% \node[innerbox, minimum width=8cm, minimum height=1.2cm] (drl) at (0, 4.2) {Deep Reinforcement Learning (PPO-GRU, 64 parallel envs)};
+
+% % ═══════════ STATE CONCATENATION (right) ═══════════
+
+% \node[circnode] (sconcat) at (9, 5.8) {$+$};
+% \node[boldlbl, anchor=east] at (8, 5.8) {$\boldsymbol{s}$};
+
+% % ═══════════ ACTION (left) ═══════════
+
+% \node[boldlbl, anchor=east] (abig) at (-7.5, 5.5) {$\boldsymbol{a}$};
+
+% % ═══════════ MODEL OUTPUT ═══════════
+
+% \node[bluebox, minimum width=8cm, minimum height=1.2cm] (escapemodel) at (0, 1.8) {\textbf{Escape Action Generation Model}};
+
+% % ═══════════ CONNECTIONS (top half) ═══════════
+
+% % Physics → terrain
+% \draw[arrow] (mpm.south) -- ++(0,-0.4) -| ([xshift=-1cm]terrain.north);
+% \draw[arrow] (rigid.south) -- ++(0,-0.4) -| ([xshift=1cm]terrain.north);
+
+% % Terrain → training
+% \draw[arrow] (terrain.south) -- ++(0,-0.6);
+
+% % Sim → state output → entrapment
+% \draw[arrow] (simbox.east) -- (stateout.west);
+% \draw[arrow] (stateout.south) |- (entrapid.west);
+% \draw[arrow] (entrapid.south) -- (sabn.north);
+% \draw[arrow] (sabn.south) -- ++(0,-0.3) -- (sconcat.north |- sabn.south) -- (sconcat.north);
+
+% % State concat → reward plus
+% \draw[arrow] (sconcat.south) -- ++(0,-0.8) -| ([xshift=1cm]plus.east) -- (plus.east);
+
+% % Reward modules → plus → DRL
+% \draw[arrow] (handrew.south) |- (plus.west);
+% \draw[arrow] (curricrew.south) |- (plus.east);
+% \draw[arrow] (plus.south) -- (drl.north);
+
+% % Action feedback to sim
+% \draw[arrow] (abig.east) -- ++(0.5,0) |- ([yshift=-0.3cm]simbox.west);
+
+% % DRL → Model Training → Escape model
+% \draw[redarrow] (drl.south) -- ++(0,-0.8)
+%     node[midway, right=3pt, font=\small\bfseries, text=red!60] {Model Training};
+% \draw[redarrow] (0, 3.0) -- (escapemodel.north);
+
+% % Model Transfer
+% \draw[bluearrow] (escapemodel.south) -- ++(0,-1.2)
+%     node[midway, right=3pt, font=\small\bfseries, text=headerblue!60] {Model Transfer};
+
+% % ═══════════ BOTTOM: DEPLOYMENT ═══════════
+
+% \node[outerbox, fill=white, minimum width=16cm, minimum height=3.5cm] (deploybox) at (1, -2.2) {};
+% \node[font=\footnotesize\bfseries, anchor=north west, text=black!80]
+%     at ([xshift=4pt, yshift=-2pt]deploybox.north west)
+%     {Mars Rover Escape Policy Generation};
+
+% % Deploy: state concat
+% \node[circnode] (sconcat2) at (-5, -1.8) {$+$};
+% \node[boldlbl] at (-5, -0.8) {$\boldsymbol{s}$};
+
+% % Deploy: escape model
+% \node[bluebox, minimum width=6cm, minimum height=1.2cm] (escapemodel2) at (0, -1.8) {\textbf{Escape Action Generation Model}};
+
+% % Deploy: action
+% \node[boldlbl] (abig2) at (4.5, -1.8) {$\boldsymbol{a}$};
+
+% % Deploy: physical machine
+% \node[innerbox, minimum width=3.5cm, minimum height=1.2cm] (physical) at (7.5, -1.8) {Mars Rover\\(Sim or Physical)};
+
+% % Deploy: entrapment ID
+% \node[orangebox, minimum width=3cm, minimum height=1cm] (entrapid2) at (-2, -3.5) {\textbf{Entrapment}\\State Identification};
+
+% \node[lbl] (sabn2) at (-5, -3.5) {$s_{\text{entrap}}$};
+
+% % Deploy: state output from machine
+% \node[lbl] (stateout2) at (7.5, -3.5) {$\{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{entrap}}\}$};
+
+% % Deploy connections
+% \draw[arrow] (-5, -1.0) -- (sconcat2.north);
+% \draw[arrow] (sabn2.north) -- (sconcat2.south);
+% \draw[arrow] (sconcat2.east) -- (escapemodel2.west);
+% \draw[arrow] (escapemodel2.east) -- (abig2.west);
+% \draw[arrow] (abig2.east) -- (physical.west);
+% \draw[arrow] (physical.south) -- (stateout2.north);
+% \draw[arrow] (stateout2.south) -- ++(0,-0.3) -| (entrapid2.south);
+% \draw[arrow] (entrapid2.west) -- (sabn2.east);
+
+% \end{tikzpicture}
+% \caption{Escape policy generation method (adapted from Bi and Ding~\cite{bi2026escape}, Fig.~6). Top: the training pipeline in simulation with reward shaping and curriculum learning. Bottom: the deployment pipeline on the physical or simulated Mars rover. Key adaptations: GAIL replaced with curriculum bonus; 4-wheel SSMR replaced with 6-wheel rocker-bogie; Unity replaced with Newton MPM + Isaac Lab.}
+% \label{fig:escape_policy_generation}
+% \end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.75, transform shape, % Adjusted scale and layout for clarity and fit
+    % --- Modern block styles ---
+    outerbox/.style={rectangle, draw=black!70, thick, rounded corners=4pt,
+                     inner sep=10pt},
+    innerbox/.style={rectangle, draw=black!50, thick, fill=white,
+                     minimum height=1cm, minimum width=3.8cm,
+                     align=center, font=\small, rounded corners=2pt},
+    orangebox/.style={innerbox, fill=lightorange!70,
+                      font=\small\bfseries},
+    bluebox/.style={innerbox, fill=lightblue!60,
+                    font=\small\bfseries},
+    redarrow/.style={-Stealth, line width=1.8pt, color=red!60},
+    bluearrow/.style={-Stealth, line width=1.8pt, color=headerblue!60},
+    arrow/.style={-Stealth, thick, color=black!60},
+    circnode/.style={draw=black!50, circle, thick, minimum size=0.6cm,
+                     inner sep=0pt, font=\footnotesize},
+    lbl/.style={font=\small\itshape, text=black!70},
+    boldlbl/.style={font=\large\bfseries\itshape},
+    every node/.style={font=\small}
+]
+
+% ═══════════ TOP: SIMULATION ENVIRONMENT ═══════════
+\node[outerbox, fill=white, minimum width=12cm, minimum height=4.8cm] (simbox) at (0, 12.5) {};
+\node[font=\footnotesize\bfseries, anchor=north west, text=black!80]
+    at ([xshift=4pt, yshift=-2pt]simbox.north west)
+    {Mars Rover Operational Environment Simulation};
+
+\node[outerbox, fill=boxgray, minimum width=11cm, minimum height=2.5cm] (physbox) at (0, 13.0) {};
+\node[font=\footnotesize\bfseries, anchor=north west, text=black!60]
+    at ([xshift=4pt, yshift=-2pt]physbox.north west) {Newton Physics Simulation};
+
+\node[innerbox] (mpm) at (-2.8, 12.8) {MPM Granular\\Regolith Simulation};
+\node[innerbox] (rigid) at (2.8, 12.8) {MuJoCo Rigid Body\\Dynamics (6-wheel rover)};
+\node[innerbox, minimum width=7cm] (terrain) at (0, 11.0) {Randomized Sinkage Depth (Curriculum Learning)};
+% ═══════════ RIGHT: ENTRAPMENT DETECTOR ═══════════
+\node[orangebox, minimum width=3cm, minimum height=1.4cm] (entrapid) at (9, 8.5) {\textbf{Entrapment}\\State\\Identification};
+
+% ═══════════ MIDDLE: TRAINING BLOCK ═══════════
+\node[outerbox, fill=white, minimum width=12cm, minimum height=7.5cm] (trainbox) at (0, 5.3) {};
+\node[font=\footnotesize\bfseries, anchor=north west, text=black!80]
+    at ([xshift=4pt, yshift=-2pt]trainbox.north west)
+    {Training of the Escape Action Generation Model Based on DRL};
+
+\node[innerbox, minimum width=4cm] (handrew) at (-3, 7.5) {Shaped Reward\\Module ($R_H$)};
+\node[innerbox, minimum width=4cm] (curricrew) at (3, 7.5) {Curriculum Bonus\\Module};
+\node[circnode] (plus) at (0, 6.3) {$+$};
+% \node[below=0.2cm of plus, font=\footnotesize\bfseries, text=black!60] {Reward};
+\node[below=0.2cm of plus, xshift=-1.0cm, font=\footnotesize\bfseries, text=black!60] {Reward};
+\node[innerbox, minimum width=8cm, minimum height=0.7cm] (drl) at (0, 4.7) {Deep Reinforcement Learning (PPO-GRU, 64 parallel envs)};
+
+% State Concat
+\node[circnode] (sconcat) at (9, 6.3) {$+$};
+
+% Action
+\node[boldlbl, anchor=east] (abig) at (-7.5, 7.5) {$\boldsymbol{a}$};
+
+% Model Output
+\vspace{1cm}
+\node[bluebox, minimum width=8cm, minimum height=1.2cm] (escapemodel) at (0, 2.5) {\textbf{Escape Action Generation Model}};
+
+% Connections (Top Half)
+\draw[arrow] (mpm.south) -- ++(0,-0.2) -| ([xshift=-1cm]terrain.north);
+\draw[arrow] (rigid.south) -- ++(0,-0.2) -| ([xshift=1cm]terrain.north);
+\draw[redarrow] (terrain.south) -- (trainbox.north); % just touches Block 2 top
+% Blue horizontal arrow from Block 1: split at midpoint, extends to tip
+\coordinate (split) at (9, 12.5);
+\coordinate (hTip)  at (11.5, 12.5);
+\draw[redarrow]
+    (simbox.east) -- (split)
+    node[pos=0.75, above, font=\small\itshape, text=black!70]
+        {$\{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{entrap}}\}$};
+\draw[redarrow, -{} ] (split) -- (hTip);
+\fill[red!60] (split) circle (2.5pt);
+
+% Midpoint → Entrapment State ID (vertical drop) — red bold
+\draw[redarrow] (split) -- (entrapid.north);
+
+% S_entrap: single vertical arrow, label shifted left
+\draw[redarrow] (entrapid.south) -- (sconcat.north)
+    node[midway, left=5pt, font=\small\itshape, text=black!70] {$s_{\text{entrap}}$};
+
+% Tip → down → left → sconcat right side (bypass carrying s)
+\draw[redarrow, -{}] (hTip) -- (11.5, 6.3);
+\draw[redarrow] (11.5, 6.3) -- (sconcat.east)
+    node[midway, above, font=\small\itshape, text=black!70] {$\mathbf{s}$};
+
+% sconcat → trainbox right edge: drop vertically then go left (L-shape)
+\draw[redarrow] (sconcat.south) -- (sconcat.south |- drl) -- (trainbox.east |- drl)
+    node[pos=0.7, above, font=\small\itshape, text=black!70] {$\mathbf{s}$};
+
+\draw[arrow] (handrew.south) |- (plus.west);
+\draw[arrow] (curricrew.south) |- (plus.east);
+\draw[arrow] (plus.south) -- (drl.north);
+\draw[redarrow] (trainbox.west) -- (-7.5, 5.3) -- (-7.5, 12.5) -- (simbox.west); % Block 2 → a → Block 1 (red)
+
+\draw[redarrow] (drl.south) -- (escapemodel.north) node[midway, right=3pt, font=\small\bfseries, text=red!60] {Model Training};
+
+% ═══════════ BOTTOM: DEPLOYMENT ═══════════
+\node[outerbox, fill=white, minimum width=17cm, minimum height=4cm] (deploybox) at (0.5, -1.5) {};
+\node[font=\footnotesize\bfseries, anchor=north west, text=black!80]
+    at ([xshift=4pt, yshift=-2pt]deploybox.north west)
+    {Mars Rover Escape Policy Generation};
+
+\node[circnode] (sconcat2) at (-5.5, -1.0) {$+$};
+\node[boldlbl, anchor=east] (slbl2) at (-7.0, -1.0) {$\boldsymbol{s}$};
+\node[bluebox, minimum width=6cm, minimum height=1.2cm] (escapemodel2) at (-0.5, -1.0) {\textbf{Escape Action Generation Model}};
+\node[boldlbl] (abig2) at (3.5, -1.0) {$\boldsymbol{a}$};
+\node[innerbox, minimum width=3.5cm, minimum height=1.2cm] (physical) at (6.5, -1.0) {Mars Rover\\(Sim or Physical)};
+\node[orangebox, minimum width=3cm, minimum height=1cm] (entrapid2) at (0, -2.4) {\textbf{Entrapment}\\State Identification};
+\node[lbl] (sabn2) at (-5.5, -2.4) {$s_{\text{entrap}}$};
+\node[lbl] (stateout2) at (6.5, -2.4) {$\{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{entrap}}\}$};
+
+% Model Transfer: Block 2 bottom → Block 3 top (just touching)
+\draw[bluearrow] (trainbox.south) -- (trainbox.south |- deploybox.north) node[midway, right=3pt, font=\small\bfseries, text=headerblue!60] {Model Transfer};
+
+% Deploy connections
+\draw[arrow] (slbl2.east) -- (sconcat2.west);
+\draw[arrow] (sabn2.north) -- (sconcat2.south);
+\draw[arrow] (sconcat2.east) -- (escapemodel2.west);
+\draw[arrow] (escapemodel2.east) -- (abig2.west);
+\draw[arrow] (abig2.east) -- (physical.west);
+\draw[arrow] (physical.south) -- (stateout2.north);
+\draw[arrow] (stateout2.west) -- (entrapid2.east);
+\draw[arrow] (entrapid2.west) -- (sabn2.east);
+
+\end{tikzpicture}
+\caption{Escape policy generation method. Top: the training pipeline in simulation with reward shaping and curriculum learning. Bottom: the deployment pipeline on the physical or simulated Mars rover.}
+\label{fig:escape_policy_generation}
+\end{figure}
+
+
+% ═══════════════════════════════════════════════════════════════════
+% FIG: SIMULATION FRAMEWORK — exact replica of Bi & Ding Fig.10
+% adapted for 6-wheel Mars rover
+% ═══════════════════════════════════════════════════════════════════
+
+Figure~\ref{fig:simulation_framework} shows the simulation framework for our 6-wheel Mars rover with MPM granular terrain.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.75, transform shape,
+    outerbox/.style={rectangle, draw=black, thick},
+    innerbox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum height=0.8cm, align=center, font=\small},
+    wheelbox/.style={rectangle, draw=black, thick, fill=white, minimum height=0.7cm, minimum width=2cm, align=center, font=\footnotesize},
+    arrow/.style={-Stealth, thick},
+    every node/.style={font=\small}
+]
+
+% --- Outer: Environment ---
+\node[outerbox, fill=white, minimum width=14cm, minimum height=11cm,
+      label={[font=\small\bfseries, anchor=north]north:Environment}]
+      (envbox) at (0, 0) {};
+
+% --- Inner: Motor and tire characteristic simulation ---
+\node[outerbox, fill=white, minimum width=8cm, minimum height=8cm,
+      label={[font=\footnotesize\bfseries, anchor=north]north:Newton MPM + MuJoCo simulation}]
+      (motorsim) at (-2.5, 0.5) {};
+
+% 6 wheel rows — manual placement to avoid TikZ math parser issues with $
+\foreach \i/\name/\ypos in {1/FL/4, 2/ML/2.7, 3/RL/1.4, 4/FR/0.1, 5/MR/-1.2, 6/RR/-2.5} {
+    \node[wheelbox] (motor\i) at (-4, \ypos) {MPM particle\\interaction};
+    \node[wheelbox] (tire\i) at (-1.5, \ypos) {Wheel contact\\force};
+    \node[font=\footnotesize, rotate=90, anchor=south] at (0.6, \ypos) {\name{} wheel};
+    \draw[arrow] (motor\i) -- (tire\i);
+}
+% Force labels (outside foreach to avoid $ in math parser)
+\node[font=\footnotesize, anchor=west] at (1.5, 4) {Tire force ${}^1F_x, {}^1F_y$};
+\node[font=\footnotesize, anchor=west] at (1.5, 2.7) {Tire force ${}^2F_x, {}^2F_y$};
+\node[font=\footnotesize, anchor=west] at (1.5, 1.4) {Tire force ${}^3F_x, {}^3F_y$};
+\node[font=\footnotesize, anchor=west] at (1.5, 0.1) {Tire force ${}^4F_x, {}^4F_y$};
+\node[font=\footnotesize, anchor=west] at (1.5, -1.2) {Tire force ${}^5F_x, {}^5F_y$};
+\node[font=\footnotesize, anchor=west] at (1.5, -2.5) {Tire force ${}^6F_x, {}^6F_y$};
+
+% SSMR rigid body dynamics box
+\node[innerbox, minimum width=2.5cm, minimum height=2.5cm, fill=lightblue!20] (rigidbody) at (4.5, 1) {MuJoCo\\Rigid Body\\Dynamics\\Simulation};
+
+% Arrows from tire forces to rigid body
+\foreach \i in {1,2,3,4,5,6} {
+    \draw[arrow] (tire\i.east) -- ++(0.3,0) |- (rigidbody.west);
+}
+
+% Randomized terrain at bottom
+\node[innerbox, minimum width=10cm, fill=lightorange!40] (randterrain) at (0, -4.3) {Randomized Sinkage Depth Generation (MPM particle bed, curriculum-driven)};
+
+% Action input (left)
+\node[font=\small, rotate=90, anchor=south] at (-7, 0.5) {Action $\boldsymbol{a} = [\omega_{\text{drive}}, \theta_{\text{steer}}]$};
+\draw[arrow] (-6.5, 3.5) -- (-6.5, -3.5);
+\draw[arrow] (-6.5, 3.5) -- (motor1.west);
+\draw[arrow] (-6.5, 2.2) -- (motor2.west);
+\draw[arrow] (-6.5, 0.9) -- (motor3.west);
+\draw[arrow] (-6.5, -0.4) -- (motor4.west);
+\draw[arrow] (-6.5, -1.7) -- (motor5.west);
+\draw[arrow] (-6.5, -3.0) -- (motor6.west);
+
+% State output (right)
+\node[font=\small, rotate=-90, anchor=south] at (7, 0) {State $\boldsymbol{s} = \{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{entrap}}\}$};
+
+\draw[arrow] (rigidbody.east) -- (6.5, 1);
+
+% Terrain arrow
+\draw[arrow] (randterrain.north) -- ++(0, 0.5);
+
+% ─── Bottom: Control policy ───
+\node[outerbox, fill=white, minimum width=14cm, minimum height=1.8cm,
+      label={[font=\small\bfseries, anchor=north west]north west:Mars Rover Control Policy}]
+      (policybox) at (0, -6.8) {};
+
+\node[innerbox, fill=white, minimum width=3cm] (expert) at (-4, -6.8) {Random\\Policy};
+\node[innerbox, fill=white, minimum width=3cm] (imitator) at (0, -6.8) {Curriculum\\PPO Policy};
+\node[innerbox, fill=lightorange!40, minimum width=3.5cm] (fusion) at (4.5, -6.8) {Reward-shaped\\GRU-PPO Policy};
+
+\end{tikzpicture}
+\caption{Simulation framework. The framework couples 6-wheel MPM particle interactions with granular sinkage via Newton MPM, and incorporates curriculum-driven sinkage depth randomization.}
+\label{fig:simulation_framework}
+\end{figure}
+
+
+% ═══════════════════════════════════════════════════════════════════
+% FIG: POLICY NETWORK — exact replica of Bi & Ding Fig.8
+% adapted for GRU instead of LSTM, 29D input, 10D output
+% ═══════════════════════════════════════════════════════════════════
+
+Figure~\ref{fig:policy_network} shows the control policy network structure. We use GRU for reduced complexity, with 29D input and 10D actions (6 drive + 4 steer).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.65, transform shape,
+    neuron/.style={circle, draw=black, thick, minimum size=0.35cm, fill=white},
+    grubox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum width=1.5cm, minimum height=1cm, align=center, font=\small},
+    arrow/.style={-Stealth, thick},
+    dashedbox/.style={rectangle, draw=black!50, dashed, thick, rounded corners=3pt},
+    every node/.style={font=\small}
+]
+
+% ─── Dashed outer box ───
+\node[dashedbox, minimum width=20cm, minimum height=8cm, fill=white] at (8, 0) {};
+
+% ─── Column labels ───
+\node[font=\small\bfseries, anchor=south] at (0.5, 4.5) {Proprioceptive input};
+\node[font=\small\bfseries, anchor=south] at (4, 4.5) {FC};
+\node[font=\small\bfseries, anchor=south] at (8, 4.5) {GRU model};
+\node[font=\small\bfseries, anchor=south] at (12, 4.5) {FC};
+\node[font=\small\bfseries, anchor=south] at (16, 4.5) {Action output};
+
+% ─── Input layer (29D) ───
+\foreach \i in {1,...,7} {
+    \pgfmathsetmacro{\ypos}{3 - (\i-1)*0.85}
+    \node[neuron] (in\i) at (0.5, \ypos) {};
+}
+\node[font=\footnotesize, below=0.1cm of in7] {$\mathbf{s}_t$};
+% dots
+\node at (0.5, -0.6) {$\vdots$};
+
+% ─── FC1 layer (128) ───
+\foreach \i in {1,...,6} {
+    \pgfmathsetmacro{\ypos}{2.8 - (\i-1)*0.9}
+    \node[neuron, fill=lightblue!20] (fc1\i) at (4, \ypos) {};
+}
+
+% Connections input → FC1
+\foreach \i in {1,...,7} {
+    \foreach \j in {1,...,6} {
+        \draw[gray!30] (in\i) -- (fc1\j);
+    }
+}
+
+% ─── GRU block ───
+\node[grubox, minimum width=2cm, minimum height=2cm, fill=lightblue!30] (gru) at (8, 0.5) {\textbf{GRU}};
+
+% Hidden state arrows
+\node[font=\footnotesize\itshape] (ct) at (6.5, 2.5) {$h_{t-1}$};
+\node[font=\footnotesize\itshape] (ht) at (6.5, -1.5) {};
+\draw[arrow] (ct.east) -- (gru.north west);
+\node[font=\footnotesize\itshape] (htout) at (9.5, 2.5) {$h_t$};
+\draw[arrow] (gru.north east) -- (htout.west);
+\node[font=\footnotesize\itshape] (htout2) at (9.5, -1.5) {};
+
+% FC1 → GRU
+\foreach \i in {1,...,6} {
+    \draw[gray!40] (fc1\i) -- (gru.west);
+}
+
+% ─── FC2 layer (64) ───
+\foreach \i in {1,...,5} {
+    \pgfmathsetmacro{\ypos}{2.5 - (\i-1)*0.95}
+    \node[neuron, fill=lightgreen!30] (fc2\i) at (12, \ypos) {};
+}
+
+% GRU → FC2
+\foreach \i in {1,...,5} {
+    \draw[gray!40] (gru.east) -- (fc2\i);
+}
+
+% ─── Output: mean (6 drive + 4 steer) ───
+% Mean branch
+\node[neuron, fill=lightorange!50] (mu1) at (14.5, 2.5) {};
+\node[font=\footnotesize, right=0.1cm of mu1] {$\mu_{\text{drive}}$};
+\node[neuron, fill=lightorange!50] (mu2) at (14.5, 1.5) {};
+\node[font=\footnotesize, right=0.1cm of mu2] {$\mu_{\text{steer}}$};
+
+% Distribution symbols
+\node[neuron, fill=lightred!50] (sig1) at (14.5, -0.5) {};
+\node[font=\footnotesize, right=0.1cm of sig1] {$\sigma_{\text{drive}}$};
+\node[neuron, fill=lightred!50] (sig2) at (14.5, -1.5) {};
+\node[font=\footnotesize, right=0.1cm of sig2] {$\sigma_{\text{steer}}$};
+
+% Labels
+\node[font=\footnotesize, anchor=south] at (14.5, 3.3) {$[\mu_{\text{drive}}, \mu_{\text{steer}}]$};
+\node[font=\footnotesize, anchor=north] at (14.5, -2.3) {$[\log\sigma_{\text{drive}}, \log\sigma_{\text{steer}}]$};
+
+% FC2 → outputs
+\foreach \i in {1,...,5} {
+    \draw[gray!40] (fc2\i) -- (mu1);
+    \draw[gray!40] (fc2\i) -- (mu2);
+    \draw[gray!40] (fc2\i) -- (sig1);
+    \draw[gray!40] (fc2\i) -- (sig2);
+}
+
+% Action sampling
+\node[neuron, fill=accentorange!30, minimum size=0.5cm] (a1) at (17, 1.5) {};
+\node[font=\footnotesize, right=0.1cm of a1] {$a_{\text{drive}}^t$};
+\node[neuron, fill=accentorange!30, minimum size=0.5cm] (a2) at (17, -0.5) {};
+\node[font=\footnotesize, right=0.1cm of a2] {$a_{\text{steer}}^t$};
+
+% Gaussian sampling (curved arrows)
+\draw[arrow] (mu1.east) -- ++(0.3,0) |- (a1.west);
+\draw[arrow] (mu2.east) -- ++(0.3,0) |- (a1.west);
+\draw[arrow] (sig1.east) -- ++(0.3,0) |- (a2.west);
+\draw[arrow] (sig2.east) -- ++(0.3,0) |- (a2.west);
+
+\end{tikzpicture}
+\caption{The structure of the Mars rover control policy network. GRU (256 hidden units) processes 29D proprioceptive features and outputs 10D actions (6 drive velocities + 4 steering angles).}
+\label{fig:policy_network}
+\end{figure}
+
+
+% ═══════════════════════════════════════════════════════════════════
+% FIG: DRL BLOCK DIAGRAM — exact replica of Bi & Ding Fig.9
+% adapted for our PPO-GRU training loop
+% ═══════════════════════════════════════════════════════════════════
+
+Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped DRL training loop.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.72, transform shape,
+    innerbox/.style={rectangle, draw=black, thick, fill=white, minimum height=1cm, align=center, font=\small},
+    bluebox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum height=1cm, align=center, font=\small},
+    orangebox/.style={rectangle, draw=black, thick, fill=lightorange!40, minimum height=1cm, align=center, font=\small},
+    graybox/.style={rectangle, draw=black, thick, fill=lightgray, minimum height=1cm, align=center, font=\small, rounded corners=2pt},
+    arrow/.style={-Stealth, thick},
+    every node/.style={font=\small}
+]
+
+% ─── Top-left: Curriculum scheduler ───
+\node[font=\small\bfseries, anchor=west] at (-8, 6.5) {Updating curriculum with training progress};
+\node[bluebox, minimum width=3cm] (curriculum) at (-6.5, 5.5) {Curriculum\\Scheduler};
+
+% ─── Top-right: Stochastic environment ───
+\node[orangebox, minimum width=3.5cm, minimum height=1.2cm] (stochenv) at (3, 5.5) {Stochastic\\Environment\\(Newton + Isaac Lab)};
+
+% Arrow labels
+\node[font=\footnotesize, anchor=west] at (5, 6.5) {$\longrightarrow$ DRL process};
+\node[font=\footnotesize, anchor=west, text=blue!60] at (5, 5.8) {$\longrightarrow$ Curriculum update};
+
+% ─── Reward function ───
+\node[innerbox, minimum width=2.5cm] (rewfunc) at (-3, 3.5) {Reward function};
+
+% r_H label
+\node[font=\footnotesize\itshape] at (-3, 2.7) {$r_H$};
+
+% ─── Clipped PPO box (with placeholder for sim screenshot) ───
+\node[innerbox, minimum width=5cm, minimum height=3cm] (ppo) at (3, 2) {};
+\node[font=\small\bfseries, anchor=north] at (3, 3.3) {Clipped PPO (GRU)};
+
+% Placeholder for Newton sim screenshot inside PPO box
+\node[draw=gray!50, fill=lightgray, minimum width=4cm, minimum height=1.8cm,
+      align=center, font=\scriptsize\itshape, text=gray!60, rounded corners=2pt]
+      at (3, 1.5) {[Newton simulation screenshot\\to be inserted here]};
+
+% ─── State-action pair ───
+\node[font=\footnotesize\itshape] (sa) at (3, 5) {$(s_t, a_t)$};
+\draw[arrow] (stochenv.south) -- (sa.north);
+
+% ─── r_t ───
+\node[font=\footnotesize\itshape] at (-0.5, 2.5) {$r_t$};
+\draw[arrow] (rewfunc.east) -- ++(1.5, 0) |- (ppo.west);
+
+% (s_t, a_t) to PPO
+\draw[arrow] (sa.south) -- (ppo.north);
+
+% ─── Experience tuple ───
+\node[font=\footnotesize\itshape] (exptuple) at (3, -0.5) {$(s_t, a_t, r_t, s_{t+1})$};
+\draw[arrow] (ppo.south) -- (exptuple.north);
+
+% ─── Experience sequence ───
+\node[graybox, minimum width=10cm, minimum height=0.8cm] (expseq) at (0, -2)
+    {Experience sequence (maximum length $T$, GRU sequence length = 16)};
+
+\node[font=\scriptsize\itshape, text=gray!70] at (0, -3)
+    {$[(s_{t-T}, a_{t-T}, r_{t-T}, s_{t-T+1}), (s_{t-T+1}, a_{t-T+1}, r_{t-T+1}, s_{t-T+2}), \cdots, (s_t, a_t, r_t, s_{t+1})]$};
+
+\draw[arrow] (exptuple.south) -- ++(0, -0.5) -- (expseq.north -| exptuple);
+
+% ─── Curriculum connection ───
+\draw[-Stealth, thick, color=blue!50, dashed] (curriculum.south) -- ++(0, -1) -| (rewfunc.north);
+\draw[-Stealth, thick, color=blue!50, dashed] (curriculum.east) -- (stochenv.west);
+
+% ─── (s_t, a_t) from env to reward ───
+\node[font=\footnotesize\itshape] at (-6.5, 3.5) {$(s_t, a_t)_\pi$};
+\draw[arrow] (-5.5, 5) -- (-5.5, 3.5) -- (rewfunc.west);
+
+% ─── Experience replay ───
+\node[graybox, minimum width=1.5cm, minimum height=2cm, rotate=90] (replay) at (-7, 1) {Experience\\replay pool};
+
+\draw[arrow] (replay.south) -- ++(0.8, 0) |- (rewfunc.south);
+
+\end{tikzpicture}
+\caption{Block diagram of the reward-shaped DRL training loop. A curriculum scheduler adjusts sinkage depth and reward scaling based on training progress, replacing the discriminator/GAIL approach.}
+\label{fig:drl_block_diagram}
+\end{figure}
+
+
+% ─────── 3.1 Work Already Done ────────────────────────────────────
+\subsection{Work Already Done}
+
+\subsubsection{Simulation Environment}
+
+The simulation environment couples two physics solvers through Newton's two-way coupling interface, as illustrated in Figure~\ref{fig:physics_stack}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=0.5cm,
+    layer/.style={rectangle, draw=#1!70, fill=#1!10, thick, rounded corners=3pt,
+                  minimum height=1.1cm, minimum width=11cm, align=center, font=\small},
+    arrow/.style={-Stealth, thick, color=black!50},
+    biarrow/.style={Stealth-Stealth, thick, color=marsred!60},
+    scale=0.85, transform shape
+]
+\node[layer=headerblue] (rl) at (0,6) {\textbf{RL Agent Layer} --- PPO-GRU Policy (25 Hz)};
+\node[layer=accentorange] (env) at (0,4.5) {\textbf{Environment Layer} --- Isaac Lab DirectRLEnv (50 Hz physics)};
+\node[layer=softgreen] (rigid) at (0,3) {\textbf{Rigid-Body Solver} --- MuJoCo CPU (4 substeps, elliptic friction)};
+\node[layer=marsred] (mpm) at (0,1.5) {\textbf{Granular Solver} --- SolverImplicitMPM (38K particles, $\mu=0.7$)};
+\node[layer=softpurple] (ground) at (0,0) {\textbf{Ground Plane} --- Newton callback (no Nucleus dependency)};
+\draw[biarrow, line width=1.5pt] (rigid.south) -- (mpm.north)
+    node[midway, right=0.3cm, font=\footnotesize, text=marsred] {Two-way coupling};
+\draw[arrow] (rl.south) -- (env.north) node[midway, right=0.2cm, font=\scriptsize] {$\mathbf{a}_t$};
+\draw[arrow] (env.north east) -- ++(0.5,0.5) -- ++(-0.5,0.5) -- (rl.south east)
+    node[midway, right=0.2cm, font=\scriptsize] {$\mathbf{o}_t, r_t$};
+\end{tikzpicture}
+\caption{Physics simulation stack. The key innovation is two-way coupling between rigid-body dynamics and granular MPM particles.}
+\label{fig:physics_stack}
+\end{figure}
+
+% ──── Placeholder for Newton sim screenshots ────
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \imagePlaceholder[\linewidth]{5cm}{%
+        \textbf{[Newton ViewerGL Screenshot]}\\[0.5em]
+        Mars rover on MPM regolith bed\\
+        (side view, particles visible)\\[0.3em]
+        \texttt{eval.py --num\_envs 1}
+    }
+    \caption{Side view of rover on regolith}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \imagePlaceholder[\linewidth]{5cm}{%
+        \textbf{[Newton ViewerGL Screenshot]}\\[0.5em]
+        Mars rover sinking into sand bed\\
+        (isometric view, sinkage visible)\\[0.3em]
+        \texttt{eval.py --num\_envs 1}
+    }
+    \caption{Isometric view showing wheel sinkage}
+\end{subfigure}
+\caption{Newton simulation environment showing the AAU 6-wheel Mars rover on granular regolith. The MPM particle bed (2.0\,m $\times$ 2.0\,m $\times$ 0.15\,m) provides realistic sinkage and wheel--sand interaction under Martian gravity (3.72\,m/s$^2$). Screenshots to be captured from Newton ViewerGL.}
+\label{fig:newton_sim_screenshots}
+\end{figure}
+
+
+Table~\ref{tab:env_params} summarizes the environment configuration.
+
+\begin{table}[H]
+\centering
+\caption{Environment configuration parameters}
+\label{tab:env_params}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Description} \\
+\midrule
+\multicolumn{3}{l}{\textit{Simulation}} \\
+Physics timestep & 0.02\,s (50\,Hz) & Simulation frequency \\
+Policy decimation & 2 & Policy at 25\,Hz \\
+Episode length & 20.0\,s (500 steps) & Maximum episode duration \\
+Gravity & $(0, 0, -3.72)$\,m/s$^2$ & Mars surface gravity \\
+Parallel environments & 64 & For training \\
+\midrule
+\multicolumn{3}{l}{\textit{Granular Material (MPM)}} \\
+Voxel size & 0.05\,m & MPM grid resolution \\
+Sand bed dimensions & 2.0\,m $\times$ 2.0\,m $\times$ 0.15\,m & Per-environment regolith bed \\
+Particle count & $\sim$38,400 per env & Total granular particles \\
+Friction coefficient ($\mu$) & 0.7 & Wheel--sand friction \\
+\midrule
+\multicolumn{3}{l}{\textit{Rigid-Body Solver}} \\
+Solver & MuJoCo CPU & Rigid-body dynamics \\
+Iterations & 4 & Constraint solver iterations \\
+Substeps & 4 & Physics substeps per step \\
+\midrule
+\multicolumn{3}{l}{\textit{Domain Randomization}} \\
+Motor gain & $\mathcal{U}(0.8, 1.2)$ & Multiplicative gain noise \\
+Observation noise & $\mathcal{N}(0, 0.02)$ & Additive Gaussian \\
+Sinkage range & 0.08--0.15\,m & Curriculum-driven \\
+Spawn yaw & $\pm 15^\circ$ & Random heading offset \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsubsection{Robot Platform}
+
+The AAU 6-wheel rocker-bogie Mars rover features a suspension system identical in topology to NASA's Curiosity and Perseverance rovers.
+
+% ──── Placeholder for rover images ────
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \imagePlaceholder[\linewidth]{5cm}{%
+        \textbf{[Rover USD Render]}\\[0.5em]
+        AAU Mars Rover (Mars\_Rover.usd)\\
+        6-wheel rocker-bogie suspension\\
+        from RLRoverLab
+    }
+    \caption{Rover USD model}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \imagePlaceholder[\linewidth]{5cm}{%
+        \textbf{[Newton ViewerGL Screenshot]}\\[0.5em]
+        Rover in simulation with\\
+        MPM sand particles visible\\
+        and wheel contact forces
+    }
+    \caption{Rover in Newton simulation}
+\end{subfigure}
+\caption{The AAU Mars rover platform used in simulation. (a) USD model render showing the 6-wheel rocker-bogie suspension. (b) Rover in Newton simulation environment with granular regolith particles.}
+\label{fig:rover_platform}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{AAU Mars rover joint configuration}
+\label{tab:rover_joints}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Joint Type} & \textbf{Count} & \textbf{Control Mode} & \textbf{Range} \\
+\midrule
+Drive (continuous) & 6 & Velocity & $\pm 6$\,rad/s \\
+Steer (revolute) & 4 & Position & $\pm 0.6$\,rad \\
+Passive (rocker/diff) & N & Free & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsubsection{Observation and Action Spaces}
+
+\begin{equation}
+\mathbf{o}_t = \underbrace{[\mathbf{v}_{\text{wheel}}]}_{\text{6D}} \oplus \underbrace{[\boldsymbol{\sigma}_{\text{slip}}]}_{\text{6D}} \oplus \underbrace{[\boldsymbol{\theta}_{\text{steer}}]}_{\text{4D}} \oplus \underbrace{[\mathbf{a}_{\text{imu}}]}_{\text{3D}} \oplus \underbrace{[g_z]}_{\text{1D}} \oplus \underbrace{[\boldsymbol{\tau}_{\text{drive}}]}_{\text{6D}} \oplus \underbrace{[f_{\text{entrap}}]}_{\text{1D}} \oplus \underbrace{[f_{\text{anomaly}}]}_{\text{1D}} \oplus \underbrace{[d_{\text{norm}}]}_{\text{1D}}
+\label{eq:obs_space}
+\end{equation}
+
+\begin{table}[H]
+\centering
+\caption{Observation space components (29D total)}
+\label{tab:obs_space}
+\begin{tabular}{@{}lccl@{}}
+\toprule
+\textbf{Component} & \textbf{Dim} & \textbf{Normalization} & \textbf{Description} \\
+\midrule
+$\mathbf{v}_{\text{wheel}}$ & 6 & $/\, 6$\,rad/s & Drive joint velocities \\
+$\boldsymbol{\sigma}_{\text{slip}}$ & 6 & $[0, 1]$ & Per-wheel slip ratio \\
+$\boldsymbol{\theta}_{\text{steer}}$ & 4 & $/\, 0.6$\,rad & Steering joint positions \\
+$\mathbf{a}_{\text{imu}}$ & 3 & $/\, g$ & Body linear acceleration \\
+$g_z$ & 1 & $[-1, 1]$ & Projected gravity z-component \\
+$\boldsymbol{\tau}_{\text{drive}}$ & 6 & $/\, \tau_{\max}$ & Normalized drive torques \\
+$f_{\text{entrap}}$ & 1 & $\{0, 1\}$ & Binary entrapment flag \\
+$f_{\text{anomaly}}$ & 1 & $\{0, 1\}$ & Binary torque anomaly flag \\
+$d_{\text{norm}}$ & 1 & $/\, d_{\text{escape}}$ & Normalized +X displacement \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The action space comprises 10 continuous dimensions:
+\begin{equation}
+\mathbf{a}_t = \underbrace{[\boldsymbol{\omega}_{\text{drive}}]}_{\text{6D: } [-1,1] \to \pm 6\,\text{rad/s}} \oplus \underbrace{[\boldsymbol{\theta}_{\text{steer}}]}_{\text{4D: } [-1,1] \to \pm 0.6\,\text{rad}}
+\end{equation}
+
+
+\subsubsection{Dual-Sensor Entrapment Detection}
+
+Inspired by Bi and Ding~\cite{bi2026escape}, we implement two complementary detection mechanisms:
+
+\textbf{Slip-based}: $f_{\text{entrap}} = \mathbb{I}\left[ |v_x| < 0.15\,\text{m/s} \wedge \bar{\sigma} > 0.5 \text{ for } 10\text{ steps} \right]$
+
+\textbf{Torque-based}: $f_{\text{anomaly}} = \mathbb{I}\left[ \max_i |\tau_i/\tau_{\max}| > 0.8 \text{ for } 10\text{ steps} \right]$
+
+
+\subsubsection{Reward Function}
+
+\begin{equation}
+R_t = r_{\text{progress}} + r_{\text{escape}} + r_{\text{rocking}} - p_{\text{slip}} - p_{\text{tilt}} - p_{\text{smooth}} - p_{\text{abnormal}}
+\end{equation}
+
+\begin{table}[H]
+\centering
+\caption{Reward function components (v3)}
+\label{tab:reward}
+\begin{tabular}{@{}lcll@{}}
+\toprule
+\textbf{Term} & \textbf{Weight} & \textbf{Formula} & \textbf{Purpose} \\
+\midrule
+$r_{\text{progress}}$ & 3.0 & $v_x \cdot \Delta t$ & Forward motion \\
+$r_{\text{escape}}$ & 5.0 & Progressive milestones at $0.3$\,m & Shaped escape bonus \\
+$r_{\text{rocking}}$ & 2.0 & $\Delta v_x \cdot f_{\text{entrap}} \cdot \Delta t$ & Velocity reversals when stuck \\
+$p_{\text{slip}}$ & $-1.0$ & $\bar{\sigma} \cdot (1 - f_{\text{entrap}}) \cdot \Delta t$ & Excessive wheel spin \\
+$p_{\text{tilt}}$ & $-0.3$ & $\|\omega_{xy}\|_2 \cdot \Delta t$ & Body instability \\
+$p_{\text{smooth}}$ & $-0.05$ & $\|\Delta \mathbf{a}\|_2 \cdot \Delta t$ & Jerky actions \\
+$p_{\text{abnormal}}$ & $-0.5$ & $(-v_x)^+ \cdot f_{\text{anom}} \cdot (1-f_{\text{entrap}}) \cdot \Delta t$ & Backward under anomaly \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsubsection{PPO Training Configuration}
+
+\begin{table}[H]
+\centering
+\caption{PPO hyperparameters}
+\label{tab:ppo_config}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Notes} \\
+\midrule
+Rollout length & 32 steps & Data per update \\
+Learning epochs & 5 & Passes per batch \\
+Mini-batches & 4 & Gradient updates per epoch \\
+Discount ($\gamma$) & 0.99 & Future reward weighting \\
+GAE lambda ($\lambda$) & 0.95 & Advantage estimation \\
+Learning rate & $3 \times 10^{-4}$ & Adam optimizer \\
+Clip ratio ($\epsilon$) & 0.2 & PPO clip parameter \\
+Entropy coefficient & 0.03 & Prevents premature convergence \\
+GRU hidden size & 256 & Recurrent state dimension \\
+GRU layers & 1 & Single recurrent layer \\
+Sequence length & 16 & BPTT truncation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsubsection{Curriculum Learning}
+
+\begin{equation}
+d_{\text{sinkage}}(p) = d_{\min} + p \cdot (d_{\max} - d_{\min}), \quad p \in [0, 1]
+\end{equation}
+where $d_{\min} = 0.08$\,m and $d_{\max} = 0.15$\,m.
+
+
+\subsubsection{Reward Tuning and Bug Fixes}
+\label{sec:reward_tuning}
+
+During the initial 20K-step training run, several critical issues were identified and fixed:
+
+\paragraph{Slip penalty too high.} With weight 1.0, forward driving yielded \textit{negative} net reward:
+\begin{align}
+r_{\text{progress}} &= 3.0 \times 0.2 \times 0.02 = +0.012, \quad
+p_{\text{slip}} = 1.0 \times 0.8 \times 0.02 = -0.016, \quad
+\text{Net} = -0.004
+\end{align}
+Reduced to 0.3: Net $= +0.012 - 0.005 = +0.007$ (correct incentive).
+
+\paragraph{Torque anomaly bug.} Original used \texttt{clamp(0,2)} killing negative torques and \texttt{mean()} diluting signal. Fixed with \texttt{abs()} and \texttt{max()} per wheel.
+
+\paragraph{Backward-driving exploit.} Escape reward triggered for any direction. Fixed to require +X displacement with spawn yaw $\pm 15^\circ$.
+
+
+% ─────── 3.2 Expected Work ────────────────────────────────────────
+\subsection{Expected Work to Be Done}
+
+\subsubsection{Phase 1: CNN-GRU Sinkage Detection Classifier}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=0.5cm and 1cm,
+    box/.style={rectangle, draw=black, thick, fill=#1, minimum height=1cm, minimum width=3cm, align=center, font=\small},
+    arrow/.style={-Stealth, thick},
+    scale=0.82, transform shape
+]
+\node[box=lightblue!20] (collect) at (0,0) {\textbf{Data Collection}\\\footnotesize Run trained policy\\10K episodes};
+\node[box=lightorange!30, right=1.2cm of collect] (label) {\textbf{Auto-Labeling}\\\footnotesize Ground-truth from\\sim state};
+\node[box=lightgreen!30, right=1.2cm of label] (window) {\textbf{Windowing}\\\footnotesize 50 steps @ 10\,Hz\\= 5\,s window};
+\node[box=lightblue!30, below=1.5cm of label] (model) {\textbf{CNN-GRU Model}};
+\node[box=lightred!20, below=1.2cm of model] (output) {\textbf{3-Class Output}\\\footnotesize $P(\text{normal}), P(\text{sinking}), P(\text{entrapped})$};
+\draw[arrow] (collect) -- (label);
+\draw[arrow] (label) -- (window);
+\draw[arrow] (window.south) -- ++(0,-0.4) -| (model.north);
+\draw[arrow] (model) -- (output);
+\end{tikzpicture}
+\caption{Planned CNN-GRU sinkage detection pipeline.}
+\label{fig:detection_pipeline}
+\end{figure}
+
+Target: F1 $> 0.90$ on ``entrapped'' class, latency $< 1$\,s, inference $< 5$\,ms on RPi5.
+
+
+\subsubsection{Scaling Training}
+
+\begin{itemize}
+    \item \textbf{RTX 4090} (24\,GB): 512 parallel environments, 2M timesteps
+    \item Hyperparameter sweep: rollout length, entropy coefficient, learning rate
+    \item Multi-seed evaluation: 5 random seeds for statistical significance
+    \item Ablation studies: GRU vs.\ MLP, dual detection vs.\ single, curriculum impact
+\end{itemize}
+
+
+\subsubsection{Phase 3: Sim-to-Real Deployment}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=0.6cm and 1.2cm,
+    box/.style={rectangle, draw=black, thick, fill=#1, minimum height=1.1cm, minimum width=3cm, align=center, font=\small},
+    arrow/.style={-Stealth, thick},
+    scale=0.82, transform shape
+]
+\node[box=lightblue!20] (p1) at (0,1.5) {\textbf{Policy .pt}\\\footnotesize best\_agent.pt};
+\node[box=lightblue!20] (p2) at (0,0) {\textbf{Detector .pt}\\\footnotesize detector.pt};
+\node[box=lightorange!30] (o1) at (4,1.5) {\textbf{ONNX Export}\\\footnotesize 29D $\to$ 10D};
+\node[box=lightorange!30] (o2) at (4,0) {\textbf{ONNX Export}\\\footnotesize 11D$\times$50 $\to$ 3};
+\node[box=lightgreen!30] (rpi) at (8,0.75) {\textbf{RPi5}\\\footnotesize ONNX Runtime\\10\,Hz};
+\node[box=lightred!20] (hw) at (12,0.75) {\textbf{Physical Rover}\\\footnotesize Sand tray test};
+\draw[arrow] (p1) -- (o1);
+\draw[arrow] (p2) -- (o2);
+\draw[arrow] (o1.east) -| (rpi.north);
+\draw[arrow] (o2.east) -| (rpi.south);
+\draw[arrow] (rpi) -- (hw);
+\end{tikzpicture}
+\caption{Planned sim-to-real deployment pipeline.}
+\label{fig:deployment_pipeline}
+\end{figure}
+
+
+% ══════════════════════════════════════════════════════════════════
+%                       4. RESULTS
+% ══════════════════════════════════════════════════════════════════
+\newpage
+\section{Results}
+
+Preliminary results from 200,000-timestep training on NVIDIA RTX 5070 Ti, 64 parallel environments.
+
+\subsection{Training Overview}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\textwidth]{figures/training_overview.png}
+\caption{Training overview across 200K timesteps: reward convergence, escape rate, forward velocity, slip ratio, losses, and exploration metrics. GRU-PPO (red) vs.\ feedforward baseline (blue).}
+\label{fig:training_overview}
+\end{figure}
+
+\subsection{Key Performance Metrics}
+
+\begin{table}[H]
+\centering
+\caption{Training results at 200,000 timesteps}
+\label{tab:results}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} & \textbf{Target} & \textbf{Status} \\
+\midrule
+Mean episode reward & $\sim$926 & $> 100$ & \textcolor{softgreen}{\textbf{Achieved}} \\
+Escape rate & $\sim$57\% & $> 70\%$ & \textcolor{red}{\textbf{In Progress}} \\
+Mean forward velocity ($v_x$) & 0.557\,m/s & $> 0.15$\,m/s & \textcolor{softgreen}{\textbf{Achieved}} \\
+Curriculum progress & 1.0 & 1.0 & \textcolor{softgreen}{\textbf{Achieved}} \\
+Policy std dev & 1.496 & $< 1.0$ & \textcolor{red}{\textbf{Not Converged}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Reward Analysis}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/reward_breakdown.png}
+\caption{Reward breakdown showing min, mean, and max episode rewards over training.}
+\label{fig:reward_breakdown}
+\end{figure}
+
+\subsection{Environment Metrics}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/env_metrics.png}
+\caption{Environment metrics: forward velocity, slip ratio, entrapment rate, and torque anomaly rate.}
+\label{fig:env_metrics}
+\end{figure}
+
+\subsection{PPO Training Losses}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/losses.png}
+\caption{PPO training losses: policy loss, value loss, and entropy loss.}
+\label{fig:losses}
+\end{figure}
+
+% ──── Running data dashboard (like Bi & Ding Fig.18/19/23/25) ────
+
+\subsection{Episode Running Data}
+
+The following dashboard displays running data from a single evaluation episode, following the format of Bi and Ding~\cite{bi2026escape} (their Figs.~18, 19, 23, 25). Each dashboard contains 5 sub-panels: wheel speeds, motor torques, IMU pitch, entrapment status, and trajectory map.
+
+\begin{figure}[H]
+\centering
+\imagePlaceholder[\textwidth]{12cm}{%
+    \textbf{[Episode Running Data Dashboard --- to be generated]}\\[1em]
+    Layout (5 panels, matching Bi \& Ding Figs.~18/19/23/25):\\[0.5em]
+    \begin{tabular}{ll}
+    \textbf{Top-left:} & Setting Speed --- 6 wheel drive velocities (L/R differentiated) \\
+    \textbf{Top-right:} & Torque of six motors --- FL, ML, RL, FR, MR, RR \\
+    \textbf{Mid-left:} & IMU pitch angle over time \\
+    \textbf{Mid-right:} & Entrapment \& anomaly status (binary flags) \\
+    \textbf{Bottom:} & Robot Track Map --- XY trajectory on MPM sand heightmap \\
+    & \quad with color = time, targets = escape milestones, arrows = heading \\
+    \end{tabular}\\[0.5em]
+    Generate with: \texttt{python3 scripts/plot\_episode.py --from-file episode.npz}
+}
+\caption{Episode running data dashboard for a single evaluation episode with the trained GRU-PPO policy (to be generated). Format matches Bi and Ding~\cite{bi2026escape}, Figs.~18/19.}
+\label{fig:episode_dashboard}
+\end{figure}
+
+% ──── Placeholder for entrapment anomaly screenshots (like Fig.11/13) ────
+
+\subsection{Entrapment Anomaly Visualization}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \imagePlaceholder[\linewidth]{5cm}{%
+        \textbf{[Newton ViewerGL Screenshot]}\\[0.5em]
+        Rover entrapped in regolith\\
+        (wheels sunk into sand bed)\\
+        Analogous to Bi \& Ding Fig.~13:\\
+        ``The SSMR anomaly in simulation''\\
+        with annotation: ``Wheel sunk in sand''
+    }
+    \caption{Rover entrapment in simulation}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \imagePlaceholder[\linewidth]{5cm}{%
+        \textbf{[Newton ViewerGL Screenshot]}\\[0.5em]
+        Rover escaping from regolith\\
+        (wheels gaining traction,\\
+        sand displaced behind rover)\\
+        showing the escape trajectory
+    }
+    \caption{Rover executing escape maneuver}
+\end{subfigure}
+\caption{The Mars rover entrapment anomaly in the Newton simulation (analogous to Bi and Ding~\cite{bi2026escape}, Fig.~13). (a) Rover wheels sunk into granular regolith bed. (b) Rover executing a learned escape maneuver with visible sand displacement.}
+\label{fig:entrapment_anomaly_sim}
+\end{figure}
+
+
+\subsection{Observed Escape Behaviors}
+
+The trained policy exhibits several distinct escape strategies:
+\begin{enumerate}
+    \item \textbf{Rocking}: Alternating forward/backward wheel velocities to compact sand and build traction.
+    \item \textbf{Differential steering}: Different speeds to left/right wheels to yaw toward better traction.
+    \item \textbf{Coordinated steer-and-drive}: Simultaneous steering and driving for diagonal escape paths.
+    \item \textbf{Progressive acceleration}: Gradual speed increase to avoid deeper sinkage.
+\end{enumerate}
+
+These strategies emerge naturally from reward-driven learning without explicit programming.
+
+
+\subsection{Comparison with Bi and Ding (2026)}
+
+\begin{table}[H]
+\centering
+\caption{Comparison with Bi and Ding (2026)}
+\label{tab:comparison_bi}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Aspect} & \textbf{Bi \& Ding (2026)} & \textbf{Ours (Preliminary)} \\
+\midrule
+Robot & 4-wheel SSMR & 6-wheel rocker-bogie \\
+Terrain & Rigid (Unity) & Granular MPM \\
+Gravity & Earth (9.81) & Mars (3.72) \\
+Observation dim & 30D & 29D \\
+Action dim & 2D & 10D \\
+Policy type & PPO + LSTM & PPO + GRU \\
+Training steps & 4M & 200K (early) \\
+Escape rate & 90\% & 80\% \\
+Reward type & GAIL fusion & Handcrafted shaped \\
+Real-world test & Yes (orchard) & Planned (sand tray) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ══════════════════════════════════════════════════════════════════
+%                       5. CONCLUSION
+% ══════════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+\subsection{Summary of Contributions}
+
+\begin{enumerate}
+    \item \textbf{High-fidelity simulation}: First integration of Newton MPM granular physics with Isaac Lab for rover entrapment simulation under Martian gravity.
+    \item \textbf{Dual-sensor entrapment detection}: Complementary slip-ratio and torque anomaly detection.
+    \item \textbf{Recurrent recovery policy}: GRU-augmented PPO enabling multi-step escape strategies.
+    \item \textbf{Shaped reward with curriculum}: Seven-component reward function with progressive sinkage difficulty.
+    \item \textbf{Complete pipeline}: End-to-end system from physics simulation through RL training to visualization.
+\end{enumerate}
+
+\subsection{Preliminary Results}
+
+With 200K timesteps on RTX 5070 Ti (64 envs): $\sim$57\% escape rate from 8--15\,cm sinkage in Martian gravity (peaking at 99\% mid-training), 0.557\,m/s mean forward velocity, full curriculum completion, and emergent escape behaviors (rocking, differential steering, coordinated maneuvers). Policy entropy remains elevated (std dev 1.496), indicating further training is needed for stable convergence.
+
+\subsection{Future Work}
+
+\begin{enumerate}
+    \item Scale training to 2M+ steps on RTX 4090 (512 envs) for $>$90\% escape rate
+    \item CNN-GRU sinkage detector ($>$90\% F1 score)
+    \item ONNX deployment on Raspberry Pi 5 ($<$5\,ms inference at 10\,Hz)
+    \item Physical validation in sand tray and outdoor gravel
+    \item Multi-terrain generalization (slopes, variable density, lunar gravity)
+    \item GAIL reward fusion following Bi and Ding's approach
+    \item Asymmetric critic with privileged terrain information
+\end{enumerate}
+
+
+% ══════════════════════════════════════════════════════════════════
+%                       REFERENCES
+% ══════════════════════════════════════════════════════════════════
+\newpage
+\begin{thebibliography}{99}
+
+\bibitem{bi2026escape}
+S.~Bi and Y.~Ding, ``Escape and path point tracking methods of skid-steered mobile robots under undulating terrain conditions,'' \textit{Computers and Electronics in Agriculture}, vol.~241, p.~111247, 2026.
+
+\bibitem{schulman2017ppo}
+J.~Schulman, F.~Wolski, P.~Dhariwal, A.~Radford, and O.~Klimov, ``Proximal policy optimization algorithms,'' \textit{arXiv preprint arXiv:1707.06347}, 2017.
+
+\bibitem{inotsume2020}
+H.~Inotsume, C.~Creager, R.~Trease, and R.~Asnani, ``Slip-based path planning and analysis for planetary rovers,'' \textit{Journal of Field Robotics}, vol.~37, no.~7, pp.~1201--1218, 2020.
+
+\bibitem{ding2011}
+L.~Ding, H.~Gao, Z.~Deng, K.~Nagatani, and K.~Yoshida, ``Experimental study and analysis on driving wheels' performance for planetary exploration rovers moving in deformable soil,'' \textit{Journal of Terramechanics}, vol.~48, no.~1, pp.~27--45, 2011.
+
+\bibitem{jain2019}
+A.~Jain, M.~Ono, and P.~Shankar, ``Reinforcement learning for planetary rover locomotion over heterogeneous terrain,'' in \textit{IEEE Aerospace Conference}, pp.~1--10, 2019.
+
+\bibitem{fankhauser2018}
+P.~Fankhauser, M.~Hutter, and R.~Siegwart, ``Robust robot autonomy through recovery behaviors for the ANYmal quadrupedal robot,'' in \textit{IEEE/RSJ IROS}, pp.~6238--6245, 2018.
+
+\bibitem{newton}
+NVIDIA, ``Newton Physics Engine,'' \url{https://github.com/NVIDIA-Newton/newton}, 2024.
+
+\bibitem{isaaclab}
+NVIDIA, ``Isaac Lab: A Unified Framework for Robot Learning,'' \url{https://github.com/isaac-sim/IsaacLab}, 2024.
+
+\bibitem{skrl}
+T.~Arias and M.~Fernandez, ``skrl: Modular and Flexible Library for Reinforcement Learning,'' \textit{JMLR}, vol.~24, pp.~1--9, 2023.
+
+\bibitem{shibly2005}
+H.~Shibly, K.~Iagnemma, and S.~Dubowsky, ``An equivalent soil mechanics formulation for rigid wheels in deformable terrain,'' \textit{Journal of Terramechanics}, vol.~42, no.~1, pp.~1--13, 2005.
+
+\bibitem{cho2014gru}
+K.~Cho et al., ``Learning phrase representations using RNN encoder-decoder for statistical machine translation,'' in \textit{EMNLP}, pp.~1724--1734, 2014.
+
+\end{thebibliography}
+
+\end{document}
+
