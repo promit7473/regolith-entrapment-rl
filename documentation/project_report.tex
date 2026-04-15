@@ -1501,98 +1501,104 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-    scale=0.82, transform shape,
-    >=Stealth,
-    font=\sffamily\small,
-    outerbox/.style={rectangle, draw=black!60, thick, rounded corners=6pt,
-                     fill=white, inner sep=12pt},
-    sensorbox/.style={rectangle, draw=black!50, thick, rounded corners=3pt,
-                      fill=gray!10, align=center, minimum width=2.8cm,
-                      minimum height=1.0cm, font=\small},
-    detectorbox/.style={rectangle, draw=red!60!black, thick, rounded corners=3pt,
-                        fill=red!8, align=center, minimum width=6cm,
-                        minimum height=1.2cm, font=\small},
-    navbox/.style={rectangle, draw=green!50!black, thick, rounded corners=3pt,
-                   fill=green!10, align=center, minimum width=3.8cm,
-                   minimum height=1.2cm, font=\small},
-    escapebox/.style={rectangle, draw=red!60!black, thick, rounded corners=3pt,
-                      fill=red!10, align=center, minimum width=3.8cm,
-                      minimum height=1.2cm, font=\small},
-    motorbox/.style={rectangle, draw=black!50, thick, rounded corners=3pt,
-                     fill=gray!10, align=center, minimum width=5cm,
-                     minimum height=1.0cm, font=\small},
-    decisionnode/.style={diamond, draw=orange!70!black, thick, fill=orange!15,
-                    align=center, minimum width=2.2cm, minimum height=1.2cm,
-                    font=\small\bfseries, aspect=2},
-    arr/.style={->, thick},
-    grenarr/.style={->, thick, color=green!50!black},
-    redarr/.style={->, thick, color=red!60!black},
-    grayarr/.style={->, thick, dashed, color=black!40},
+    >=Stealth, font=\sffamily\small,
+    sbox/.style={rectangle, draw=black!50, thick, rounded corners=3pt,
+                 fill=gray!10, align=center,
+                 minimum width=2.9cm, minimum height=1.1cm},
+    dbox/.style={rectangle, draw=red!55!black, line width=1.2pt,
+                 rounded corners=4pt, fill=red!5, align=center,
+                 minimum width=9.8cm, minimum height=1.5cm},
+    nbox/.style={rectangle, draw=green!45!black, line width=1.2pt,
+                 rounded corners=4pt, fill=green!7, align=center,
+                 minimum width=3.9cm, minimum height=1.6cm},
+    ebox/.style={rectangle, draw=red!55!black, line width=1.2pt,
+                 rounded corners=4pt, fill=red!7, align=center,
+                 minimum width=3.9cm, minimum height=1.6cm},
+    mbox/.style={rectangle, draw=black!55, line width=1.2pt,
+                 rounded corners=4pt, fill=gray!12, align=center,
+                 minimum width=5.5cm, minimum height=1.1cm},
+    dec/.style={diamond, draw=orange!65!black, line width=1.2pt,
+                fill=orange!12, align=center, aspect=2.8,
+                font=\small\bfseries},
+    a/.style={-Stealth, thick},
+    ga/.style={-Stealth, line width=1.5pt, color=green!45!black},
+    ra/.style={-Stealth, line width=1.5pt, color=red!55!black},
+    da/.style={-Stealth, thick, dashed, color=black!35},
 ]
 
-% ── Onboard computer bounding box ──
-\node[outerbox, minimum width=12cm, minimum height=9.5cm]
-    (rpi) at (0, 0) {};
-\node[font=\footnotesize\itshape, text=black!60, anchor=north west]
-    at ([xshift=6pt, yshift=-4pt]rpi.north west) {Onboard Computer (RPi 5)};
+%% ─── nodes ───────────────────────────────────────────────────
+\node[sbox] (imu) at (-4,  5.6) {\textbf{IMU}\\{\scriptsize acc, gyro}};
+\node[sbox] (enc) at ( 0,  5.6) {\textbf{Wheel Encoders}\\{\scriptsize vel, torque}};
+\node[sbox] (gps) at ( 4,  5.6) {\textbf{Goal / GPS}\\{\scriptsize target position}};
 
-% ── Sensor nodes ──
-\node[sensorbox] (imu)      at (-3.8,  3.2) {\textbf{IMU}\\{\footnotesize acc, gyro}};
-\node[sensorbox] (encoders) at ( 0,    3.2) {\textbf{Wheel Encoders}\\{\footnotesize vel, torque}};
-\node[sensorbox] (gps)      at ( 3.8,  3.2) {\textbf{Goal / GPS}\\{\footnotesize target position}};
+\node[dbox] (det) at (0, 3.6)
+    {\textbf{Entrapment Detector}\\[2pt]
+     {\small CNN-GRU \ (Phase 1)}\\
+     {\scriptsize $P(\mathrm{normal}),\quad P(\mathrm{sinking}),\quad
+      P(\mathrm{entrapped})$}};
 
-% ── Entrapment Detector ──
-\node[detectorbox] (detector) at (0, 1.6)
-    {\textbf{Entrapment Detector}\\{\footnotesize CNN-GRU (Phase 1)}\\
-     {\footnotesize $P(\text{normal}),\; P(\text{sinking}),\; P(\text{entrapped})$}};
+\node[dec]  (dmd) at (0, 1.7) {\textbf{Entrapped?}};
 
-% ── Decision diamond ──
-\node[decisionnode] (decision) at (0, -0.4) {Entrapped?};
+\node[nbox] (nav) at (-4, -0.3)
+    {\textbf{Navigation Brain}\\[2pt]
+     {\small RLRoverLab policy}\\
+     {\scriptsize point-to-point nav}};
 
-% ── Navigation Brain ──
-\node[navbox] (navbrain) at (-3.5, -2.2)
-    {\textbf{Navigation Brain}\\{\footnotesize RLRoverLab policy}\\
-     {\footnotesize point-to-point nav}};
+\node[ebox] (esc) at ( 4, -0.3)
+    {\textbf{Escape Brain}\\[2pt]
+     {\small Our GRU-PPO policy}\\
+     {\scriptsize entrapment recovery}};
 
-% ── Escape Brain ──
-\node[escapebox] (escapebrain) at (3.5, -2.2)
-    {\textbf{Escape Brain}\\{\footnotesize Our GRU-PPO policy}\\
-     {\footnotesize entrapment recovery}};
+\node[mbox] (mot) at (0, -2.6)
+    {\textbf{Motor Commands}\\{\scriptsize drive\,(6)\,+\,steer\,(4)}};
 
-% ── Motor Commands ──
-\node[motorbox] (motor) at (0, -4.0)
-    {\textbf{Motor Commands}\\{\footnotesize drive (6) + steer (4)}};
+%% ─── RPi5 bounding box (drawn before arrows so it sits behind) ───
+\node[rectangle, draw=black!45, thick, rounded corners=8pt,
+      dashed, fill=blue!2,
+      minimum width=11.6cm, minimum height=10.4cm]
+      (rpi) at (0, 1.6) {};
+\node[anchor=north west, font=\footnotesize\itshape, text=black!50]
+    at (rpi.north west) {Onboard Computer \ (RPi\,5)};
 
-% ── Sensor → Detector arrows ──
-\draw[arr] (imu.south)      -- (imu.south      |- detector.north);
-\draw[arr] (encoders.south) -- (detector.north);
-\draw[arr] (gps.south)      -- (gps.south      |- detector.north);
+%% ─── arrows ──────────────────────────────────────────────────
 
-% ── Detector → Decision ──
-\draw[arr] (detector.south) -- (decision.north)
-    node[midway, right=3pt, font=\footnotesize] {entrap flag};
+% sensors → detector (straight down, detector is wide enough)
+\draw[a] (imu.south) -- (imu |- det.north);
+\draw[a] (enc.south) -- (det.north);
+\draw[a] (gps.south) -- (gps |- det.north);
 
-% ── Decision → Nav Brain (No) ──
-\draw[grenarr] (decision.west) -- (navbrain.east)
-    node[midway, above, font=\footnotesize\bfseries, text=green!50!black] {No};
+% detector → diamond
+\draw[a] (det.south) -- (dmd.north)
+    node[midway, right=4pt, font=\scriptsize] {entrap flag};
 
-% ── Decision → Escape Brain (Yes) ──
-\draw[redarr] (decision.east) -- (escapebrain.west)
-    node[midway, above, font=\footnotesize\bfseries, text=red!60!black] {Yes};
+% diamond → nav  (left tip → left, then down)
+\draw[ga] (dmd.west) -| (nav.north)
+    node[pos=0.18, above, font=\small\bfseries,
+         text=green!45!black] {No};
 
-% ── Nav Brain → Motor ──
-\draw[grenarr] (navbrain.south) |- (motor.west);
+% diamond → escape  (right tip → right, then down)
+\draw[ra] (dmd.east) -| (esc.north)
+    node[pos=0.18, above, font=\small\bfseries,
+         text=red!55!black] {Yes};
 
-% ── Escape Brain → Motor ──
-\draw[redarr] (escapebrain.south) |- (motor.east);
+% nav → motor
+\draw[ga] (nav.south) |- (mot.west);
 
-% ── Escaped feedback: Escape Brain back to decision ──
-\draw[grayarr] (escapebrain.north) -- ++(0, 0.6) -- ++(-1.5, 0)
-    node[midway, above, font=\footnotesize\itshape, text=black!50] {escaped}
-    -- (decision.north east);
+% escape → motor
+\draw[ra] (esc.south) |- (mot.east);
+
+% "escaped" dashed feedback: esc.north → up → left → dmd.north
+\draw[da] (esc.north) -- ++(0, 2.0) -| (dmd.north)
+    node[pos=0.35, above, font=\scriptsize\itshape,
+         text=black!45] {escaped};
 
 \end{tikzpicture}
-\caption{Dual-brain onboard architecture. The CNN-GRU entrapment detector switches control between the RLRoverLab navigation policy (normal traversal) and our GRU-PPO escape policy (entrapment recovery). Both policies share the same motor command interface.}
+\caption{Dual-brain onboard architecture deployed on the Raspberry Pi 5.
+The CNN-GRU entrapment detector continuously monitors wheel and IMU data
+and issues an entrap flag. During normal traversal the \emph{Navigation Brain}
+(RLRoverLab policy) drives the rover; when entrapment is detected the
+\emph{Escape Brain} (our GRU-PPO policy) takes over until the rover
+escapes, then hands control back.}
 \label{fig:dual_brain}
 \end{figure}
 
