@@ -1165,9 +1165,9 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
 % PPO Internal Components
 \node[inner, minimum width=1.9cm] (act) at (2.8, 1.6) {Actor\\(GRU)};
 \node[inner, minimum width=1.9cm] (crit) at (4.8, 1.6) {Critic\\(GRU)};
-\node[inner, minimum width=4.8cm, minimum height=1cm] (loss) at (4, 0.3) 
-    {PPO clip loss + value loss + entropy bonus};
-\node[font=\tiny, text=gray!70, anchor=north] at (loss.south) {Updating parameters with Adam/SGD};
+\node[inner, minimum width=3.6cm, minimum height=1cm] (loss) at (4, 0.3)
+    {PPO clip loss + value loss\\+ entropy loss};
+\node[font=\tiny, text=gray!70, anchor=north] at ($(loss.south)+(0,-0.15)$) {Updating parameters with Adam/SGD};
 
 % ═══════════════════════════════════════════════════════════
 % 3. BOTTOM ROW: Replay & Sequence
@@ -1191,26 +1191,26 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
 % A. Curriculum Updates (Blue Dashed)
 \draw[dashedblue] (sched.east) -- (env.west |- sched.east)
     node[midway, above, text=blue!60] {Update $d_{\text{sinkage}}$};
-\draw[dashedblue] (sched.south) -- ++(0, -0.8) -| (reward.north)
-    node[pos=0.7, left, text=blue!60] {Update weights};
+\draw[dashedblue] (sched.south) -- (sched.south |- reward.west) -- (reward.west)
+    node[pos=0.3, below, xshift=-1.2cm, text=blue!60] {Update weights};
 
 % B. Environment → Reward
-\draw[arrow] (env.west) -- ++(-1.5,0) |- (reward.north)
-    node[pos=0.6, right, font=\footnotesize] {$(s_t, a_t)_\pi$};
+\draw[arrow] (env.west) -- ++(0,-0.8) -| (reward.north)
+    node[pos=0.25, below, font=\footnotesize] {$(s_t, a_t)_\pi$};
 
 % C. RL Closed Loop: Environment ↔ PPO
-\draw[arrow] (env.south) -- (ppo.north |- env.south)
+\draw[arrow] (env.south) -- (ppo.north)
     node[midway, left, font=\footnotesize] {$\mathbf{s}_t$};
-\draw[arrow] (ppo.north east) -- ++(1.3,0) |- (env.east)
-    node[pos=0.3, right, font=\footnotesize] {$\mathbf{a}_t$};
+\draw[arrow] (ppo.east) -- ++(1.0,0) coordinate(atmp) -- (atmp |- env.east) -- (env.east)
+    node[pos=0.55, above, font=\footnotesize] {$\mathbf{a}_t$};
 
 % D. Reward → PPO
-\draw[arrow] (reward.east) -- (ppo.west |- reward.east)
-    node[midway, above, font=\footnotesize] {$r_t$};
+\draw[arrow] (reward.south) |- (ppo.west)
+    node[pos=0.25, left, font=\footnotesize] {$r_t$};
 
 % E. PPO → Experience Sequence
 \draw[arrow] (ppo.south) -- ++(0, -1.2) -| (seq.north)
-    node[pos=0.6, right, font=\footnotesize] {$(s_t, a_t, r_t, s_{t+1})$};
+    node[pos=0.0, right, font=\footnotesize] {$(s_t, a_t, r_t, s_{t+1})$};
 
 % F. Experience Sequence → Replay Pool 
 % FIXED: Routes to the left side (west), wrapping under the block to look like it comes from behind
