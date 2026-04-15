@@ -948,104 +948,158 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-    scale=0.65, transform shape,
+    scale=0.72, transform shape,
     neuron/.style={circle, draw=black, thick, minimum size=0.35cm, fill=white},
-    grubox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum width=1.5cm, minimum height=1cm, align=center, font=\small},
+    grubox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum width=1.8cm, minimum height=1.2cm, align=center, font=\small},
     arrow/.style={-Stealth, thick},
     dashedbox/.style={rectangle, draw=black!50, dashed, thick, rounded corners=3pt},
     every node/.style={font=\small}
 ]
 
 % ─── Dashed outer box ───
-\node[dashedbox, minimum width=19cm, minimum height=8.5cm, fill=white] at (8.5, 0) {};
+\node[dashedbox, minimum width=28cm, minimum height=13cm, fill=white] at (9.5, 0) {};
 
 % ─── Column labels ───
-\node[font=\small\bfseries, anchor=south] at (0.5, 4.5) {Proprioceptive input};
-\node[font=\small\bfseries, anchor=south] at (4, 4.5) {FC};
-\node[font=\small\bfseries, anchor=south] at (8, 4.5) {GRU model};
-\node[font=\small\bfseries, anchor=south] at (12, 4.5) {FC};
-\node[font=\small\bfseries, anchor=south] at (16, 4.5) {Action output};
+\node[font=\small\bfseries, anchor=south] at (0.5, 5) {Proprioceptive input};
+\node[font=\small\bfseries, anchor=south] at (4, 5) {FC};
+\node[font=\small\bfseries, anchor=south] at (8, 5) {GRU model};
+\node[font=\small\bfseries, anchor=south] at (12, 5) {FC};
+\node[font=\small\bfseries, anchor=south] at (19.5, 5) {Action output};
 
 % ─── Input layer (29D) ───
-\foreach \i in {1,...,7} {
-    \pgfmathsetmacro{\ypos}{3 - (\i-1)*0.85}
+\foreach \i in {1,...,8} {
+    \pgfmathsetmacro{\ypos}{3.2 - (\i-1)*0.75}
     \node[neuron] (in\i) at (0.5, \ypos) {};
 }
-\node[font=\footnotesize, below=0.1cm of in7] {$\mathbf{s}_t$};
-\node at (0.5, -0.6) {$\vdots$};
+\node[font=\footnotesize, below=0.1cm of in8] {$\mathbf{s}_t \in \mathbb{R}^{29}$};
+\node[font=\tiny, text=gray!70, align=center] at (0.5, -4.0) {\scriptsize 6 vel + 6 slip + 4 steer\\ + 3 IMU + 1 grav\\ + 6 torque + 2 flags + 1 disp};
 
-% ─── FC1 layer ───
-\foreach \i in {1,...,6} {
-    \pgfmathsetmacro{\ypos}{2.8 - (\i-1)*0.9}
+% ─── FC1 layer (128 units) ───
+\foreach \i in {1,...,7} {
+    \pgfmathsetmacro{\ypos}{3 - (\i-1)*0.8}
     \node[neuron, fill=lightblue!20] (fc1\i) at (4, \ypos) {};
 }
+\node[font=\tiny, text=gray!60, below=0.1cm of fc17] {128 units};
 
-% Connections input → FC1
-\foreach \i in {1,...,7} {
-    \foreach \j in {1,...,6} {
-        \draw[gray!30] (in\i) -- (fc1\j);
+% Connections input → FC1 (sparse for clarity)
+\foreach \i in {1,...,8} {
+    \foreach \j in {1,...,7} {
+        \draw[gray!25] (in\i) -- (fc1\j);
     }
 }
 
 % ─── GRU block ───
-\node[grubox, minimum width=2cm, minimum height=2cm, fill=lightblue!30] (gru) at (8, 0.5) {\textbf{GRU}};
+\node[grubox, minimum width=2.2cm, minimum height=2.2cm, fill=lightblue!30] (gru) at (8, 0.5) {\textbf{GRU}\\[2pt]\tiny 256 hidden};
 
-% Hidden state: h_{t-1} enters left side of top, h_t exits right side of top
-\node[font=\footnotesize\itshape, anchor=south] (htprev) at (7.2, 2.8) {$h_{t-1}$};
-\draw[arrow] (htprev.south) -- ([xshift=-0.3cm]gru.north);
-\node[font=\footnotesize\itshape, anchor=south] (htcur) at (8.8, 2.8) {$h_t$};
-\draw[arrow] ([xshift=0.3cm]gru.north) -- (htcur.south);
+% Hidden state arrows with dimension labels
+\node[font=\footnotesize\itshape] (ht_in) at (6.2, 2.8) {$\mathbf{h}_{t-1}$};
+\draw[arrow] (ht_in.east) -- (gru.north west);
+\node[font=\footnotesize\itshape] (ht_out) at (9.8, 2.8) {$\mathbf{h}_{t}$};
+\draw[arrow] (gru.north east) -- (ht_out.west);
+\node[font=\tiny, text=gray!60] at (8, 3.3) {256D};
 
 % FC1 → GRU
-\foreach \i in {1,...,6} {
+\foreach \i in {1,...,7} {
     \draw[gray!40] (fc1\i) -- (gru.west);
 }
 
-% ─── FC2 layer ───
-\foreach \i in {1,...,5} {
-    \pgfmathsetmacro{\ypos}{2.5 - (\i-1)*0.95}
+% ─── FC2 layer (64 units) ───
+\foreach \i in {1,...,6} {
+    \pgfmathsetmacro{\ypos}{2.8 - (\i-1)*0.85}
     \node[neuron, fill=lightgreen!30] (fc2\i) at (12, \ypos) {};
 }
+\node[font=\tiny, text=gray!60, below=0.1cm of fc26] {64 units};
 
 % GRU → FC2
-\foreach \i in {1,...,5} {
+\foreach \i in {1,...,6} {
     \draw[gray!40] (gru.east) -- (fc2\i);
 }
 
-% ─── Output nodes: drive group (top), steer group (bottom) — no crossing ───
-% Drive group
-\node[neuron, fill=lightorange!50] (mu1)  at (13.5,  2.5) {};
-\node[neuron, fill=lightred!50]    (sig1) at (13.5,  1.5) {};
-% Steer group
-\node[neuron, fill=lightorange!50] (mu2)  at (13.5, -0.5) {};
-\node[neuron, fill=lightred!50]    (sig2) at (13.5, -1.5) {};
+% ─── Output: Drive branch (6 wheels) ───
+% Mean outputs for 6 drive wheels
+\node[font=\footnotesize\bfseries, text=deepblue] at (16.5, 4.7) {Drive outputs (6D)};
+\foreach \i/\name in {1/FL, 2/ML, 3/RL, 5/MR, 6/RR} {
+    \pgfmathsetmacro{\ypos}{4.0 - (\i-1)*0.55}
+    \node[neuron, fill=lightorange!50, minimum size=0.3cm] (mu_drive\i) at (16.5, \ypos) {};
+    \node[font=\tiny, right=0.6cm of mu_drive\i] {$\mu_{\name}$};
+}
+% µFR at original position (4.0 - 3*0.55 = 2.35)
+\node[neuron, fill=lightorange!50, minimum size=0.3cm] (mu_drive4) at (16.5, 2.35) {};
+\node[font=\tiny, right=0.6cm of mu_drive4] {$\mu_{FR}$};
 
-% Group labels
-\node[font=\footnotesize, anchor=south] at (13.5,  3.1) {$[\mu_{\text{drive}},\;\log\sigma_{\text{drive}}]$};
-\node[font=\footnotesize, anchor=north] at (13.5, -2.1) {$[\mu_{\text{steer}},\;\log\sigma_{\text{steer}}]$};
+% Log std for drive
+\node[neuron, fill=lightred!50, minimum size=0.3cm] (logstd_drive) at (16.5, 0.7) {};
+\node[font=\tiny, right=0.6cm of logstd_drive] {$\log\sigma_{\text{drive}}$};
 
-% FC2 → output nodes
-\foreach \i in {1,...,5} {
-    \draw[gray!40] (fc2\i) -- (mu1);
-    \draw[gray!40] (fc2\i) -- (sig1);
-    \draw[gray!40] (fc2\i) -- (mu2);
-    \draw[gray!40] (fc2\i) -- (sig2);
+% Drive action sampling
+\node[neuron, fill=accentorange!40, minimum size=0.45cm] (a_drive) at (19.5, 1.95) {};
+\node[font=\footnotesize\bfseries, right=0.1cm of a_drive] {$\mathbf{a}_{\text{drive}} \in \mathbb{R}^6$};
+\node[font=\tiny, text=gray!60, below=0.05cm of a_drive] {\scriptsize $\omega_1,...,\omega_6$};
+
+% ─── Output: Steer branch (4 wheels) ───
+% Mean outputs for 4 steer joints
+\node[font=\footnotesize\bfseries, text=deepblue] at (16.5, -0.6) {Steer outputs (4D)};
+\foreach \i/\name in {1/FL, 2/FR, 3/ML, 4/MR} {
+    \pgfmathsetmacro{\ypos}{-1.1 - (\i-1)*0.55}
+    \node[neuron, fill=lightorange!50, minimum size=0.3cm] (mu_steer\i) at (16.5, \ypos) {};
+    \node[font=\tiny, right=0.6cm of mu_steer\i] {$\mu_{\name}$};
 }
 
-% ─── Action sampling nodes ───
-\node[neuron, fill=accentorange!30, minimum size=0.5cm] (a1) at (16.0,  2.0) {};
-\node[font=\footnotesize, right=0.15cm of a1] {$a_{\text{drive}}^t$};
-\node[neuron, fill=accentorange!30, minimum size=0.5cm] (a2) at (16.0, -1.0) {};
-\node[font=\footnotesize, right=0.15cm of a2] {$a_{\text{steer}}^t$};
+% Log std for steer
+\node[neuron, fill=lightred!50, minimum size=0.3cm] (logstd_steer) at (16.5, -3.6) {};
+\node[font=\tiny, right=0.6cm of logstd_steer] {$\log\sigma_{\text{steer}}$};
 
-% Sampling arrows — drive group to a_drive, steer group to a_steer (no crossing)
-\draw[arrow] (mu1.east)  -- ++(0.4,0) |- (a1.west);
-\draw[arrow] (sig1.east) -- ++(0.4,0) |- (a1.west);
-\draw[arrow] (mu2.east)  -- ++(0.4,0) |- (a2.west);
-\draw[arrow] (sig2.east) -- ++(0.4,0) |- (a2.west);
+% Steer action sampling
+\node[neuron, fill=accentorange!40, minimum size=0.45cm] (a_steer) at (19.5, -2.0) {};
+\node[font=\footnotesize\bfseries, right=0.1cm of a_steer] {$\mathbf{a}_{\text{steer}} \in \mathbb{R}^4$};
+\node[font=\tiny, text=gray!60, below=0.05cm of a_steer] {\scriptsize $\theta_1,...,\theta_4$};
+
+% ─── Connections FC2 to outputs (fully connected) ───
+% To all drive means
+\foreach \i in {1,...,6} {
+    \foreach \j in {1,...,6} {
+        \draw[gray!30] (fc2\i) -- (mu_drive\j);
+    }
+}
+% To all steer means
+\foreach \i in {1,...,6} {
+    \foreach \j in {1,...,4} {
+        \draw[gray!30] (fc2\i) -- (mu_steer\j);
+    }
+}
+% To log stds
+\foreach \i in {1,...,6} {
+    \draw[gray!30] (fc2\i) -- (logstd_drive);
+    \draw[gray!30] (fc2\i) -- (logstd_steer);
+}
+
+% ─── Gaussian sampling arrows ───
+% Drive branch — all 6 means + logstd → a_drive
+\foreach \i in {1,...,6} {
+    \draw[arrow, color=deepblue!60] (mu_drive\i.east) -- ++(0.3,0) |- (a_drive.west);
+}
+\draw[arrow, color=marsred!60] (logstd_drive.east) -- ++(0.3,0) |- (a_drive.west);
+
+% Steer branch — all 4 means + logstd → a_steer
+\foreach \i in {1,...,4} {
+    \draw[arrow, color=deepblue!60] (mu_steer\i.east) -- ++(0.3,0) |- (a_steer.west);
+}
+\draw[arrow, color=marsred!60] (logstd_steer.east) -- ++(0.3,0) |- (a_steer.west);
+
+% ─── Legend box ───
+\node[draw=gray!60, fill=lightgray!30, rounded corners=2pt, align=left, font=\tiny] at (8, -5.5) {
+    \begin{tabular}{@{}l@{}}
+    \textbf{Legend:}\\
+    $\mu$ = mean of Gaussian policy\\
+    $\log\sigma$ = log std deviation\\
+    $\mathbf{a}$ = sampled action\\
+    \textit{Neurons shown schematically}\\
+    \textit{(not to scale)}
+    \end{tabular}
+};
 
 \end{tikzpicture}
-\caption{The structure of the Mars rover control policy network. GRU (256 hidden units) processes 29D proprioceptive features and outputs 10D actions (6 drive velocities + 4 steering angles).}
+\caption{Structure of the Mars rover control policy network. The GRU (256 hidden units) processes 29D proprioceptive features (wheel velocities, slip ratios, steering angles, IMU data, gravity projection, drive torques, entrapment flags, and displacement) and outputs 10D actions: 6 independent drive velocities ($\omega_{\text{FL}}, \omega_{\text{ML}}, \omega_{\text{RL}}, \omega_{\text{FR}}, \omega_{\text{MR}}, \omega_{\text{RR}}$) and 4 steering angles ($\theta_{\text{FL}}, \theta_{\text{FR}}, \theta_{\text{ML}}, \theta_{\text{MR}}$). Actions are sampled from Gaussian distributions parameterized by the network. \textit{Neurons shown schematically, not to scale.}}
 \label{fig:policy_network}
 \end{figure}
 

@@ -1,9 +1,9 @@
 \contentsline {table}{\numberline {1}{\ignorespaces Reward function v4 used during PPO training. The escape bonus (weight 20) dominates during entrapment, while the rocking bonus encourages active self-extraction. Compared to Bi \& Ding (2026)\nobreakspace {}\cite {bi2026escape}, who use GAIL-fused\nobreakspace {}\cite {ho2016gail} rewards ($R = 0.9R_H + 0.1R_D$) with expert demonstrations, our reward is fully handcrafted and designed for 6-DOF steering under Martian gravity without requiring any expert data.\relax }}{7}{table.caption.1}%
 \contentsline {table}{\numberline {2}{\ignorespaces Comparison of related works on wheeled robot entrapment and recovery\relax }}{14}{table.caption.3}%
-\contentsline {table}{\numberline {3}{\ignorespaces Environment configuration parameters\relax }}{19}{table.caption.10}%
-\contentsline {table}{\numberline {4}{\ignorespaces AAU Mars rover joint configuration\relax }}{20}{table.caption.12}%
-\contentsline {table}{\numberline {5}{\ignorespaces Observation space components (29D total)\relax }}{21}{table.caption.13}%
-\contentsline {table}{\numberline {6}{\ignorespaces Reward function components (v3 methodology reference)\relax }}{22}{table.caption.14}%
-\contentsline {table}{\numberline {7}{\ignorespaces PPO training hyperparameters and GRU architecture\relax }}{23}{table.caption.15}%
-\contentsline {table}{\numberline {8}{\ignorespaces Training results at 200{,}000 timesteps (RTX 5070 Ti, 64 parallel environments)\relax }}{26}{table.caption.19}%
-\contentsline {table}{\numberline {9}{\ignorespaces Comparison with Bi and Ding (2026)\nobreakspace {}\cite {bi2026escape}\relax }}{29}{table.caption.25}%
+\contentsline {table}{\numberline {3}{\ignorespaces Environment configuration parameters\relax }}{20}{table.caption.10}%
+\contentsline {table}{\numberline {4}{\ignorespaces AAU Mars rover joint configuration\relax }}{21}{table.caption.12}%
+\contentsline {table}{\numberline {5}{\ignorespaces Observation space components (29D total)\relax }}{22}{table.caption.13}%
+\contentsline {table}{\numberline {6}{\ignorespaces Reward function components (v3 methodology reference)\relax }}{23}{table.caption.14}%
+\contentsline {table}{\numberline {7}{\ignorespaces PPO training hyperparameters and GRU architecture\relax }}{24}{table.caption.15}%
+\contentsline {table}{\numberline {8}{\ignorespaces Training results at 200{,}000 timesteps (RTX 5070 Ti, 64 parallel environments)\relax }}{27}{table.caption.19}%
+\contentsline {table}{\numberline {9}{\ignorespaces Comparison with Bi and Ding (2026)\nobreakspace {}\cite {bi2026escape}\relax }}{30}{table.caption.25}%
