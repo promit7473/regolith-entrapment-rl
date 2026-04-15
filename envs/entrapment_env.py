@@ -150,6 +150,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
         dt=1.0 / 50.0,
         render_interval=decimation,
         newton_cfg=newton_cfg,
+        gravity=(0.0, 0.0, -3.72),   # Mars gravity (3.72 m/s²) — Earth default is -9.81
     )
 
     robot_cfg: ArticulationCfg = MARS_ROVER_CFG.replace(
@@ -385,10 +386,6 @@ class EntrapmentEnv(DirectRLEnv):
         robot_model = NewtonManager._model
         device      = NewtonManager._device
         num_envs    = self.num_envs
-
-        # Set Mars gravity — model is available now (start callback runs after build).
-        robot_model.set_gravity(wp.vec3(0.0, 0.0, -3.72))
-        _p("[Gravity] Set to Mars gravity: 3.72 m/s²")
 
         # Debug: dump Newton model structure
         _p(f"[Debug] Newton model: body_count={robot_model.body_count}, "
@@ -629,11 +626,6 @@ class EntrapmentEnv(DirectRLEnv):
         """Lightweight viewer init — no MPM, just rigid-body visualization."""
         self._viewer = None
         self._render_frame = 0
-
-        # Set Mars gravity (model is available in start callbacks).
-        if hasattr(NewtonManager, '_model') and NewtonManager._model is not None:
-            NewtonManager._model.set_gravity(wp.vec3(0.0, 0.0, -3.72))
-            print("[Gravity] Set to Mars gravity: 3.72 m/s²")
 
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             print("[Viewer-Only] No display — disabled.")
