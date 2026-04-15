@@ -1060,80 +1060,149 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-    scale=0.72, transform shape,
-    innerbox/.style={rectangle, draw=black, thick, fill=white, minimum height=1cm, align=center, font=\small},
-    bluebox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum height=1cm, align=center, font=\small},
-    orangebox/.style={rectangle, draw=black, thick, fill=lightorange!40, minimum height=1cm, align=center, font=\small},
-    graybox/.style={rectangle, draw=black, thick, fill=lightgray, minimum height=1cm, align=center, font=\small, rounded corners=2pt},
+    xscale=1.0, yscale=0.85, transform shape,
+    mainbox/.style={rectangle, draw=black, thick, fill=white,
+                    minimum height=1.1cm, align=center, font=\small},
+    bluebox/.style={rectangle, draw=black, thick, fill=lightblue!35,
+                    minimum height=1.1cm, align=center, font=\small},
+    purplebox/.style={rectangle, draw=black, thick, fill=softpurple!30,
+                      minimum height=1.1cm, align=center, font=\small},
+    orangebox/.style={rectangle, draw=black, thick, fill=lightorange!40,
+                      minimum height=1.1cm, align=center, font=\small},
+    graybox/.style={rectangle, draw=black, thick, fill=lightgray!60,
+                    minimum height=0.9cm, align=center, font=\small, rounded corners=2pt},
+    greenbox/.style={rectangle, draw=black, thick, fill=softgreen!30,
+                     minimum height=1.1cm, align=center, font=\small},
+    innerbox/.style={rectangle, draw=gray!60, thick, fill=gray!10,
+                     minimum height=0.7cm, align=center, font=\scriptsize},
     arrow/.style={-Stealth, thick},
+    bluearrow/.style={-Stealth, thick, color=blue!60},
     every node/.style={font=\small}
 ]
 
-% ─── Top-left: Curriculum scheduler ───
-\node[font=\small\bfseries, anchor=west] at (-8, 6.5) {Updating curriculum with training progress};
-\node[bluebox, minimum width=3cm] (curriculum) at (-6.5, 5.5) {Curriculum\\Scheduler};
+% ──────────────────────────────────────────────────────────────
+% LEGEND  (top-right corner)
+% ──────────────────────────────────────────────────────────────
+\node[font=\footnotesize, anchor=west] at (5.6, 6.8)
+    {\tikz\draw[-Stealth,thick](0,0)--(0.55,0); \; DRL process};
+\node[font=\footnotesize, anchor=west, text=blue!65] at (5.6, 6.1)
+    {\tikz\draw[-Stealth,thick,blue!60](0,0)--(0.55,0); \; Curriculum update};
 
-% ─── Top-right: Stochastic environment ───
-\node[orangebox, minimum width=3.5cm, minimum height=1.2cm] (stochenv) at (3, 5.5) {Stochastic\\Environment\\(Newton + Isaac Lab)};
+% ──────────────────────────────────────────────────────────────
+% TOP-LEFT: gradient update label + Curriculum Scheduler box
+% ──────────────────────────────────────────────────────────────
+\node[font=\small\bfseries, anchor=west] at (-8.8, 7.2)
+    {Updating parameters with gradient descent};
+\node[font=\normalsize] at (-8.2, 6.3) {$\nabla \mathcal{L}(\theta)$};
 
-% Arrow labels
-\node[font=\footnotesize, anchor=west] at (5, 6.5) {$\longrightarrow$ DRL process};
-\node[font=\footnotesize, anchor=west, text=blue!60] at (5, 5.8) {$\longrightarrow$ Curriculum update};
+\node[purplebox, minimum width=3.2cm, minimum height=1.4cm] (currsched)
+    at (-6.8, 5.2) {Curriculum\\Scheduler};
 
-% ─── Reward function ───
-\node[innerbox, minimum width=2.5cm] (rewfunc) at (-3, 3.5) {Reward function};
+% ──────────────────────────────────────────────────────────────
+% TOP-RIGHT: Stochastic Environment
+% ──────────────────────────────────────────────────────────────
+\node[orangebox, minimum width=3.6cm, minimum height=2.2cm] (stochenv)
+    at (3.5, 6.2) {};
+\node[font=\small\bfseries, anchor=north] at (3.5, 7.2) {Stochastic};
+\node[font=\small\bfseries] at (3.5, 6.6) {environment};
+% Sim screenshot placeholder inside env box
+\node[draw=gray!50, fill=gray!20, minimum width=3.0cm, minimum height=1.1cm,
+      align=center, font=\scriptsize\itshape, text=gray!55, rounded corners=2pt]
+      at (3.5, 5.75) {Newton + Isaac Lab\\simulation};
 
-% r_H label
-\node[font=\footnotesize\itshape] at (-3, 2.7) {$r_H$};
+% ──────────────────────────────────────────────────────────────
+% CENTER: Reward Function
+% ──────────────────────────────────────────────────────────────
+\node[mainbox, minimum width=2.8cm] (rewfunc) at (-2.0, 3.2) {Reward function};
 
-% ─── Clipped PPO box (with placeholder for sim screenshot) ───
-\node[innerbox, minimum width=5cm, minimum height=3cm] (ppo) at (3, 2) {};
-\node[font=\small\bfseries, anchor=north] at (3, 3.3) {Clipped PPO (GRU)};
+% reward signal labels
+\node[font=\footnotesize\itshape, text=blue!65] at (-4.5, 3.8) {$r_C$};   % curriculum reward
+\node[font=\footnotesize\itshape] at (-2.0, 2.35) {$r_H$};                 % shaped reward
 
-% Placeholder for Newton sim screenshot inside PPO box
-\node[draw=gray!50, fill=lightgray, minimum width=4cm, minimum height=1.8cm,
-      align=center, font=\scriptsize\itshape, text=gray!60, rounded corners=2pt]
-      at (3, 1.5) {[Newton simulation screenshot\\to be inserted here]};
+% ──────────────────────────────────────────────────────────────
+% RIGHT: Clipped PPO (GRU) with internal diagram
+% ──────────────────────────────────────────────────────────────
+\node[mainbox, minimum width=5.2cm, minimum height=4.2cm] (ppo) at (3.5, 2.0) {};
+\node[font=\small\bfseries, anchor=north] at (3.5, 4.0) {Clipped PPO (GRU)};
 
-% ─── State-action pair ───
-\node[font=\footnotesize\itshape] (sa) at (3, 5) {$(s_t, a_t)$};
-\draw[arrow] (stochenv.south) -- (sa.north);
+% Internal PPO diagram: actor + critic + GRU blocks
+\node[innerbox, minimum width=1.4cm] (actor)  at (2.6, 2.6) {Actor\\(GRU)};
+\node[innerbox, minimum width=1.4cm] (critic) at (4.4, 2.6) {Critic\\(GRU)};
+\node[innerbox, minimum width=3.2cm] (ppoloss) at (3.5, 1.4)
+    {PPO clip loss + value loss\\+ entropy bonus};
 
-% ─── r_t ───
-\node[font=\footnotesize\itshape] at (-0.5, 2.5) {$r_t$};
-\draw[arrow] (rewfunc.east) -- ++(1.5, 0) |- (ppo.west);
+\draw[-Stealth, thin, gray!70] (actor.south) -- ++(0,-0.25) -| (ppoloss.north west);
+\draw[-Stealth, thin, gray!70] (critic.south) -- ++(0,-0.25) -| (ppoloss.north east);
 
-% (s_t, a_t) to PPO
-\draw[arrow] (sa.south) -- (ppo.north);
+% Gradient update arrow from PPO back to curriculum (top loop)
+\draw[-Stealth, thick, dashed, color=black!60]
+    (ppo.north) -- ++(0, 0.6) -| (currsched.north)
+    node[midway, above, font=\scriptsize\itshape] {progress signal};
 
-% ─── Experience tuple ───
-\node[font=\footnotesize\itshape] (exptuple) at (3, -0.5) {$(s_t, a_t, r_t, s_{t+1})$};
+% ──────────────────────────────────────────────────────────────
+% LEFT: Expert sample (curriculum config) + Experience replay pool
+% ──────────────────────────────────────────────────────────────
+\node[bluebox, minimum width=2.0cm, minimum height=1.2cm] (expert)
+    at (-8.2, 2.5) {Curriculum\\config};
+
+\node[graybox, minimum width=1.2cm, minimum height=2.8cm, rotate=90] (replay)
+    at (-5.8, 1.0) {Experience replay pool};
+
+% Expert → replay
+\draw[arrow] (expert.east) -- ++(0.6,0) |- (replay.east);
+
+% Replay → reward function
+\draw[arrow] (replay.west) -- ++(0,-0.0) -| (rewfunc.south);
+
+% ──────────────────────────────────────────────────────────────
+% ARROWS: environment → (s_t,a_t)_π  → reward
+% ──────────────────────────────────────────────────────────────
+% env to reward (left branch): (s_t,a_t)_π — exits stochenv.south, goes left then down
+\draw[arrow] (stochenv.south) --
+    node[midway, above, font=\footnotesize\itshape] {$(s_t, a_t)_\pi$}
+    (-2.0, 5.1) -- (rewfunc.north);
+
+% env to PPO (right branch): (s_t,a_t) — direct arrow with midpoint label
+\draw[arrow] (stochenv.south) -- (ppo.north)
+    node[midway, right=3pt, font=\footnotesize\itshape] {$(s_t,\,a_t)$};
+
+% reward → PPO: r_t
+\node[font=\footnotesize\itshape] at (0.5, 2.8) {$r_t$};
+\draw[arrow] (rewfunc.east) -- ++(1.2, 0) |- (ppo.west);
+
+% Curriculum → env (blue dashed) — exits currsched.north, goes up then right to stochenv.west
+\draw[bluearrow, dashed] (currsched.north) |- (stochenv.west);
+
+% Curriculum → reward weights (blue dashed)
+\draw[bluearrow, dashed] (currsched.south) -- ++(0,-0.8) -| (rewfunc.north west);
+
+% Curriculum config → curriculum scheduler
+\draw[arrow] (expert.north) -- ++(0, 1.5) -| (currsched.south);
+
+% ──────────────────────────────────────────────────────────────
+% BOTTOM: experience tuple + experience sequence
+% ──────────────────────────────────────────────────────────────
+\node[font=\footnotesize\itshape] (exptuple) at (3.5, -0.6)
+    {$(s_t,\,a_t,\,r_t,\,s_{t+1})$};
 \draw[arrow] (ppo.south) -- (exptuple.north);
 
-% ─── Experience sequence ───
-\node[graybox, minimum width=10cm, minimum height=0.8cm] (expseq) at (0, -2)
-    {Experience sequence (maximum length $T$, GRU sequence length = 16)};
+\node[graybox, minimum width=11.5cm, minimum height=0.85cm] (expseq)
+    at (-1.0, -2.2) {Experience sequence (maximum rollout length $T$, GRU subsequence $= 16$)};
 
-\node[font=\scriptsize\itshape, text=gray!70] at (0, -3)
-    {$[(s_{t-T}, a_{t-T}, r_{t-T}, s_{t-T+1}), (s_{t-T+1}, a_{t-T+1}, r_{t-T+1}, s_{t-T+2}), \cdots, (s_t, a_t, r_t, s_{t+1})]$};
+\draw[arrow] (exptuple.south) -- ++(0,-0.45) -| (expseq.north -| exptuple);
 
-\draw[arrow] (exptuple.south) -- ++(0, -0.5) -- (expseq.north -| exptuple);
+% Replay pool feeds PPO
+\draw[arrow] (expseq.north west) -- ++(0,0.6) -| (replay.north);
 
-% ─── Curriculum connection ───
-\draw[-Stealth, thick, color=blue!50, dashed] (curriculum.south) -- ++(0, -1) -| (rewfunc.north);
-\draw[-Stealth, thick, color=blue!50, dashed] (curriculum.east) -- (stochenv.west);
-
-% ─── (s_t, a_t) from env to reward ───
-\node[font=\footnotesize\itshape] at (-6.5, 3.5) {$(s_t, a_t)_\pi$};
-\draw[arrow] (-5.5, 5) -- (-5.5, 3.5) -- (rewfunc.west);
-
-% ─── Experience replay ───
-\node[graybox, minimum width=1.5cm, minimum height=2cm, rotate=90] (replay) at (-7, 1) {Experience\\replay pool};
-
-\draw[arrow] (replay.south) -- ++(0.8, 0) |- (rewfunc.south);
+\node[font=\scriptsize\itshape, text=black!55, align=center] at (-1.0, -3.35)
+    {$\bigl[(s_{t-T},a_{t-T},r_{t-T},s_{t-T+1}),\;
+       (s_{t-T+1},a_{t-T+1},r_{t-T+1},s_{t-T+2}),\;
+       \cdots,\;
+       (s_{t-1},a_{t-1},r_{t-1},s_t),\;
+       (s_t,a_t,r_t,s_{t+1})\bigr]$};
 
 \end{tikzpicture}
-\caption{Block diagram of the reward-shaped DRL training loop. A curriculum scheduler adjusts sinkage depth and reward scaling based on training progress, replacing the discriminator/GAIL approach.}
+\caption{Block diagram of the reward-shaped DRL training loop. The curriculum scheduler (replacing GAIL's discriminator) adjusts sinkage depth and reward weights based on training progress. Shaped reward $r_t = r_H$ (hand-crafted) combines progress, escape milestones, rocking, and penalty terms. The GRU-PPO agent is updated via clipped surrogate loss with entropy bonus.}
 \label{fig:drl_block_diagram}
 \end{figure}
 
