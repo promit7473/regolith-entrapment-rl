@@ -57,8 +57,8 @@ from envs.entrapment_env import EntrapmentEnv, EntrapmentEnvCfg
 # ── GRU hyperparameters ────────────────────────────────────────────────────────
 GRU_HIDDEN  = 256   # GRU hidden units
 GRU_LAYERS  = 1     # GRU stacked layers
-SEQ_LEN     = 16    # BPTT sequence length (rollouts must be divisible by this)
-ROLLOUTS    = 32    # Steps stored per env per update (32 / 16 = 2 seqs per env)
+SEQ_LEN     = 32    # BPTT sequence length (~1.3s at 25Hz — covers entrap detection window)
+ROLLOUTS    = 64    # Steps stored per env per update (64 / 32 = 2 seqs per env, 2× more data)
 
 
 # ── Model definitions ──────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ def train():
         "ratio_clip":         0.2,
         "value_clip":         0.2,
         "clip_predicted_values": True,
-        "entropy_loss_scale": 0.02,
+        "entropy_loss_scale": 0.03,  # 0.02 caused collapse in prior run; 0.03 maintains exploration
         "value_loss_scale":   1.0,
         "state_preprocessor":             RunningStandardScaler,
         "state_preprocessor_kwargs":      {"size": num_obs, "device": device},

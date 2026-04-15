@@ -104,23 +104,25 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     action_space      = 10
     state_space       = 0
 
-    episode_length_s = 20.0
+    episode_length_s = 30.0  # raised from 20s: rocking recovery takes several back-forth cycles
     decimation       = 2     # policy at 25 Hz
     skip_mpm         = False  # set True for viewer-only mode (no sand physics)
 
     # Reward weights
-    rew_forward_progress = 3.0  # Increased from 2.0 for stronger learning signal
-    rew_escape_bonus     = 5.0
-    pen_slip             = 1.0
+    # r_progress kept moderate so escape bonus stays dominant; agent must escape,
+    # not just drive laps on the sand surface.
+    rew_forward_progress = 1.5   # reduced: forward velocity alone shouldn't beat escape bonus
+    rew_escape_bonus     = 20.0  # raised: escaping must be the highest-value action
+    pen_slip             = 0.5   # halved: slip is unavoidable in sand, not a primary signal
     pen_tilt             = 0.3
     pen_action_delta     = 0.05
-    pen_abnormal         = 0.5  # Penalty for sustained anomalous states (suppressed when trapped)
-    rew_rocking          = 1.0  # Bonus for rocking motion when trapped (raised from 0.1)
+    pen_abnormal         = 0.3   # reduced: anomaly flag is still imperfect
+    rew_rocking          = 2.0   # raised: rocking while trapped must clearly beat r_progress
 
     # Domain randomization ranges (inspired by Bi & Ding 2026, Table 9)
     dr_motor_gain_range  = (0.8, 1.2)   # multiplicative gain on drive velocity targets
     dr_obs_noise_std     = 0.02         # additive Gaussian noise on observations
-    dr_sinkage_range     = (0.04, 0.10) # m — guaranteed partial burial; curriculum scales up
+    dr_sinkage_range     = (0.06, 0.12) # m — deeper burial so entrapment is real and consistent
 
     # MuJoCo Warp solver — same choice as view_rover.py.
     # XPBD cannot stably support an articulated rover regardless of contact settings
@@ -189,20 +191,27 @@ class EntrapmentEnv(DirectRLEnv):
         )
         self.prev_v_x = torch.zeros(self.num_envs, device=self.device)  # For rocking bonus calculation
 
+        # One-time milestone tracking (3 milestones: 0.5m, 1.0m, 1.5m)
+        # Each flag flips 0→1 the first time that distance is crossed in the episode.
+        self._milestone_reached = torch.zeros(self.num_envs, 3, device=self.device)
+
         # Entrapment detection state (inspired by Bi & Ding 2026)
         # Counts consecutive steps where v_x < threshold AND mean_slip > threshold
         self._entrap_counter = torch.zeros(self.num_envs, device=self.device)
         self._entrap_flag    = torch.zeros(self.num_envs, device=self.device)
-        self._ENTRAP_VX_THRESH  = 0.05   # m/s — near-zero forward velocity
-        self._ENTRAP_SLIP_THRESH = 0.5   # high slip ratio
-        self._ENTRAP_STEPS_THRESH = 10   # ~0.4s at 25Hz policy rate
+        self._ENTRAP_VX_THRESH   = 0.15  # m/s — rover making no real progress (raised from 0.05)
+        self._ENTRAP_SLIP_THRESH = 0.4   # high slip ratio (lowered slightly for sensitivity)
+        self._ENTRAP_STEPS_THRESH = 15   # ~0.6s at 25Hz — avoid triggering on brief slowdowns
 
         # Torque-based anomaly detection (inspired by Bi & Ding 2026)
-        # Counts consecutive steps where mean torque ratio > threshold
+        # Detect when torque CHANGE (not absolute) indicates struggling — avoids always-on issue.
+        # Absolute threshold must be > normal driving torque (motors near limits in sand = anomaly).
         self._torque_anomaly_counter = torch.zeros(self.num_envs, device=self.device)
         self._torque_anomaly_flag    = torch.zeros(self.num_envs, device=self.device)
-        self._TORQUE_ANOMALY_THRESH  = 0.95   # 95% of rated torque
-        self._TORQUE_ANOMALY_STEPS_THRESH = 10   # ~0.4s at 25Hz policy rate
+        self._prev_drive_torque_norm = torch.zeros(self.num_envs, 6, device=self.device)
+        self._TORQUE_ANOMALY_THRESH       = 0.85  # mean |torque|/limit — sustained near-limit
+        self._TORQUE_ANOMALY_DELTA_THRESH = 0.10  # mean torque fluctuation — struggling signal
+        self._TORQUE_ANOMALY_STEPS_THRESH = 20    # ~0.8s sustained before flagging
 
         # Domain randomization: per-env motor gain (randomized at reset)
         self._motor_gain = torch.ones(self.num_envs, 1, device=self.device)
@@ -774,14 +783,20 @@ class EntrapmentEnv(DirectRLEnv):
         self._entrap_flag    = (self._entrap_counter >= self._ENTRAP_STEPS_THRESH).float()
 
         # Torque-based anomaly detection (inspired by Bi & Ding 2026)
-        # Detect when motor torque approaches limits (indicates trapped/spinning state)
-        torque_ratio = (drive_torque / drive_effort_lim).clamp(0.0, 2.0)  # Can exceed 1.0 during anomaly
-        mean_torque_ratio = torch.mean(torque_ratio, dim=-1)
-        is_anomalous   = (mean_torque_ratio > self._TORQUE_ANOMALY_THRESH)
+        # Anomaly = sustained near-limit torque WITH high torque fluctuation (struggling).
+        # Using both magnitude AND delta avoids the always-on problem: in sand the rover
+        # needs high torque, but true entrapment also shows rapid torque oscillation as
+        # wheels alternately grip and slip.
+        torque_ratio = (drive_torque / drive_effort_lim).clamp(0.0, 2.0)
+        mean_torque_ratio = torch.mean(torque_ratio.abs(), dim=-1)
+        torque_delta = torch.mean((drive_torque_norm - self._prev_drive_torque_norm).abs(), dim=-1)
+        self._prev_drive_torque_norm = drive_torque_norm.detach().clone()
+        is_anomalous = (mean_torque_ratio > self._TORQUE_ANOMALY_THRESH) & \
+                       (torque_delta > self._TORQUE_ANOMALY_DELTA_THRESH)
         self._torque_anomaly_counter = torch.where(
             is_anomalous, self._torque_anomaly_counter + 1, torch.zeros_like(self._torque_anomaly_counter)
         )
-        self._torque_anomaly_flag    = (self._torque_anomaly_counter >= self._TORQUE_ANOMALY_STEPS_THRESH).float()
+        self._torque_anomaly_flag = (self._torque_anomaly_counter >= self._TORQUE_ANOMALY_STEPS_THRESH).float()
 
         # Distance from env origin, normalised by escape threshold (0=spawn, 1=escaped)
         # Gives the agent explicit progress feedback it cannot infer from velocity alone.
@@ -809,28 +824,29 @@ class EntrapmentEnv(DirectRLEnv):
         # NaN guard: clamp velocities to sane range
         v_x = v_x.nan_to_num(0.0).clamp(-10.0, 10.0)
 
-        # Forward progress
-        r_progress = self.cfg.rew_forward_progress * v_x * self.cfg.sim.dt
+        # Forward progress — suppressed when trapped so backward rocking isn't penalised.
+        # When entrap_flag=1 the rocking bonus takes over as the locomotion signal.
+        r_progress = self.cfg.rew_forward_progress * v_x * self.cfg.sim.dt * (1.0 - self._entrap_flag)
 
         # Escape bonus
         pos_xy     = self.root_pos[:, :2] - self.scene.env_origins[:, :2]
         dist       = torch.norm(pos_xy, dim=-1)
         time_scale = (self.max_episode_length - self.episode_length_buf) / self.max_episode_length
         
-        # Binary escape bonus (existing)
-        r_escape_binary = torch.where(
-            dist > ESCAPE_DISTANCE,
-            self.cfg.rew_escape_bonus * time_scale,
-            torch.zeros_like(dist),
-        )
-        
-        # Shaped escape reward: progress away from origin (distance-based shaping)
-        # Reward for increasing distance from start position
-        r_escape_shaped = 0.1 * (dist - ESCAPE_DISTANCE / 2.0) * self.cfg.sim.dt
-        r_escape_shaped = torch.clamp(r_escape_shaped, min=0.0)  # Only reward moving away
-        
-        # Combine: shaped reward for progress + bonus for actual escape
-        r_escape = r_escape_binary + r_escape_shaped
+        # Progressive milestone bonuses at 0.5m, 1.0m, 1.5m (escape).
+        # ONE-TIME bonus per episode — fires only when the threshold is first crossed.
+        milestones = [0.5, 1.0, ESCAPE_DISTANCE]
+        milestone_weights = [0.2, 0.4, 1.0]
+        r_escape = torch.zeros(self.num_envs, device=self.device)
+        for i, (thresh, w) in enumerate(zip(milestones, milestone_weights)):
+            newly_reached = (dist > thresh) & (self._milestone_reached[:, i] == 0)
+            r_escape += newly_reached.float() * self.cfg.rew_escape_bonus * w * time_scale
+            self._milestone_reached[:, i] = torch.where(
+                dist > thresh, torch.ones_like(self._milestone_reached[:, i]), self._milestone_reached[:, i]
+            )
+        # Dense distance shaping: small per-step reward proportional to current distance
+        # This gives a smooth gradient toward the escape zone each step.
+        r_escape += 0.5 * dist * self.cfg.sim.dt
 
         # Slip penalty (drive wheels) - consistent with observation calculation
         # Suppressed when entrap_flag=1: rocking requires high slip, penalising it
@@ -872,22 +888,19 @@ class EntrapmentEnv(DirectRLEnv):
         p_rocking  = self.cfg.rew_rocking * v_x_change * self._entrap_flag * self.cfg.sim.dt
         self.prev_v_x = v_x.clone()
 
-        # Update curriculum progress (based on episode completion)
-        # This tracks how many episodes have been completed for difficulty scaling
-        if hasattr(self, '_curriculum_progress'):
-            # Increment progress by 1 episode (normalized by total expected episodes)
-            # Assuming ~200k timesteps / 20s episode_length * 2Hz policy = ~2000 episodes
-            # Note: Don't multiply by num_envs - curriculum tracks overall training progress
-            episode_increment = 1.0 / 2000.0  # Adjust based on expected total episodes
-            self._curriculum_progress += episode_increment
-            self._curriculum_progress = torch.clamp(self._curriculum_progress, max=1.0)
+        # Curriculum progress is updated in _reset_idx (once per episode reset),
+        # NOT here in _get_rewards which runs every step. Updating here would
+        # saturate the curriculum within seconds of training starting.
 
         self.extras.setdefault("log", {})
-        self.extras["log"]["escape_rate"]   = (dist > ESCAPE_DISTANCE).float().mean()
-        self.extras["log"]["mean_vx"]       = v_x.mean()
-        self.extras["log"]["mean_abs_slip"] = torch.mean(torch.abs(slip), dim=-1).mean()
-        self.extras["log"]["entrap_flag_rate"] = self._entrap_flag.mean()
+        self.extras["log"]["escape_rate"]        = (dist > ESCAPE_DISTANCE).float().mean()
+        self.extras["log"]["milestone_0_5m"]     = (dist > 0.5).float().mean()
+        self.extras["log"]["milestone_1_0m"]     = (dist > 1.0).float().mean()
+        self.extras["log"]["mean_vx"]            = v_x.mean()
+        self.extras["log"]["mean_abs_slip"]      = torch.mean(torch.abs(slip), dim=-1).mean()
+        self.extras["log"]["entrap_flag_rate"]   = self._entrap_flag.mean()
         self.extras["log"]["torque_anomaly_rate"] = self._torque_anomaly_flag.mean()
+        self.extras["log"]["mean_dist"]          = dist.mean()
         self.extras["log"]["curriculum_progress"] = self._curriculum_progress.mean()
 
         return r_progress + r_escape - p_slip - p_tilt - p_smooth - p_abnormal + p_rocking
@@ -900,7 +913,7 @@ class EntrapmentEnv(DirectRLEnv):
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
         pos_xy  = self.root_pos[:, :2] - self.scene.env_origins[:, :2]
-        escaped = torch.norm(pos_xy, dim=-1) > ESCAPE_DISTANCE * 3.0  # relaxed for eval/viewer
+        escaped = torch.norm(pos_xy, dim=-1) > ESCAPE_DISTANCE  # terminate on successful escape
 
         flipped = grav_b[:, 2] > -0.34   # >70° tilt
         sunk    = self.root_pos[:, 2] < -0.20  # chassis root below ground plane by >20cm
@@ -912,6 +925,13 @@ class EntrapmentEnv(DirectRLEnv):
         if env_ids is None:
             env_ids = self.robot._ALL_INDICES
         super()._reset_idx(env_ids)
+
+        # Curriculum: one increment per env reset, normalised by total expected resets.
+        # 200k steps / 750 steps-per-episode (30s×25Hz) × 64 envs ≈ 17066 total resets.
+        # We want progress to reach ~1.0 by end of training.
+        if hasattr(self, '_curriculum_progress'):
+            self._curriculum_progress += len(env_ids) / 17066.0
+            self._curriculum_progress = torch.clamp(self._curriculum_progress, max=1.0)
 
         # ── Robot pose ───────────────────────────────────────────────────────
         default_root_pose = wp.to_torch(
@@ -938,8 +958,10 @@ class EntrapmentEnv(DirectRLEnv):
             + SAND_DEPTH + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS - sinkage_depth
         )
 
-        # Random yaw (Warp xyzw: w at index 6)
-        yaw      = sample_uniform(-3.14159, 3.14159, (len(env_ids),), self.device)
+        # Random yaw ±30° around +X axis so the rover always faces roughly toward
+        # the escape target.  Full ±180° caused ~50% of episodes to start facing away,
+        # making escape structurally impossible and confusing the reward signal.
+        yaw      = sample_uniform(-0.5236, 0.5236, (len(env_ids),), self.device)  # ±30°
         half_yaw = yaw * 0.5
         default_root_pose[:, 3] = 0.0
         default_root_pose[:, 4] = 0.0
@@ -961,8 +983,13 @@ class EntrapmentEnv(DirectRLEnv):
         self.robot.write_joint_state_to_sim(joint_pos, spin_noise, None, env_ids)
 
         self.prev_action[env_ids] = 0.0
+        self.prev_v_x[env_ids] = 0.0
         self._entrap_counter[env_ids] = 0.0
         self._entrap_flag[env_ids] = 0.0
+        self._torque_anomaly_counter[env_ids] = 0.0
+        self._torque_anomaly_flag[env_ids] = 0.0
+        self._prev_drive_torque_norm[env_ids] = 0.0
+        self._milestone_reached[env_ids] = 0.0
 
         # Domain randomization: per-env motor gain
         self._motor_gain[env_ids] = sample_uniform(
