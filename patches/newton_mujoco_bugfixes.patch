@@ -1,0 +1,62 @@
+diff --git a/newton/_src/solvers/mujoco/solver_mujoco.py b/newton/_src/solvers/mujoco/solver_mujoco.py
+index 038e7de..4f51058 100644
+--- a/newton/_src/solvers/mujoco/solver_mujoco.py
++++ b/newton/_src/solvers/mujoco/solver_mujoco.py
+@@ -1285,8 +1285,8 @@ class SolverMuJoCo(SolverBase):
+                     site_params = {
+                         "type": geom_type_mapping[site_geom_type],
+                         "name": name,
+-                        "pos": tf.p,
+-                        "quat": quat_to_mjc(tf.q),
++                        "pos": list(tf.p),           # vec3f → list for MuJoCo compat
++                        "quat": list(quat_to_mjc(tf.q)),
+                     }
+ 
+                     size = shape_size[shape]
+@@ -1327,8 +1327,8 @@ class SolverMuJoCo(SolverBase):
+                         maxhullvert=maxhullvert,
+                     )
+                     geom_params["meshname"] = name
+-                geom_params["pos"] = tf.p
+-                geom_params["quat"] = quat_to_mjc(tf.q)
++                geom_params["pos"] = list(tf.p)          # vec3f → list for MuJoCo compat
++                geom_params["quat"] = list(quat_to_mjc(tf.q))
+                 size = shape_size[shape]
+                 if np.any(size > 0.0):
+                     # duplicate nonzero entries at places where size is 0
+@@ -1351,9 +1351,14 @@ class SolverMuJoCo(SolverBase):
+                     color = shape_color[shape]
+                     if color < 32:
+                         contype = 1 << color
+-                        geom_params["contype"] = contype
+-                        # collide with anything except shapes from the same color
+-                        geom_params["conaffinity"] = collision_mask_everything & ~contype
++                        # pybind11 maps Python int → C++ int (int32). Values ≥ 2^31
++                        # (e.g. color=31 → 1<<31 = 2147483648) overflow int32_max and
++                        # raise TypeError. Reinterpret as signed int32 to stay in range.
++                        import ctypes
++                        geom_params["contype"] = ctypes.c_int32(contype).value
++                        geom_params["conaffinity"] = ctypes.c_int32(
++                            collision_mask_everything & ~contype
++                        ).value
+ 
+                 # set friction from Newton shape materials
+                 mu = shape_mu[shape]
+@@ -1558,6 +1563,8 @@ class SolverMuJoCo(SolverBase):
+                     # Use actfrcrange to clamp total actuator force (P+D sum) on this joint
+                     if actuated_axes is None or ai in actuated_axes:
+                         effort_limit = joint_effort_limit[ai]
++                        if effort_limit <= 0.0:
++                            effort_limit = 1.0  # MuJoCo rejects actfrcrange=[0,0]; passive joints get 1 N·m minimum
+                         joint_params["actfrclimited"] = True
+                         joint_params["actfrcrange"] = (-effort_limit, effort_limit)
+                     axname = name
+@@ -1638,6 +1645,8 @@ class SolverMuJoCo(SolverBase):
+                     # Use actfrcrange to clamp total actuator force (P+D sum) on this joint
+                     if actuated_axes is None or ai in actuated_axes:
+                         effort_limit = joint_effort_limit[ai]
++                        if effort_limit <= 0.0:
++                            effort_limit = 1.0  # MuJoCo rejects actfrcrange=[0,0]; passive joints get 1 N·m minimum
+                         joint_params["actfrclimited"] = True
+                         joint_params["actfrcrange"] = (-effort_limit, effort_limit)
+ 

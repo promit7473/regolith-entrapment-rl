@@ -1,0 +1,8 @@
+\contentsline {table}{\numberline {1}{\ignorespaces Comparison of related works on wheeled robot entrapment and recovery\relax }}{12}{table.caption.2}%
+\contentsline {table}{\numberline {2}{\ignorespaces Environment configuration parameters\relax }}{16}{table.caption.9}%
+\contentsline {table}{\numberline {3}{\ignorespaces AAU Mars rover joint configuration\relax }}{17}{table.caption.11}%
+\contentsline {table}{\numberline {4}{\ignorespaces Observation space components (29D total)\relax }}{17}{table.caption.12}%
+\contentsline {table}{\numberline {5}{\ignorespaces Reward function components (v3)\relax }}{18}{table.caption.13}%
+\contentsline {table}{\numberline {6}{\ignorespaces PPO hyperparameters\relax }}{18}{table.caption.14}%
+\contentsline {table}{\numberline {7}{\ignorespaces Training results at 200,000 timesteps\relax }}{22}{table.caption.18}%
+\contentsline {table}{\numberline {8}{\ignorespaces Comparison with Bi and Ding (2026)\relax }}{25}{table.caption.24}%

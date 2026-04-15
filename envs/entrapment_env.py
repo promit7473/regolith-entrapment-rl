@@ -127,10 +127,11 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # (329 mesh shapes → contact buffer overflow → NaN; proxy spheres → slow sink → explosion).
     # MuJoCo handles articulated body contacts correctly at any env count.
     solver_cfg = MJWarpSolverCfg(
+        use_mujoco_cpu=True, # bypass mujoco_warp GPU (conflicts with conda warp-lang)
         nconmax=50,          # contacts per env (6 wheel spheres + buffer)
         njmax=200,           # constraints per env
-        iterations=100,
-        ls_iterations=50,
+        iterations=4,
+        ls_iterations=4,
         cone="elliptic",     # better friction model for wheel-ground contact
         impratio=100,        # high ratio prevents wheel sinking
         solver="newton",
