@@ -1216,10 +1216,9 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
 
 % E. PPO → Experience Sequence
 \draw[arrow] (ppo.south) -- ++(0, -1.2) -| (seq.north)
-    node[pos=0.0, right, font=\footnotesize] {$(s_t, a_t, r_t, s_{t+1})$};
+    node[pos=0.25, right, font=\footnotesize] {$(s_t, a_t, r_t, s_{t+1})$};
 
-% F. Experience Sequence → Replay Pool 
-% FIXED: Routes to the left side (west), wrapping under the block to look like it comes from behind
+% F. Experience Sequence → Replay Pool
 \draw[arrow] (seq.west) -- ++(-3.5, 0) |- (replay.west);
 
 % G. Replay Pool → PPO (Minibatch)
