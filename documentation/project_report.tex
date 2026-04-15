@@ -950,14 +950,14 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
 \begin{tikzpicture}[
     scale=0.72, transform shape,
     neuron/.style={circle, draw=black, thick, minimum size=0.35cm, fill=white},
-    grubox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum width=1.8cm, minimum height=1.2cm, align=center, font=\small},
+    grubox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum width=1.8cm, minimum height=1.2cm, align=left, font=\small},
     arrow/.style={-Stealth, thick},
     dashedbox/.style={rectangle, draw=black!50, dashed, thick, rounded corners=3pt},
     every node/.style={font=\small}
 ]
 
 % ─── Dashed outer box ───
-\node[dashedbox, minimum width=28cm, minimum height=13cm, fill=white] at (9.5, 0) {};
+\node[dashedbox, minimum width=25cm, minimum height=13cm, fill=white] at (9.5, 0) {};
 
 % ─── Column labels ───
 \node[font=\small\bfseries, anchor=south] at (0.5, 5) {Proprioceptive input};
