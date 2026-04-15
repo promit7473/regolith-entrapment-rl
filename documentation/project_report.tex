@@ -868,75 +868,69 @@ Figure~\ref{fig:simulation_framework} shows the simulation framework for our 6-w
 \centering
 \begin{tikzpicture}[
     scale=0.75, transform shape,
-    outerbox/.style={rectangle, draw=black, thick},
+    outerbox/.style={rectangle, draw=black, thick, rounded corners},
     innerbox/.style={rectangle, draw=black, thick, fill=lightblue!30, minimum height=0.8cm, align=center, font=\small},
-    wheelbox/.style={rectangle, draw=black, thick, fill=white, minimum height=0.7cm, minimum width=2cm, align=center, font=\footnotesize},
+    wheelbox/.style={rectangle, draw=black, thick, fill=white, minimum height=0.7cm, minimum width=2.2cm, align=center, font=\footnotesize},
     arrow/.style={-Stealth, thick},
     every node/.style={font=\small}
 ]
 
-% Outer: Environment ---
-\node[outerbox, fill=white, minimum width=14cm, minimum height=11cm,
+% --- Outer: Environment ---
+\node[outerbox, fill=white, minimum width=15.5cm, minimum height=13cm,
       label={[font=\small\bfseries, anchor=north]north:Environment}]
-      (envbox) at (0, 0) {};
+      (envbox) at (0.2, 0.5) {};
 
-% Inner: Motor and tire characteristic simulation ---
-\node[outerbox, fill=white, minimum width=8cm, minimum height=8cm,
+% --- Inner: Simulation Box ---
+\node[outerbox, fill=white, minimum width=7.5cm, minimum height=10cm,
       label={[font=\footnotesize\bfseries, anchor=north]north:Newton MPM + MuJoCo simulation}]
-      (motorsim) at (-2.5, 0.5) {};
+      (motorsim) at (-3.3, 1.2) {};
 
-% 6 wheel rows — manual placement to avoid TikZ math parser issues with $
-\foreach \i/\name/\ypos in {1/FL/4, 2/ML/2.7, 3/RL/1.4, 4/FR/0.1, 5/MR/-1.2, 6/RR/-2.5} {
-    \node[wheelbox] (motor\i) at (-4, \ypos) {MPM particle\\interaction};
-    \node[wheelbox] (tire\i) at (-1.5, \ypos) {Wheel contact\\force};
-    \node[font=\footnotesize, rotate=90, anchor=south] at (0.6, \ypos) {\name{} wheel};
-    \draw[arrow] (motor\i) -- (tire\i);
-}
-% Force labels (outside foreach to avoid $ in math parser)
-\node[font=\footnotesize, anchor=west] at (1.5, 4) {Tire force ${}^1F_x, {}^1F_y$};
-\node[font=\footnotesize, anchor=west] at (1.5, 2.7) {Tire force ${}^2F_x, {}^2F_y$};
-\node[font=\footnotesize, anchor=west] at (1.5, 1.4) {Tire force ${}^3F_x, {}^3F_y$};
-\node[font=\footnotesize, anchor=west] at (1.5, 0.1) {Tire force ${}^4F_x, {}^4F_y$};
-\node[font=\footnotesize, anchor=west] at (1.5, -1.2) {Tire force ${}^5F_x, {}^5F_y$};
-\node[font=\footnotesize, anchor=west] at (1.5, -2.5) {Tire force ${}^6F_x, {}^6F_y$};
+% --- SSMR rigid body dynamics box ---
+\node[innerbox, minimum width=3cm, minimum height=8.8cm, fill=white] (rigidbody) at (5.5, 1.2) {MuJoCo\\Rigid Body\\Dynamics\\Simulation};
 
-% SSMR rigid body dynamics box
-\node[innerbox, minimum width=2.5cm, minimum height=2.5cm, fill=lightblue!20] (rigidbody) at (4.5, 1) {MuJoCo\\Rigid Body\\Dynamics\\Simulation};
+% 6 wheel rows
+\foreach \i/\name/\ypos in {1/FL/5, 2/ML/3.5, 3/RL/2, 4/FR/0.5, 5/MR/-1, 6/RR/-2.5} {
+    \node[wheelbox] (motor\i) at (-5.2, \ypos) {MPM particle\\interaction};
+    \node[wheelbox] (tire\i) at (-2.3, \ypos) {Wheel contact\\force};
 
-% Arrows from tire forces to rigid body
-\foreach \i in {1,2,3,4,5,6} {
-    \draw[arrow] (tire\i.east) -- ++(0.3,0) |- (rigidbody.west);
+    % Calculate simulation box right boundary
+    \coordinate (simright) at (motorsim.east |- tire\i.east);
+
+    % --- Single Arrow from Wheel contact force to Rigid Body (one arrowhead at end) ---
+    \draw[arrow] (tire\i.east) -- (rigidbody.west |- tire\i.east);
+
+    % --- Wheel label inside simulation block (on top of arrow, before simright boundary) ---
+    \node[font=\tiny, anchor=south] at ($(tire\i.east)!0.4!(simright)$) {\name{} wheel};
+
+    % --- Tire Force label outside simulation block (on top of arrow, after simright boundary) ---
+    \node[font=\footnotesize, anchor=south] at ($(simright)!0.5!(rigidbody.west |- tire\i.east)$) {Tire force ${}^{\i}F_x, {}^{\i}F_y$};
 }
 
 % Randomized terrain at bottom
-\node[innerbox, minimum width=10cm, fill=lightorange!40] (randterrain) at (0, -4.3) {Randomized Sinkage Depth Generation (MPM particle bed, curriculum-driven)};
+\node[innerbox, minimum width=13cm, fill=white] (randterrain) at (0, -5.2) {Randomized Sinkage Depth Generation (MPM particle bed, curriculum-driven)};
 
-% Action input (left)
-\node[font=\small, rotate=90, anchor=south] at (-7, 0.5) {Action $\boldsymbol{a} = [\omega_{\text{drive}}, \theta_{\text{steer}}]$};
-\draw[arrow] (-6.5, 3.5) -- (-6.5, -3.5);
-\draw[arrow] (-6.5, 3.5) -- (motor1.west);
-\draw[arrow] (-6.5, 2.2) -- (motor2.west);
-\draw[arrow] (-6.5, 0.9) -- (motor3.west);
-\draw[arrow] (-6.5, -0.4) -- (motor4.west);
-\draw[arrow] (-6.5, -1.7) -- (motor5.west);
-\draw[arrow] (-6.5, -3.0) -- (motor6.west);
+% --- Vertical Bidirectional Arrow (VERTICAL - up/down) ---
+\coordinate (arrowpos) at ($(motorsim.south)!0.5!(randterrain.north)$);
+\draw[thick, <->] ($(arrowpos)+(0,-0.4)$) -- ($(arrowpos)+(0,0.4)$);
 
-% State output (right)
-\node[font=\small, rotate=-90, anchor=south] at (7, 0) {State $\boldsymbol{s} = \{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{entrap}}\}$};
+% ─── Bottom: Control policy (label centered at top) ───
+\node[outerbox, fill=white, minimum width=15.5cm, minimum height=2.5cm,
+      label={[font=\small\bfseries, anchor=north]north:Mars Rover Control Policy}]
+      (policybox) at (0.2, -8.5) {};
 
-\draw[arrow] (rigidbody.east) -- (6.5, 1);
+\node[innerbox, fill=white, minimum width=3.2cm] (expert) at (-4.3, -8.8) {Random\\Policy};
+\node[innerbox, fill=white, minimum width=3.2cm] (imitator) at (0.2, -8.8) {Curriculum\\PPO Policy};
+\node[innerbox, fill=lightorange!20, minimum width=3.8cm] (fusion) at (4.8, -8.8) {Reward-shaped\\GRU-PPO Policy};
 
-% Terrain arrow
-\draw[arrow] (randterrain.north) -- ++(0, 0.5);
+% ─── Action Feedback Loop (to Environment outer box) ───
+\draw[thick] (policybox.west) -- (-8.2, -8.5) -- (-8.2, 3);
+\draw[arrow] (-8.2, 3) -- (envbox.west |- -8.2, 3);
+\node[font=\small, rotate=90, anchor=south] at (-8.2, -1) {Action $\boldsymbol{a} = [\omega_{\text{drive}}, \theta_{\text{steer}}]$};
 
-% ─── Bottom: Control policy ───
-\node[outerbox, fill=white, minimum width=14cm, minimum height=1.8cm,
-      label={[font=\small\bfseries, anchor=north west]north west:Mars Rover Control Policy}]
-      (policybox) at (0, -6.8) {};
-
-\node[innerbox, fill=white, minimum width=3cm] (expert) at (-4, -6.8) {Random\\Policy};
-\node[innerbox, fill=white, minimum width=3cm] (imitator) at (0, -6.8) {Curriculum\\PPO Policy};
-\node[innerbox, fill=lightorange!40, minimum width=3.5cm] (fusion) at (4.5, -6.8) {Reward-shaped\\GRU-PPO Policy};
+% ─── State Feedback Loop (from Environment outer box) ───
+\draw[thick] (envbox.east) -- (8.6, 0.5) -- (8.6, -8.5);
+\draw[arrow] (8.6, -8.5) -- (policybox.east);
+\node[font=\small, rotate=-90, anchor=south] at (8.6, -1) {State $\boldsymbol{s} = \{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{entrap}}\}$};
 
 \end{tikzpicture}
 \caption{Simulation framework. The framework couples 6-wheel MPM particle interactions with granular sinkage via Newton MPM, and incorporates curriculum-driven sinkage depth randomization.}
