@@ -1529,7 +1529,7 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
 %% ─── RPi5 bounding box FIRST so all nodes render on top ───
 \node[rectangle, draw=black!45, thick, rounded corners=8pt,
       dashed, fill=blue!2,
-      minimum width=11.6cm, minimum height=10.4cm]
+      minimum width=14.0cm, minimum height=10.4cm]
       (rpi) at (0, 1.6) {};
 \node[anchor=north west, font=\footnotesize\itshape, text=black!50]
     at (rpi.north west) {Onboard Computer \ (RPi\,5)};
@@ -1587,9 +1587,9 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
 % escape → motor
 \draw[ra] (esc.south) |- (mot.east);
 
-% "escaped" dashed feedback: esc.north → up → left → dmd.north
-\draw[da] (esc.north) -- ++(0, 2.0) -| (dmd.north)
-    node[pos=0.35, above, font=\scriptsize\itshape,
+% "escaped" dashed feedback: esc.west → left → up → dmd
+\draw[da] (esc.west) -- (1.5, -0.3) -- (1.5, 1.7) -- (dmd)
+    node[pos=0.55, right=3pt, font=\scriptsize\itshape,
          text=black!45] {escaped};
 
 \end{tikzpicture}
