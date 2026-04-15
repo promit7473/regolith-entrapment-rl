@@ -71,13 +71,17 @@ MARS_ROVER_CFG = ArticulationCfg(
             stiffness=8000.0,
             damping=1000.0,
         ),
-        # Passive rocker-bogie linkages — free to rotate
+        # Passive rocker-bogie linkages — slight stiffness to prevent body collapse.
+        # Isaac Lab's _process_actuators_cfg overwrites Newton builder's joint_target_ke/kd
+        # with these values, so stiffness/damping here is the only effective setting.
+        # effort_limit_sim > 0 is required — MuJoCo rejects actfrcrange=[0,0] AND
+        # the stiffness torque needs headroom to actually apply.
         "passive_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*(Rocker|Differential)_Revolute"],
             velocity_limit_sim=15.0,
-            effort_limit_sim=0.0,
-            stiffness=0.0,
-            damping=0.0,
+            effort_limit_sim=200.0,  # headroom for stiffness torque (not driven by policy)
+            stiffness=150.0,         # keeps rocker-bogie from collapsing under gravity
+            damping=5.0,
         ),
     },
 )
