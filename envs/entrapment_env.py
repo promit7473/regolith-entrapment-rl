@@ -270,6 +270,13 @@ class EntrapmentEnv(DirectRLEnv):
                 if builder.joint_effort_limit[i] <= 0.0:
                     builder.joint_effort_limit[i] = 1.0
 
+            # Joint stiffness/damping — keeps passive joints (Rocker, Differential,
+            # Boogie) stiff so the body doesn't collapse under gravity.
+            # Same fix as view_rover.py lines 120-123.
+            for i in range(builder.joint_dof_count):
+                builder.joint_target_ke[i] = 150
+                builder.joint_target_kd[i] = 5
+
             builder.add_ground_plane()
         NewtonManager.add_on_init_callback(_newton_init_cb)
 
