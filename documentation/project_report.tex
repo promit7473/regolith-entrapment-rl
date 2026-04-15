@@ -862,10 +862,12 @@ Figure~\ref{fig:escape_policy_generation} presents the overall escape policy gen
 % adapted for 6-wheel Mars rover
 % ═══════════════════════════════════════════════════════════════════
 
+\newpage
 Figure~\ref{fig:simulation_framework} shows the simulation framework for our 6-wheel Mars rover with MPM granular terrain.
 
 \begin{figure}[H]
 \centering
+\resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
     scale=0.75, transform shape,
     outerbox/.style={rectangle, draw=black, thick, rounded corners},
@@ -933,20 +935,23 @@ Figure~\ref{fig:simulation_framework} shows the simulation framework for our 6-w
 \node[font=\small, rotate=-90, anchor=south] at (8.6, -1) {State $\boldsymbol{s} = \{\mathbf{s}_{\text{motor}}, \mathbf{s}_{\text{motion}}, \mathbf{s}_{\text{entrap}}\}$};
 
 \end{tikzpicture}
+}% end resizebox
 \caption{Simulation framework. The framework couples 6-wheel MPM particle interactions with granular sinkage via Newton MPM, and incorporates curriculum-driven sinkage depth randomization.}
 \label{fig:simulation_framework}
 \end{figure}
 
-
+\newpage
 % ═══════════════════════════════════════════════════════════════════
 % FIG: POLICY NETWORK — exact replica of Bi & Ding Fig.8
 % adapted for GRU instead of LSTM, 29D input, 10D output
 % ═══════════════════════════════════════════════════════════════════
 
+\newpage
 Figure~\ref{fig:policy_network} shows the control policy network structure. We use GRU for reduced complexity, with 29D input and 10D actions (6 drive + 4 steer).
 
 \begin{figure}[H]
 \centering
+\resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
     scale=0.72, transform shape,
     neuron/.style={circle, draw=black, thick, minimum size=0.35cm, fill=white},
@@ -1099,16 +1104,17 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
 };
 
 \end{tikzpicture}
+}% end resizebox
 \caption{Structure of the Mars rover control policy network. The GRU (256 hidden units) processes 29D proprioceptive features (wheel velocities, slip ratios, steering angles, IMU data, gravity projection, drive torques, entrapment flags, and displacement) and outputs 10D actions: 6 independent drive velocities ($\omega_{\text{FL}}, \omega_{\text{ML}}, \omega_{\text{RL}}, \omega_{\text{FR}}, \omega_{\text{MR}}, \omega_{\text{RR}}$) and 4 steering angles ($\theta_{\text{FL}}, \theta_{\text{FR}}, \theta_{\text{ML}}, \theta_{\text{MR}}$). Actions are sampled from Gaussian distributions parameterized by the network. \textit{Neurons shown schematically, not to scale.}}
 \label{fig:policy_network}
 \end{figure}
 
-
+\newpage
 % ═══════════════════════════════════════════════════════════════════
 % FIG: DRL BLOCK DIAGRAM — exact replica of Bi & Ding Fig.9
 % adapted for our PPO-GRU training loop
 % ═══════════════════════════════════════════════════════════════════
-
+\vspace{15cm}
 Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped DRL training loop.
 
 \begin{figure}[H]
@@ -1225,7 +1231,7 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
 \label{fig:drl_block_diagram}
 \end{figure}
 
-
+\newpage
 % ─────── 3.1 Work Already Done ────────────────────────────────────
 \subsection{Work Already Done}
 
@@ -1286,7 +1292,7 @@ The simulation environment couples two physics solvers through Newton's two-way 
 \label{fig:newton_sim_screenshots}
 \end{figure}
 
-
+\newpage
 Table~\ref{tab:env_params} summarizes the environment configuration.
 
 \begin{tcolorbox}[dashedbox, left=0pt, right=0pt, top=4pt, bottom=4pt]
@@ -1330,7 +1336,7 @@ Spawn yaw & $\pm 15^\circ$ & Random heading offset \\
 \end{table}
 \end{tcolorbox}
 
-
+\newpage
 \subsubsection{Robot Platform}
 
 The AAU 6-wheel rocker-bogie Mars rover features a suspension system identical in topology to NASA's Curiosity and Perseverance rovers.
@@ -1385,7 +1391,7 @@ Passive (rocker/diff.) & \textit{N} & Free (unactuated) & -- \\
 \end{table}
 \end{tcolorbox}
 
-
+\newpage
 \subsubsection{Observation and Action Spaces}
 
 \begin{equation}
@@ -1443,7 +1449,7 @@ Inspired by Bi and Ding~\cite{bi2026escape}, we implement two complementary dete
 
 \textbf{Torque-based}: $f_{\text{anomaly}} = \mathbb{I}\left[ \max_i |\tau_i/\tau_{\max}| > 0.8 \text{ for } 10\text{ steps} \right]$
 
-
+\newpage
 \subsubsection{Reward Function}
 
 \begin{equation}
@@ -1556,11 +1562,11 @@ Reduced to 0.3: Net $= +0.012 - 0.005 = +0.007$ (correct incentive).
     arrow/.style={-Stealth, thick},
     scale=0.82, transform shape
 ]
-\node[box=lightblue!20] (collect) at (0,0) {\textbf{Data Collection}\\\footnotesize Run trained policy\\10K episodes};
-\node[box=lightorange!30, right=1.2cm of collect] (label) {\textbf{Auto-Labeling}\\\footnotesize Ground-truth from\\sim state};
-\node[box=lightgreen!30, right=1.2cm of label] (window) {\textbf{Windowing}\\\footnotesize 50 steps @ 10\,Hz\\= 5\,s window};
-\node[box=lightblue!30, below=1.5cm of label] (model) {\textbf{CNN-GRU Model}};
-\node[box=lightred!20, below=1.2cm of model] (output) {\textbf{3-Class Output}\\\footnotesize $P(\text{normal}), P(\text{sinking}), P(\text{entrapped})$};
+\node[box=white] (collect) at (0,0) {\textbf{Data Collection}\\\footnotesize Run trained policy\\10K episodes};
+\node[box=white, right=1.2cm of collect] (label) {\textbf{Auto-Labeling}\\\footnotesize Ground-truth from\\sim state};
+\node[box=white, right=1.2cm of label] (window) {\textbf{Windowing}\\\footnotesize 50 steps @ 10\,Hz\\= 5\,s window};
+\node[box=white, below=1.5cm of label] (model) {\textbf{CNN-GRU Model}};
+\node[box=white, below=1.2cm of model] (output) {\textbf{3-Class Output}\\\footnotesize $P(\text{normal}), P(\text{sinking}), P(\text{entrapped})$};
 \draw[arrow] (collect) -- (label);
 \draw[arrow] (label) -- (window);
 \draw[arrow] (window.south) -- ++(0,-0.4) -| (model.north);
@@ -1595,12 +1601,12 @@ Target: F1 $> 0.90$ on ``entrapped'' class, latency $< 1$\,s, inference $< 5$\,m
     arrow/.style={-Stealth, thick},
     scale=0.82, transform shape
 ]
-\node[box=lightblue!20] (p1) at (0,1.5) {\textbf{Policy .pt}\\\footnotesize best\_agent.pt};
-\node[box=lightblue!20] (p2) at (0,0) {\textbf{Detector .pt}\\\footnotesize detector.pt};
-\node[box=lightorange!30] (o1) at (4,1.5) {\textbf{ONNX Export}\\\footnotesize 29D $\to$ 10D};
-\node[box=lightorange!30] (o2) at (4,0) {\textbf{ONNX Export}\\\footnotesize 11D$\times$50 $\to$ 3};
-\node[box=lightgreen!30] (rpi) at (8,0.75) {\textbf{RPi5}\\\footnotesize ONNX Runtime\\10\,Hz};
-\node[box=lightred!20] (hw) at (12,0.75) {\textbf{Physical Rover}\\\footnotesize Sand tray test};
+\node[box=white] (p1) at (0,2.8) {\textbf{Policy .pt}\\\footnotesize best\_agent.pt};
+\node[box=white] (p2) at (0,0) {\textbf{Detector .pt}\\\footnotesize detector.pt};
+\node[box=white] (o1) at (4,2.8) {\textbf{ONNX Export}\\\footnotesize 29D $\to$ 10D};
+\node[box=white] (o2) at (4,0) {\textbf{ONNX Export}\\\footnotesize 11D$\times$50 $\to$ 3};
+\node[box=white] (rpi) at (8,1.4) {\textbf{RPi5}\\\footnotesize ONNX Runtime\\10\,Hz};
+\node[box=white] (hw) at (12,1.4) {\textbf{Physical Rover}\\\footnotesize Sand tray test};
 \draw[arrow] (p1) -- (o1);
 \draw[arrow] (p2) -- (o2);
 \draw[arrow] (o1.east) -| (rpi.north);
