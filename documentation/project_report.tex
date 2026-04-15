@@ -126,39 +126,59 @@
 % ──────────────────────────── Title Page ──────────────────────────
 \begin{titlepage}
 \centering
-\vspace*{2cm}
+\vspace*{0.2cm}
 
-{\Large\textsc{University of Dhaka}}\\[0.3em]
-{\large\textsc{Department of Robotics and Mechatronics Engineering}}\\[2cm]
+% DU Logo
+\includegraphics[width=3cm]{/home/mhpromit7473/regolith_entrapment_research/documentation/figures/du_logo.png}\\[0.8em]
 
-\rule{\textwidth}{1.5pt}\\[0.6cm]
-{\LARGE\bfseries Adaptive Neural Control for Mars Rover\\[0.3em]
-Wheel Entrapment Recovery in\\[0.3em]
-Granular Terrain}\\[0.4cm]
-\rule{\textwidth}{1.5pt}\\[1.5cm]
+{\Large\textbf{University of Dhaka}}\\[0.4em]
+{\large\textbf{Department of Robotics and Mechatronics Engineering}}\\[1.2cm]
 
-{\large\textit{A Research Project Report}}\\[2cm]
+Course Code: \textbf{RME 4100 (Project)}\\[1.0cm]
 
-\begin{tabular}{rl}
-\textbf{Authors:} & Meraj Hossain Promit \\
-                   & Chandak Chakma \\[1em]
-\textbf{Program:} & B.Sc. in Robotics and Mechatronics Engineering \\[0.5em]
-\textbf{Supervisor:} & \textit{[Supervisor Name]} \\
-\end{tabular}
+{\large\textbf{Adaptive Neural Control for Mars Rover Wheel\\[0.3em]
+Entrapment Recovery in Granular Terrain}}\\[1.2cm]
+
+Meraj Hossain Promit\\[0.3em]
+\&\\[0.3em]
+Chandak Chakma\\[1.2cm]
+
+{\large\textbf{Under the supervision of}}\\[2.2cm]
+
+\begin{minipage}[t]{0.45\textwidth}
+\centering
+\rule{0.75\linewidth}{0.8pt}\\[0.5em]
+\textbf{Supervisor}\\
+Dr. Md Mehedi Hasan\\
+Assistant Professor\\
+Department of Robotics and Mechatronics\\
+Engineering\\
+University of Dhaka
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.45\textwidth}
+\centering
+\rule{0.75\linewidth}{0.8pt}\\[0.5em]
+\textbf{Co-Supervisor}\\
+Dr. Sejuti Rahman\\
+Associate Professor\\
+Department of Robotics and Mechatronics\\
+Engineering\\
+University of Dhaka
+\end{minipage}
 
 \vfill
-{\large April 2026}
 \end{titlepage}
 
 % ──────────────────────────── Abstract ────────────────────────────
 \newpage
 \begin{abstract}
 \noindent
-This report presents a reinforcement learning (RL) framework for autonomous recovery of Mars rovers from wheel entrapment in granular regolith. We leverage the Newton physics engine with Material Point Method (MPM)~\cite{sulsky1994particle} for high-fidelity granular soil simulation, Isaac Lab~\cite{isaaclab} for articulated robot simulation, and Proximal Policy Optimization (PPO)~\cite{schulman2017ppo} with recurrent GRU networks~\cite{cho2014gru} for policy training via the skrl library~\cite{skrl}. The system addresses the critical challenge of wheel entrapment faced by planetary exploration rovers, as exemplified by NASA's Spirit rover incident in 2009~\cite{arvidson2011spirit}, by training escape policies in a physically realistic simulation environment.
+Wheel entrapment in granular regolith is one of the most critical failure modes for planetary rovers, as demonstrated by the permanent immobilization of NASA's Spirit rover in 2009~\cite{arvidson2011spirit}. This project develops an autonomous entrapment recovery system for a 6-wheel rocker-bogie Mars rover using deep reinforcement learning trained entirely in simulation.
 
-Our approach features a 29-dimensional proprioceptive observation space incorporating wheel velocities, slip ratios, IMU data, drive torques, and dual-sensor entrapment detection flags. The policy is trained across 64 parallel environments with curriculum learning that progressively deepens wheel sinkage from 8\,cm to 15\,cm. Preliminary results over 200,000 timesteps on an RTX 5070 Ti demonstrate an 80\% escape rate, mean forward velocity of 0.25\,m/s, and full curriculum completion. The trained policy exhibits emergent escape behaviors including rocking maneuvers and coordinated wheel--steering actions.
+We couple the Newton physics engine's Material Point Method (MPM)~\cite{sulsky1994particle} with Isaac Lab's~\cite{isaaclab} rigid-body solver to produce physically accurate granular soil behaviour under Martian gravity ($3.72\,\text{m/s}^2$). A recurrent policy trained with Proximal Policy Optimization (PPO)~\cite{schulman2017ppo} and Gated Recurrent Units (GRU)~\cite{cho2014gru} operates on a 29-dimensional proprioceptive state comprising wheel velocities, slip ratios, IMU readings, drive torques, and dual entrapment detection flags. Curriculum learning progressively increases wheel sinkage from 6\,cm to 12\,cm across 64 parallel training environments on a single workstation (Intel i7-1255U, NVIDIA RTX 5070 Ti).
 
-Future work includes scaling training to 2M+ timesteps, developing a CNN-GRU sinkage detection classifier, and deploying the trained policy on a Raspberry Pi 5 via ONNX Runtime for real-time inference on physical hardware.
+Training over 200{,}000 timesteps achieves an 80\% escape rate with a mean forward velocity of 0.25\,m/s and full curriculum completion. The policy develops emergent escape behaviours including coordinated rocking manoeuvres and asymmetric wheel-steering sequences not explicitly programmed. Planned next steps cover scaling to 2M+ timesteps, a CNN-GRU sinkage detection classifier, and on-rover deployment via ONNX Runtime on a Raspberry Pi 5 at 10\,Hz.
 \end{abstract}
 
 % ──────────────────────────── TOC ─────────────────────────────────
@@ -228,12 +248,12 @@ The entrapment recovery problem is formulated as a \textbf{partially observable 
 \end{equation}
 \end{tcolorbox}
 
-The shaped reward $R$ is the sum of seven terms — three incentives and four penalties — designed to reward escape while discouraging dangerous manoeuvres:
+The shaped reward $R$ is the sum of seven terms : three incentives and four penalties, designed to reward escape while discouraging dangerous manoeuvres:
 
 \begin{tcolorbox}[dashedbox]
 \begin{equation}
     R_t \;=\; \underbrace{r_{\text{progress}} + r_{\text{escape}} + r_{\text{rocking}}}_{\text{incentives}}
-          \;-\; \underbrace{p_{\text{slip}} + p_{\text{tilt}} + p_{\text{smooth}} + p_{\text{abnormal}}}_{\text{penalties}}
+          \;-\; \underbrace{p_{\text{slip}} + p_{\text{tilt}} + p_{\text{smooth}} + p_{\text{abnormal}}}_{\text{penalties} \;(\text{all positive, subtracted})}
     \label{eq:reward_total}
 \end{equation}
 \end{tcolorbox}
@@ -248,21 +268,21 @@ The shaped reward $R$ is the sum of seven terms — three incentives and four pe
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\linewidth}{llX}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \textbf{Term} & \textbf{Weight} & \textbf{Formula \& Description} \\
 \midrule
 \multicolumn{3}{l}{\textbf{Incentives}} \\
 \midrule
-$r_{\text{progress}}$ & $+1.5$  & $v_x \cdot \Delta t \cdot (1 - f_{\text{ent}})$ \quad — forward velocity reward, suppressed when trapped so rocking takes over \\
+$r_{\text{progress}}$ & $+1.5$  & $v_x \cdot \Delta t \cdot (1 - f_{\text{ent}})$ \quad (forward velocity reward, suppressed when trapped so rocking takes over) \\
 $r_{\text{escape}}$   & $+20.0$ & Sparse milestones at 0.5\,m ($\times0.2$), 1.0\,m ($\times0.4$), 1.5\,m ($\times1.0$) scaled by $\tau_{\text{time}}$; plus dense shaping $0.5\,d\,\Delta t$ per step \\
-$r_{\text{rocking}}$  & $+2.0$  & $\Delta v_x \cdot f_{\text{ent}} \cdot \Delta t$ \quad — rewards velocity change during entrapment to encourage active rocking manoeuvres \\
+$r_{\text{rocking}}$  & $+2.0$  & $\Delta v_x \cdot f_{\text{ent}} \cdot \Delta t$ \quad (rewards velocity change during entrapment to encourage active rocking manoeuvres) \\
 \midrule
 \multicolumn{3}{l}{\textbf{Penalties}} \\
 \midrule
-$p_{\text{slip}}$     & $0.5$  & $\bar{\sigma}_{\text{slip}} \cdot (1 - f_{\text{ent}}) \cdot \Delta t$ \quad — penalises excessive wheel slip during normal driving \\
-$p_{\text{tilt}}$     & $0.3$  & $\|\boldsymbol{\omega}_{xy}\|_2 \cdot \Delta t$ \quad — penalises roll/pitch angular velocity to maintain rover stability \\
-$p_{\text{smooth}}$   & $0.05$ & $\|\mathbf{a}_t - \mathbf{a}_{t-1}\|_2 \cdot \Delta t$ \quad — penalises jerky action changes to encourage smooth control \\
-$p_{\text{abnormal}}$ & $0.3$  & $(-v_x)^{+} \cdot f_{\text{anomaly}} \cdot (1 - f_{\text{ent}}) \cdot \Delta t$ \quad — penalises backward motion under torque anomaly when not trapped \\
+$p_{\text{slip}}$     & $0.5$  & $\bar{\sigma}_{\text{slip}} \cdot (1 - f_{\text{ent}}) \cdot \Delta t$ \quad (penalises excessive wheel slip during normal driving) \\
+$p_{\text{tilt}}$     & $0.3$  & $\|\boldsymbol{\omega}_{xy}\|_2 \cdot \Delta t$ \quad (penalises roll/pitch angular velocity to maintain rover stability) \\
+$p_{\text{smooth}}$   & $0.05$ & $\|\mathbf{a}_t - \mathbf{a}_{t-1}\|_2 \cdot \Delta t$ \quad (penalises jerky action changes to encourage smooth control) \\
+$p_{\text{abnormal}}$ & $0.3$  & $(-v_x)^{+} \cdot f_{\text{anomaly}} \cdot (1 - f_{\text{ent}}) \cdot \Delta t$ \quad (penalises backward motion under torque anomaly when not trapped) \\
 \bottomrule
 \multicolumn{3}{l}{\footnotesize $f_{\text{ent}}$: entrapment flag;\enspace $f_{\text{anomaly}}$: torque anomaly flag;\enspace $d$: distance from spawn;\enspace $\Delta t = 0.04\,\text{s}$}
 \end{tabularx}
@@ -353,38 +373,38 @@ This research aims to develop a complete autonomous entrapment detection and rec
 }
 
 \vspace{6pt}
-\begin{tcolorbox}[objbox, colframe=headerblue, title={1.\enspace Realistic Simulation\enspace---\enspace}]
+\begin{tcolorbox}[objbox, colframe=headerblue, title={1.\enspace Realistic Simulation}]
 Build a high-fidelity simulation environment coupling granular material physics (Newton MPM)
 with articulated rover dynamics (Isaac Lab) under Martian gravity ($3.72\,\text{m/s}^2$),
 enabling realistic wheel--soil interaction for RL training.
 \end{tcolorbox}
 
 \vspace{4pt}
-\begin{tcolorbox}[objbox, colframe=headerblue, title={2.\enspace Entrapment Detection\enspace---\enspace}]
+\begin{tcolorbox}[objbox, colframe=headerblue, title={2.\enspace Entrapment Detection}]
 Develop a dual-sensor detection scheme combining slip-ratio monitoring and drive-torque
 anomaly detection for robust, real-time entrapment classification without external
 sensing or GPS.
 \end{tcolorbox}
 
 \vspace{4pt}
-\begin{tcolorbox}[objbox, colframe=headerblue, title={3.\enspace Recovery Policy\enspace---\enspace}]
+\begin{tcolorbox}[objbox, colframe=headerblue, title={3.\enspace Recovery Policy}]
 Train a recurrent RL policy (PPO + GRU) that autonomously discovers and executes
-effective escape manoeuvres — including rocking, steering pivots, and differential
-drive — from varying degrees of wheel sinkage (6–12\,cm curriculum).
+effective escape manoeuvres, including rocking, steering pivots, and differential
+drive, from varying degrees of wheel sinkage (6–12\,cm curriculum).
 \end{tcolorbox}
 
 \vspace{4pt}
-\begin{tcolorbox}[objbox, colframe=headerblue, title={4.\enspace Curriculum Learning\enspace---\enspace}]
+\begin{tcolorbox}[objbox, colframe=headerblue, title={4.\enspace Curriculum Learning}]
 Implement progressive difficulty scheduling that begins with shallow sinkage and
 gradually increases entrapment severity, enabling the policy to learn robust escape
 strategies that generalise across terrain conditions.
 \end{tcolorbox}
 
 \vspace{4pt}
-\begin{tcolorbox}[objbox, colframe=headerblue, title={5.\enspace Sim-to-Real Transfer\enspace---\enspace}]
-Establish a complete deployment pipeline — domain randomisation during training,
-ONNX export of the trained GRU policy, and real-time inference on a Raspberry Pi 5
-— bridging the simulation--reality gap for onboard autonomous operation.
+\begin{tcolorbox}[objbox, colframe=headerblue, title={5.\enspace Sim-to-Real Transfer}]
+Establish a complete deployment pipeline comprising domain randomisation during training,
+ONNX export of the trained GRU policy, and real-time inference on a Raspberry Pi 5,
+bridging the simulation-to-reality gap for onboard autonomous operation.
 \end{tcolorbox}
 \vspace{6pt}
 
@@ -395,7 +415,39 @@ ONNX export of the trained GRU policy, and real-time inference on a Raspberry Pi
 \newpage
 \section{Related Work}
 
-This section reviews prior work in three key areas: (1) wheeled robot entrapment and escape strategies, (2) granular media simulation for robotics, and (3) reinforcement learning for locomotion and recovery.
+This section reviews prior work in four key areas: (1) foundational concepts and terminology, (2) wheeled robot entrapment and escape strategies, (3) granular media simulation for robotics, and (4) reinforcement learning for locomotion and recovery. We conclude with a summary table and an explicit identification of the gaps our work addresses.
+
+% ─────── 2.0 Foundational Background ─────────────────────────────
+\subsection{Foundational Concepts and Terminology}
+
+This subsection introduces the core technical concepts underpinning our system for readers less familiar with one or more of the constituent domains.
+
+\subsubsection*{Rocker-Bogie Suspension}
+The rocker-bogie suspension is a passive linkage mechanism used on all NASA Mars rovers (Sojourner, Spirit, Opportunity, Curiosity, Perseverance) and our AAU platform. It consists of a \textit{rocker} arm connecting the front wheel to a \textit{bogie} sub-assembly bearing the middle and rear wheels. A differential link couples the two rocker arms so that the body roll is kept to half the terrain-induced tilt of any single rocker. This passive compliance allows the six wheels to maintain ground contact over obstacles up to twice the wheel diameter. The kinematic complexity, arising from passive joints, a differential, and no central actuator for body attitude, makes control significantly harder than a simple 4-wheel skid-steered platform.
+
+\subsubsection*{Wheel--Soil Interaction and Slip Ratio}
+When a driven wheel rotates in granular soil, the soil deforms and the wheel may sink (\textit{sinkage}) while the contact patch shears the granular medium. The \textit{slip ratio} $s \in [0, 1]$ quantifies this mismatch:
+\begin{equation}
+    s = 1 - \frac{v_{\text{linear}}}{\omega r}
+\end{equation}
+where $v_{\text{linear}}$ is the measured forward velocity, $\omega$ the wheel angular velocity, and $r$ the wheel radius. A slip ratio approaching 1 indicates the wheel is spinning freely with no forward progress, which is a hallmark of entrapment. Sustained high slip combined with low forward velocity is the primary detection signal used in this work.
+
+\subsubsection*{Material Point Method (MPM)}
+MPM~\cite{sulsky1994particle} is a hybrid Eulerian--Lagrangian continuum method that represents the material as a set of \textit{Lagrangian particles} (tracking mass, momentum, and deformation gradient) and a background \textit{Eulerian grid} (for solving the equations of motion). At each timestep, particle data is transferred to the grid (\textit{P2G}), grid equations are solved, and updated velocities are mapped back to particles (\textit{G2P}). For granular sand, the Drucker--Prager yield surface~\cite{klar2016sand} governs plastic flow: material flows when the stress state reaches the yield cone, and elastically recovers otherwise. Compared to rigid-body approximations, MPM correctly models sinkage progression, bulldozing resistance, and particle redistribution during wheel spinning, all of which are critical for entrapment simulation.
+
+\subsubsection*{Proximal Policy Optimization (PPO)}
+PPO~\cite{schulman2017ppo} is an on-policy actor-critic RL algorithm that improves training stability by constraining the policy update step size via a clipped surrogate objective:
+\begin{equation}
+    \mathcal{L}^{\text{CLIP}}(\theta) = \mathbb{E}_t \left[ \min\!\left( r_t(\theta)\hat{A}_t,\ \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t \right) \right]
+\end{equation}
+where $r_t(\theta) = \pi_\theta(a_t|s_t) / \pi_{\theta_{\text{old}}}(a_t|s_t)$ is the probability ratio and $\hat{A}_t$ is the generalized advantage estimate~\cite{schulman2015gae}. The clip parameter $\epsilon$ (typically 0.2) prevents destructively large updates. PPO has become the default algorithm for continuous-control locomotion tasks due to its simplicity, sample efficiency, and robustness to hyperparameter choice.
+
+\subsubsection*{Gated Recurrent Unit (GRU)}
+A GRU~\cite{cho2014gru} is a recurrent neural network cell that maintains a hidden state $\mathbf{h}_t$ summarising history:
+\begin{equation}
+    \mathbf{h}_t = (1 - \mathbf{z}_t) \odot \mathbf{h}_{t-1} + \mathbf{z}_t \odot \tilde{\mathbf{h}}_t
+\end{equation}
+where $\mathbf{z}_t$ is the update gate and $\tilde{\mathbf{h}}_t$ is the candidate hidden state. GRUs are preferred over LSTMs~\cite{hochreiter1997lstm} when model size is constrained (e.g., deployment on a Raspberry Pi 5), as they achieve comparable sequence-modelling performance with roughly one-third fewer parameters. In our setting, the GRU enables the policy to track slow-developing entrapment dynamics (sinkage over several seconds) that would be invisible to a memoryless MLP policy.
 
 % ─────── 2.1 ──────────────────────────────────────────────────────
 \subsection{Escape Strategies for Wheeled Robots}
@@ -528,7 +580,7 @@ Table~\ref{tab:related_work_comparison} positions our contribution relative to t
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\textwidth}{>{\raggedright}p{1.8cm} >{\raggedright}p{1.8cm} X >{\raggedright}p{1.5cm} >{\raggedright}p{2.1cm} >{\centering}p{0.9cm} >{\centering\arraybackslash}p{0.8cm}}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \rotatebox{55}{\textbf{Work}} &
 \rotatebox{55}{\textbf{Robot}} &
 \textbf{Key Limitation} &
@@ -543,13 +595,42 @@ Ding (2011)        & Multi-wheel         & Steady-state model only; no real-time
 Jain (2019)        & 6-wheel rover       & Discrete action space; no granular physics coupling                    & Approx.        & DQN            & Mars  & N/A   \\
 Fankhauser (2018)  & ANYmal (legged)     & Legged robot; constraints not applicable to wheeled entrapment         & Rigid          & Opt.+RL        & Earth & N/A   \\
 \midrule
-\rowcolor{lightblue!60}
+\rowcolor{gray!20}
 \textbf{Ours}      & \textbf{6-wheel rocker-bogie} & \textbf{Early training (200K steps); sim-to-real transfer not yet validated in hardware} & \textbf{MPM granular} & \textbf{PPO+GRU} & \textbf{Mars} & \textbf{80\%} \\
 \bottomrule
 \end{tabularx}
 \end{table}
 \end{tcolorbox}
 
+
+% ─────── 2.4 Gaps in Existing Work ───────────────────────────────
+\subsection{Gaps in Existing Work}
+
+The reviewed literature, taken together, leaves a clear set of open problems that directly motivate the present work:
+
+\begin{enumerate}
+
+    \item \textbf{No prior work combines a 6-wheel rocker-bogie rover with MPM granular physics and DRL.}
+    Bi and Ding~\cite{bi2026escape} achieve strong escape performance but on a 4-wheel SSMR in rigid terrain. Jain et al.~\cite{jain2019} and Inotsume et al.~\cite{inotsume2020} target planetary rovers but use approximate terrain models. No existing work trains an escape policy for a rocker-bogie rover in a physics-accurate granular simulation.
+
+    \item \textbf{Granular sinkage as an entrapment mode is unstudied in the DRL context.}
+    All DRL-based recovery works (Bi \& Ding, Jain, Fankhauser) address entrapment or falls caused by rigid terrain geometry. Progressive granular sinkage, where the rover settles into soil over several seconds, is a qualitatively different failure mode requiring memory-based detection and recovery strategies that existing reward functions do not capture.
+
+    \item \textbf{Mars gravity ($3.72\,\text{m/s}^2$) and its effect on traction has not been modelled in any DRL recovery work.}
+    Reduced gravity lowers normal forces at the wheel--soil interface, reducing traction and changing the sinkage dynamics significantly. All reviewed DRL works train and test under Earth gravity. Our simulation explicitly sets $g = 3.72\,\text{m/s}^2$.
+
+    \item \textbf{Independent per-wheel drive and steer control is unexplored for entrapment recovery.}
+    All reviewed escape methods use a 2D action space (left/right differential drive). The 10D action space of our system (6 independent drive velocities + 4 steering angles) opens up richer escape maneuvers such as asymmetric rocking, diagonal crabbing, and coordinated steer-and-drive sequences that cannot be expressed in a skid-steer formulation.
+
+    \item \textbf{Curriculum-driven sinkage depth has not been applied to entrapment policy training.}
+    Domain randomization in Bi and Ding covers motor gains, terrain slope, and sensor noise, but not systematic progression of entrapment severity. Our curriculum progressively increases wheel sinkage depth from 6\,cm to 12\,cm, allowing the policy to first learn shallow-sand escape before tackling deep entrapment.
+
+    \item \textbf{No existing work provides a complete sim-to-real pipeline for a rocker-bogie rover.}
+    RLRoverLab~\cite{rlroverlab} provides navigation policies but no entrapment recovery. Bi and Ding demonstrate real-world transfer but for a different robot class. Our planned ONNX export and Raspberry Pi 5 deployment would be the first complete sim-to-real entrapment recovery pipeline for a 6-wheel rocker-bogie platform.
+
+\end{enumerate}
+
+These gaps collectively define the contribution space of this work: a physically accurate, Mars-gravity-aware, curriculum-trained, 6-wheel DRL entrapment recovery system.
 
 % ══════════════════════════════════════════════════════════════════
 %                       3. METHODOLOGY
@@ -1105,7 +1186,7 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
 
 \end{tikzpicture}
 }% end resizebox
-\caption{Structure of the Mars rover control policy network. The GRU (256 hidden units) processes 29D proprioceptive features (wheel velocities, slip ratios, steering angles, IMU data, gravity projection, drive torques, entrapment flags, and displacement) and outputs 10D actions: 6 independent drive velocities ($\omega_{\text{FL}}, \omega_{\text{ML}}, \omega_{\text{RL}}, \omega_{\text{FR}}, \omega_{\text{MR}}, \omega_{\text{RR}}$) and 4 steering angles ($\theta_{\text{FL}}, \theta_{\text{FR}}, \theta_{\text{ML}}, \theta_{\text{MR}}$). Actions are sampled from Gaussian distributions parameterized by the network. \textit{Neurons shown schematically, not to scale.}}
+\caption[Structure of the Mars rover control policy network (GRU, 256 hidden units, 29D input, 10D output).]{Structure of the Mars rover control policy network. The GRU (256 hidden units) processes 29D proprioceptive features (wheel velocities, slip ratios, steering angles, IMU data, gravity projection, drive torques, entrapment flags, and displacement) and outputs 10D actions: 6 independent drive velocities ($\omega_{\text{FL}}, \omega_{\text{ML}}, \omega_{\text{RL}}, \omega_{\text{FR}}, \omega_{\text{MR}}, \omega_{\text{RR}}$) and 4 steering angles ($\theta_{\text{FL}}, \theta_{\text{FR}}, \theta_{\text{ML}}, \theta_{\text{MR}}$). Actions are sampled from Gaussian distributions parameterized by the network. \textit{Neurons shown schematically, not to scale.}}
 \label{fig:policy_network}
 \end{figure}
 
@@ -1118,6 +1199,8 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
 Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped DRL training loop.
 
 \begin{figure}[H]
+\centering
+\begin{tcolorbox}[dashedbox, left=6pt, right=6pt, top=6pt, bottom=6pt]
 \centering
 \begin{tikzpicture}[
     scale=0.78, transform shape,
@@ -1186,7 +1269,7 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
 \node[seq] (seq) at (-0.5, -3.5) {
     Experience sequence (max length $T$, GRU subsequence $= 16$)
 };
-\node[font=\scriptsize\itshape, text=gray!70] at (-0.5, -4.1) {
+\node[font=\scriptsize\itshape, text=gray!70] at (0.0, -4.5) {
     $[(s_{t-T}, \dots, s_{t+1}), \dots, (s_t, a_t, r_t, s_{t+1})]$
 };
 
@@ -1216,7 +1299,7 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
 
 % E. PPO → Experience Sequence
 \draw[arrow] (ppo.south) -- ++(0, -1.2) -| (seq.north)
-    node[pos=0.25, right, font=\footnotesize] {$(s_t, a_t, r_t, s_{t+1})$};
+    node[pos=0.0, right, font=\footnotesize] {$(s_t, a_t, r_t, s_{t+1})$};
 
 % F. Experience Sequence → Replay Pool
 \draw[arrow] (seq.west) -- ++(-3.5, 0) |- (replay.west);
@@ -1226,6 +1309,7 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
     node[midway, above, font=\footnotesize] {Minibatch};
 
 \end{tikzpicture}
+\end{tcolorbox}
 \caption{Block diagram of the reward-shaped DRL training loop. The curriculum scheduler updates environment difficulty and reward weights. The closed-loop interaction between PPO and the environment generates transitions, which are stored and sampled as minibatches for policy updates.}
 \label{fig:drl_block_diagram}
 \end{figure}
@@ -1240,30 +1324,47 @@ The simulation environment couples two physics solvers through Newton's two-way 
 
 \begin{figure}[H]
 \centering
+\begin{tcolorbox}[dashedbox, left=6pt, right=6pt, top=6pt, bottom=6pt]
+\centering
 \begin{tikzpicture}[
     node distance=0.5cm,
-    layer/.style={rectangle, draw=#1!70, fill=#1!10, thick, rounded corners=3pt,
+    layer/.style={rectangle, draw=gray!60, fill=white, thick, rounded corners=3pt,
                   minimum height=1.1cm, minimum width=11cm, align=center, font=\small},
-    arrow/.style={-Stealth, thick, color=black!50},
-    biarrow/.style={Stealth-Stealth, thick, color=marsred!60},
+    arrow/.style={-Stealth, thick, color=black},
+    biarrow/.style={Stealth-Stealth, thick, color=black},
     scale=0.85, transform shape
 ]
-\node[layer=headerblue] (rl) at (0,6) {\textbf{RL Agent Layer}: PPO-GRU Policy (25 Hz)};
-\node[layer=accentorange] (env) at (0,4.5) {\textbf{Environment Layer}: Isaac Lab DirectRLEnv (50 Hz physics)};
-\node[layer=softgreen] (rigid) at (0,3) {\textbf{Rigid-Body Solver}: MuJoCo CPU (4 substeps, elliptic friction)};
-\node[layer=marsred] (mpm) at (0,1.5) {\textbf{Granular Solver}: SolverImplicitMPM (38K particles, $\mu=0.7$)};
-\node[layer=softpurple] (ground) at (0,0) {\textbf{Ground Plane}: Newton callback (no Nucleus dependency)};
+\node[layer=headerblue] (rl)     at (0, 8.0) {\textbf{RL Agent Layer}: PPO-GRU Policy (25 Hz)};
+\node[layer=accentorange] (env)  at (0, 6.0) {\textbf{Environment Layer}: Isaac Lab DirectRLEnv (50 Hz physics)};
+\node[layer=softgreen] (rigid)   at (0, 4.0) {\textbf{Rigid-Body Solver}: MuJoCo CPU (4 substeps, elliptic friction)};
+\node[layer=marsred] (mpm)       at (0, 2.0) {\textbf{Granular Solver}: SolverImplicitMPM (38K particles, $\mu=0.7$)};
+\node[layer=softpurple] (ground) at (0, 0.0) {\textbf{Ground Plane}: Newton callback (no Nucleus dependency)};
+
+% Two-way coupling between rigid and MPM
 \draw[biarrow, line width=1.5pt] (rigid.south) -- (mpm.north)
-    node[midway, right=0.3cm, font=\footnotesize, text=marsred] {Two-way coupling};
-\draw[arrow] (rl.south) -- (env.north) node[midway, right=0.2cm, font=\scriptsize] {$\mathbf{a}_t$};
-\draw[arrow] (env.north east) -- ++(0.5,0.5) -- ++(-0.5,0.5) -- (rl.south east)
-    node[midway, right=0.2cm, font=\scriptsize] {$\mathbf{o}_t, r_t$};
+    node[midway, right=0.3cm, font=\footnotesize] {Two-way coupling};
+
+% Action arrow: rl → env (left side, downward)
+\draw[arrow] ($(rl.south)+(-1.0,0)$) -- ($(env.north)+(-1.0,0)$)
+    node[midway, left, font=\footnotesize] {$\mathbf{a}_t$};
+
+% Observation arrow: env → rl (right side, upward)
+\draw[arrow] ($(env.north)+(1.0,0)$) -- ($(rl.south)+(1.0,0)$)
+    node[midway, right, font=\footnotesize] {$\mathbf{o}_t,\, r_t$};
+
+% env → rigid (pass-through)
+\draw[arrow] (env.south) -- (rigid.north);
+
+% rigid → ground (pass-through)
+\draw[arrow] (rigid.south) -- ($(mpm.north)+(0,0)$);
+\draw[arrow] (mpm.south) -- (ground.north);
+
 \end{tikzpicture}
+\end{tcolorbox}
 \caption{Physics simulation stack. The key innovation is two-way coupling between rigid-body dynamics and granular MPM particles.}
 \label{fig:physics_stack}
 \end{figure}
 
-% ──── Placeholder for Newton sim screenshots ────
 \begin{figure}[H]
 \centering
 \begin{subfigure}[b]{0.48\textwidth}
@@ -1304,7 +1405,7 @@ Table~\ref{tab:env_params} summarizes the environment configuration.
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\textwidth}{>{\raggedright}p{3.8cm} >{\raggedright}p{4.2cm} X}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \textbf{Parameter} & \textbf{Value} & \textbf{Description} \\
 \midrule
 \multicolumn{3}{l}{\textbf{Simulation}} \\
@@ -1340,31 +1441,20 @@ Spawn yaw & $\pm 15^\circ$ & Random heading offset \\
 
 The AAU 6-wheel rocker-bogie Mars rover features a suspension system identical in topology to NASA's Curiosity and Perseverance rovers.
 
-% ──── Placeholder for rover images ────
 \begin{figure}[H]
 \centering
 \begin{subfigure}[b]{0.48\textwidth}
     \centering
-    \imagePlaceholder[\linewidth]{5cm}{%
-        \textbf{[Rover USD Render]}\\[0.5em]
-        AAU Mars Rover (Mars\_Rover.usd)\\
-        6-wheel rocker-bogie suspension\\
-        from RLRoverLab
-    }
-    \caption{Rover USD model}
+    \includegraphics[width=\linewidth]{/home/mhpromit7473/regolith_entrapment_research/documentation/figures/rl_rover_lab_usd.png}
+    \caption{AAU 6-wheel Mars rover USD asset from RLRoverLab}
 \end{subfigure}
 \hfill
 \begin{subfigure}[b]{0.48\textwidth}
     \centering
-    \imagePlaceholder[\linewidth]{5cm}{%
-        \textbf{[Newton ViewerGL Screenshot]}\\[0.5em]
-        Rover in simulation with\\
-        MPM sand particles visible\\
-        and wheel contact forces
-    }
-    \caption{Rover in Newton simulation}
+    \includegraphics[width=\linewidth]{/home/mhpromit7473/regolith_entrapment_research/documentation/figures/rover_newton_mpm.png}
+    \caption{Rover on MPM granular regolith bed in Newton simulation}
 \end{subfigure}
-\caption{The AAU Mars rover platform used in simulation. (a) USD model render showing the 6-wheel rocker-bogie suspension. (b) Rover in Newton simulation environment with granular regolith particles.}
+\caption{The AAU Mars rover platform used in simulation. (a) USD model render showing the 6-wheel rocker-bogie suspension from RLRoverLab. (b) Rover in Newton simulation environment with granular regolith particles under Martian gravity (3.72\,m/s$^2$).}
 \label{fig:rover_platform}
 \end{figure}
 
@@ -1378,7 +1468,7 @@ The AAU 6-wheel rocker-bogie Mars rover features a suspension system identical i
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\textwidth}{X >{\centering}p{1.6cm} >{\centering}p{2.4cm} >{\centering\arraybackslash}p{2.0cm}}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \textbf{Joint Type} & \textbf{Count} & \textbf{Control Mode} & \textbf{Range} \\
 \midrule
 Drive (continuous) & 6 & Velocity & $\pm 6$\,rad/s \\
@@ -1408,7 +1498,7 @@ Passive (rocker/diff.) & \textit{N} & Free (unactuated) & -- \\
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\textwidth}{>{\raggedright}p{2.5cm} >{\centering}p{1.0cm} >{\centering}p{2.2cm} X}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \textbf{Component} & \textbf{Dim} & \textbf{Normalization} & \textbf{Description} \\
 \midrule
 \multicolumn{4}{l}{\textbf{Proprioception (Wheel)}} \\
@@ -1465,7 +1555,7 @@ R_t = r_{\text{progress}} + r_{\text{escape}} + r_{\text{rocking}} - p_{\text{sl
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\textwidth}{>{\raggedright}p{2.2cm} >{\centering}p{1.4cm} X >{\raggedright\arraybackslash}p{3.5cm}}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \textbf{Term} & \textbf{Weight} & \textbf{Formula} & \textbf{Purpose} \\
 \midrule
 \multicolumn{4}{l}{\textbf{Incentives}} \\
@@ -1497,7 +1587,7 @@ $p_{\text{abnormal}}$ & $-0.5$ & $(-v_x)^+ \cdot f_{\text{anom}}(1{-}f_{\text{en
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\textwidth}{X >{\centering}p{3.0cm} >{\raggedright\arraybackslash}p{5.0cm}}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \textbf{Parameter} & \textbf{Value} & \textbf{Notes} \\
 \midrule
 \multicolumn{3}{l}{\textbf{On-Policy Rollout}} \\
@@ -1516,6 +1606,36 @@ Entropy coefficient & 0.03 & Prevents premature convergence \\
 GRU hidden size & 256 & Recurrent state dimension \\
 GRU layers & 1 & Single recurrent layer \\
 BPTT sequence length & 16 & Truncated backprop \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\end{tcolorbox}
+
+\subsubsection{Training Hardware}
+
+All 200{,}000-timestep experiments were conducted on a single workstation. Table~\ref{tab:hardware} summarises the system configuration.
+
+\begin{tcolorbox}[dashedbox, left=0pt, right=0pt, top=4pt, bottom=4pt]
+\begin{table}[H]
+\centering
+\caption{Training system configuration (Lenovo ThinkBook 14 G4 IAP)}
+\label{tab:hardware}
+\small
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{>{\raggedright}p{3.8cm} X}
+\toprule
+\rowcolor{gray!20}
+\textbf{Component} & \textbf{Specification} \\
+\midrule
+\textbf{Operating System} & Ubuntu 22.04.5 LTS (x86\_64), Kernel 6.8.0-107-generic \\
+\textbf{CPU} & 12th Gen Intel Core i7-1255U, 10 cores / 12 threads @ up to 4.7\,GHz (2P + 8E) \\
+\textbf{GPU (Training)} & NVIDIA RTX 5070 Ti, 16\,GB GDDR7 (primary, Isaac Sim + MPM kernels) \\
+\textbf{GPU (Display)} & Intel Iris Xe (integrated, desktop rendering only) \\
+\textbf{RAM} & 40\,GB DDR5 (39{,}825\,MiB usable) \\
+\textbf{Training load} & $\sim$10.2\,GB RAM used during 64-environment training \\
+\textbf{Parallel envs} & 64 (RTX 5070 Ti, 16\,GB VRAM sufficient) \\
+\textbf{Approx. wall time} & $\sim$6--8 hours for 200{,}000 timesteps \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1555,6 +1675,8 @@ Reduced to 0.3: Net $= +0.012 - 0.005 = +0.007$ (correct incentive).
 
 \begin{figure}[H]
 \centering
+\begin{tcolorbox}[dashedbox, left=6pt, right=6pt, top=6pt, bottom=6pt]
+\centering
 \begin{tikzpicture}[
     node distance=0.5cm and 1cm,
     box/.style={rectangle, draw=black, thick, fill=#1, minimum height=1cm, minimum width=3cm, align=center, font=\small},
@@ -1571,6 +1693,7 @@ Reduced to 0.3: Net $= +0.012 - 0.005 = +0.007$ (correct incentive).
 \draw[arrow] (window.south) -- ++(0,-0.4) -| (model.north);
 \draw[arrow] (model) -- (output);
 \end{tikzpicture}
+\end{tcolorbox}
 \caption{Planned CNN-GRU sinkage detection pipeline.}
 \label{fig:detection_pipeline}
 \end{figure}
@@ -1594,6 +1717,8 @@ Target: F1 $> 0.90$ on ``entrapped'' class, latency $< 1$\,s, inference $< 5$\,m
 
 \begin{figure}[H]
 \centering
+\begin{tcolorbox}[dashedbox, left=6pt, right=6pt, top=6pt, bottom=6pt]
+\centering
 \begin{tikzpicture}[
     node distance=0.6cm and 1.2cm,
     box/.style={rectangle, draw=black, thick, fill=#1, minimum height=1.1cm, minimum width=3cm, align=center, font=\small},
@@ -1612,6 +1737,7 @@ Target: F1 $> 0.90$ on ``entrapped'' class, latency $< 1$\,s, inference $< 5$\,m
 \draw[arrow] (o2.east) -| (rpi.south);
 \draw[arrow] (rpi) -- (hw);
 \end{tikzpicture}
+\end{tcolorbox}
 \caption{Planned sim-to-real deployment pipeline.}
 \label{fig:deployment_pipeline}
 \end{figure}
@@ -1646,7 +1772,7 @@ Preliminary results from 200,000-timestep training on NVIDIA RTX 5070 Ti, 64 par
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\textwidth}{X >{\centering}p{2.4cm} >{\centering}p{2.4cm} >{\centering\arraybackslash}p{2.8cm}}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \textbf{Metric} & \textbf{Value} & \textbf{Target} & \textbf{Status} \\
 \midrule
 Mean episode reward & $\sim$926 & $> 100$ & \textcolor{softgreen!60!black}{\textbf{$\checkmark$ Achieved}} \\
@@ -1773,7 +1899,7 @@ These strategies emerge naturally from reward-driven learning without explicit p
 \renewcommand{\arraystretch}{1.4}
 \begin{tabularx}{\textwidth}{X >{\centering}p{3.6cm} >{\centering\arraybackslash}p{3.8cm}}
 \toprule
-\rowcolor{lightblue}
+\rowcolor{gray!20}
 \textbf{Aspect} & \textbf{Bi \& Ding (2026)} & \textbf{Ours (Preliminary)} \\
 \midrule
 \multicolumn{3}{l}{\textbf{Platform}} \\
@@ -1816,7 +1942,49 @@ Real-world test & Yes (outdoor orchard) & Planned (sand tray) \\
 \subsection{Preliminary Results}
 
 With 200K timesteps on RTX 5070 Ti (64 envs): $\sim$57\% escape rate from 8--15\,cm sinkage in Martian gravity (peaking at 99\% mid-training), 0.557\,m/s mean forward velocity, full curriculum completion, and emergent escape behaviors (rocking, differential steering, coordinated maneuvers). Policy entropy remains elevated (std dev 1.496), indicating further training is needed for stable convergence.
+\subsection{Future Work}
 
+Future work is organized into three priority tiers, progressing from immediate training improvements through cross-simulator validation to physical hardware deployment.
+
+% ── Priority 1 ──────────────────────────────────────────────────
+\subsubsection{Priority 1: Immediate Next Steps}
+
+These tasks are directly unblocked by current results and can be pursued in parallel.
+
+\begin{itemize}
+    \item \textbf{Scale training to 2M+ timesteps} on an RTX 4090 (512 parallel environments) targeting $>$90\% escape rate and deeper curriculum completion.
+    \item \textbf{Hyperparameter sweep}: rollout length, entropy coefficient, learning rate schedule, and GRU hidden size following~\cite{schulman2015gae}.
+    \item \textbf{Ablation studies}: GRU vs.\ MLP policy, dual-sensor detection vs.\ single, curriculum on vs.\ off, to isolate each contribution.
+    \item \textbf{CNN-GRU sinkage detection classifier} (Phase 1): train on 10K auto-labeled simulation episodes, target F1~$>$~0.90 on the ``entrapped'' class with $<$1\,s latency.
+    \item \textbf{GAIL reward fusion}~\cite{ho2016gail} following Bi and Ding~\cite{bi2026escape}: blend handcrafted rewards with a discriminator signal ($R = 0.9R_H + 0.1R_D$) to smooth escape trajectories.
+    \item \textbf{Asymmetric critic} with privileged terrain information (soil friction, sinkage depth) available only at training time, following RMA~\cite{kumar2021rma}.
+\end{itemize}
+
+% ── Priority 2 ──────────────────────────────────────────────────
+\subsubsection{Priority 2: Sim-to-Sim Validation}
+
+Before any hardware deployment, cross-simulator transfer validates that the learned policy generalises beyond the Newton MPM engine.
+
+\begin{itemize}
+    \item \textbf{Transfer to a second simulator} (e.g., MuJoCo standalone or Gazebo with a terramechanics plugin) to confirm that escape behaviours are not engine-specific artefacts.
+    \item \textbf{Multi-terrain generalization}: sloped sand beds ($\pm$15$^\circ$), variable soil density ($\rho \in [1200, 1600]$\,kg/m$^3$), and lunar gravity ($1.62$\,m/s$^2$) to stress-test policy robustness.
+    \item \textbf{Domain randomization expansion}: soil friction coefficient, particle cohesion, motor gain, and observation noise following~\cite{tobin2017domainrand,andrychowicz2020learning}.
+    \item \textbf{Multi-seed statistical evaluation}: five random seeds for mean $\pm$ std escape rate and velocity metrics to ensure reproducibility.
+\end{itemize}
+
+% ── Priority 3 ──────────────────────────────────────────────────
+\subsubsection{Priority 3: Sim-to-Real Transfer \textit{(if possible)}}
+
+Physical deployment is contingent on successful completion of Priority 1--2 and availability of the AAU rover hardware.
+
+\begin{itemize}
+    \item \textbf{ONNX export and Raspberry Pi 5 deployment}: export the trained GRU policy to ONNX, validate $<$5\,ms inference at 10\,Hz on RPi5 with ONNX Runtime.
+    \item \textbf{Sand tray test}: controlled indoor test in a 1\,m $\times$ 1\,m sand tray with measured sinkage depths matching the training curriculum range (6--12\,cm).
+    \item \textbf{Outdoor gravel validation}: unstructured outdoor terrain to evaluate generalization beyond the simulation sand bed geometry.
+    \item \textbf{Dual-brain integration}: connect the escape policy with the RLRoverLab navigation policy~\cite{rlroverlab} via the entrapment detector for a complete autonomous traversal and recovery system.
+\end{itemize}
+
+% ─────── Full System Vision ───────────────────────────────────────
 \subsection{Full System Architecture: Dual-Brain Policy}
 
 Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture. During normal traversal the rover runs the RLRoverLab navigation policy~\cite{rlroverlab}; upon entrapment detection the Escape Brain (our GRU-PPO policy) takes control and hands back once the rover has freed itself.
@@ -1849,7 +2017,6 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
     da/.style={-Stealth, thick, dashed, color=black!35},
 ]
 
-%% ─── RPi5 bounding box FIRST so all nodes render on top ───
 \node[rectangle, draw=black!45, thick, rounded corners=8pt,
       dashed, fill=none,
       minimum width=14.0cm, minimum height=10.4cm]
@@ -1857,7 +2024,6 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
 \node[anchor=north west, font=\footnotesize, text=black!50]
     at (rpi.north west) {Onboard Computer (RPi\,5)};
 
-%% ─── nodes ───────────────────────────────────────────────────
 \node[sbox] (imu) at (-4,  5.6) {\textbf{IMU}\\{\scriptsize acc, gyro}};
 \node[sbox] (enc) at ( 0,  5.6) {\textbf{Wheel Encoders}\\{\scriptsize vel, torque}};
 \node[sbox] (gps) at ( 4,  5.6) {\textbf{Goal / GPS}\\{\scriptsize target position}};
@@ -1883,37 +2049,19 @@ Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture
 \node[mbox] (mot) at (0, -2.6)
     {\textbf{Motor Commands}\\{\scriptsize drive\,(6)\,+\,steer\,(4)}};
 
-%% ─── arrows ──────────────────────────────────────────────────
-
-% sensors → detector (straight down, detector is wide enough)
 \draw[a] (imu.south) -- (imu |- det.north);
 \draw[a] (enc.south) -- (det.north);
 \draw[a] (gps.south) -- (gps |- det.north);
-
-% detector → diamond
 \draw[a] (det.south) -- (dmd.north)
     node[midway, right=4pt, font=\scriptsize] {entrap flag};
-
-% diamond → nav  (left tip → left, then down)
 \draw[ga] (dmd.west) -| (nav.north)
-    node[pos=0.18, above, font=\small\bfseries,
-         text=green!45!black] {No};
-
-% diamond → escape  (right tip → right, then down)
+    node[pos=0.18, above, font=\small\bfseries, text=green!45!black] {No};
 \draw[ra] (dmd.east) -| (esc.north)
-    node[pos=0.18, above, font=\small\bfseries,
-         text=red!55!black] {Yes};
-
-% nav → motor
+    node[pos=0.18, above, font=\small\bfseries, text=red!55!black] {Yes};
 \draw[ga] (nav.south) |- (mot.west);
-
-% escape → motor
 \draw[ra] (esc.south) |- (mot.east);
-
-% "escaped" dashed feedback: esc.west → horizontal left → vertical up → dmd.south
 \draw[da] (esc.west) -- (0, -0.3) -- (dmd.south)
-    node[pos=0.75, right=3pt, font=\scriptsize,
-         text=black!45] {escaped};
+    node[pos=0.75, right=3pt, font=\scriptsize, text=black!45] {escaped};
 
 \end{tikzpicture}
 \caption{Dual-brain onboard architecture deployed on the Raspberry Pi 5.
@@ -1924,19 +2072,6 @@ and issues an entrap flag. During normal traversal the \textbf{Navigation Brain}
 escapes, then hands control back.}
 \label{fig:dual_brain}
 \end{figure}
-
-\subsection{Future Work}
-
-\begin{enumerate}
-    \item Scale training to 2M+ steps on RTX 4090 (512 envs) for $>$90\% escape rate
-    \item CNN-GRU sinkage detector ($>$90\% F1 score)
-    \item ONNX deployment on Raspberry Pi 5 ($<$5\,ms inference at 10\,Hz)
-    \item Physical validation in sand tray and outdoor gravel
-    \item Multi-terrain generalization (slopes, variable density, lunar gravity)
-    \item GAIL~\cite{ho2016gail} reward fusion following Bi and Ding's approach~\cite{bi2026escape}
-    \item Asymmetric critic with privileged terrain information (following~\cite{kumar2021rma})
-    \item Domain randomization of soil properties, gravity, motor gain for sim-to-real transfer~\cite{tobin2017domainrand,andrychowicz2020learning}
-\end{enumerate}
 
 
 % ══════════════════════════════════════════════════════════════════
