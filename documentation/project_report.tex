@@ -957,7 +957,7 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
 ]
 
 % ─── Dashed outer box ───
-\node[dashedbox, minimum width=20cm, minimum height=8cm, fill=white] at (8, 0) {};
+\node[dashedbox, minimum width=19cm, minimum height=8.5cm, fill=white] at (8.5, 0) {};
 
 % ─── Column labels ───
 \node[font=\small\bfseries, anchor=south] at (0.5, 4.5) {Proprioceptive input};
@@ -972,10 +972,9 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
     \node[neuron] (in\i) at (0.5, \ypos) {};
 }
 \node[font=\footnotesize, below=0.1cm of in7] {$\mathbf{s}_t$};
-% dots
 \node at (0.5, -0.6) {$\vdots$};
 
-% ─── FC1 layer (128) ───
+% ─── FC1 layer ───
 \foreach \i in {1,...,6} {
     \pgfmathsetmacro{\ypos}{2.8 - (\i-1)*0.9}
     \node[neuron, fill=lightblue!20] (fc1\i) at (4, \ypos) {};
@@ -991,20 +990,18 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
 % ─── GRU block ───
 \node[grubox, minimum width=2cm, minimum height=2cm, fill=lightblue!30] (gru) at (8, 0.5) {\textbf{GRU}};
 
-% Hidden state arrows
-\node[font=\footnotesize\itshape] (ct) at (6.5, 2.5) {$h_{t-1}$};
-\node[font=\footnotesize\itshape] (ht) at (6.5, -1.5) {};
-\draw[arrow] (ct.east) -- (gru.north west);
-\node[font=\footnotesize\itshape] (htout) at (9.5, 2.5) {$h_t$};
-\draw[arrow] (gru.north east) -- (htout.west);
-\node[font=\footnotesize\itshape] (htout2) at (9.5, -1.5) {};
+% Hidden state: h_{t-1} enters left side of top, h_t exits right side of top
+\node[font=\footnotesize\itshape, anchor=south] (htprev) at (7.2, 2.8) {$h_{t-1}$};
+\draw[arrow] (htprev.south) -- ([xshift=-0.3cm]gru.north);
+\node[font=\footnotesize\itshape, anchor=south] (htcur) at (8.8, 2.8) {$h_t$};
+\draw[arrow] ([xshift=0.3cm]gru.north) -- (htcur.south);
 
 % FC1 → GRU
 \foreach \i in {1,...,6} {
     \draw[gray!40] (fc1\i) -- (gru.west);
 }
 
-% ─── FC2 layer (64) ───
+% ─── FC2 layer ───
 \foreach \i in {1,...,5} {
     \pgfmathsetmacro{\ypos}{2.5 - (\i-1)*0.95}
     \node[neuron, fill=lightgreen!30] (fc2\i) at (12, \ypos) {};
@@ -1015,42 +1012,37 @@ Figure~\ref{fig:policy_network} shows the control policy network structure. We u
     \draw[gray!40] (gru.east) -- (fc2\i);
 }
 
-% ─── Output: mean (6 drive + 4 steer) ───
-% Mean branch
-\node[neuron, fill=lightorange!50] (mu1) at (14.5, 2.5) {};
-\node[font=\footnotesize, right=0.1cm of mu1] {$\mu_{\text{drive}}$};
-\node[neuron, fill=lightorange!50] (mu2) at (14.5, 1.5) {};
-\node[font=\footnotesize, right=0.1cm of mu2] {$\mu_{\text{steer}}$};
+% ─── Output nodes: drive group (top), steer group (bottom) — no crossing ───
+% Drive group
+\node[neuron, fill=lightorange!50] (mu1)  at (13.5,  2.5) {};
+\node[neuron, fill=lightred!50]    (sig1) at (13.5,  1.5) {};
+% Steer group
+\node[neuron, fill=lightorange!50] (mu2)  at (13.5, -0.5) {};
+\node[neuron, fill=lightred!50]    (sig2) at (13.5, -1.5) {};
 
-% Distribution symbols
-\node[neuron, fill=lightred!50] (sig1) at (14.5, -0.5) {};
-\node[font=\footnotesize, right=0.1cm of sig1] {$\sigma_{\text{drive}}$};
-\node[neuron, fill=lightred!50] (sig2) at (14.5, -1.5) {};
-\node[font=\footnotesize, right=0.1cm of sig2] {$\sigma_{\text{steer}}$};
+% Group labels
+\node[font=\footnotesize, anchor=south] at (13.5,  3.1) {$[\mu_{\text{drive}},\;\log\sigma_{\text{drive}}]$};
+\node[font=\footnotesize, anchor=north] at (13.5, -2.1) {$[\mu_{\text{steer}},\;\log\sigma_{\text{steer}}]$};
 
-% Labels
-\node[font=\footnotesize, anchor=south] at (14.5, 3.3) {$[\mu_{\text{drive}}, \mu_{\text{steer}}]$};
-\node[font=\footnotesize, anchor=north] at (14.5, -2.3) {$[\log\sigma_{\text{drive}}, \log\sigma_{\text{steer}}]$};
-
-% FC2 → outputs
+% FC2 → output nodes
 \foreach \i in {1,...,5} {
     \draw[gray!40] (fc2\i) -- (mu1);
-    \draw[gray!40] (fc2\i) -- (mu2);
     \draw[gray!40] (fc2\i) -- (sig1);
+    \draw[gray!40] (fc2\i) -- (mu2);
     \draw[gray!40] (fc2\i) -- (sig2);
 }
 
-% Action sampling
-\node[neuron, fill=accentorange!30, minimum size=0.5cm] (a1) at (17, 1.5) {};
-\node[font=\footnotesize, right=0.1cm of a1] {$a_{\text{drive}}^t$};
-\node[neuron, fill=accentorange!30, minimum size=0.5cm] (a2) at (17, -0.5) {};
-\node[font=\footnotesize, right=0.1cm of a2] {$a_{\text{steer}}^t$};
+% ─── Action sampling nodes ───
+\node[neuron, fill=accentorange!30, minimum size=0.5cm] (a1) at (16.0,  2.0) {};
+\node[font=\footnotesize, right=0.15cm of a1] {$a_{\text{drive}}^t$};
+\node[neuron, fill=accentorange!30, minimum size=0.5cm] (a2) at (16.0, -1.0) {};
+\node[font=\footnotesize, right=0.15cm of a2] {$a_{\text{steer}}^t$};
 
-% Gaussian sampling (curved arrows)
-\draw[arrow] (mu1.east) -- ++(0.3,0) |- (a1.west);
-\draw[arrow] (mu2.east) -- ++(0.3,0) |- (a1.west);
-\draw[arrow] (sig1.east) -- ++(0.3,0) |- (a2.west);
-\draw[arrow] (sig2.east) -- ++(0.3,0) |- (a2.west);
+% Sampling arrows — drive group to a_drive, steer group to a_steer (no crossing)
+\draw[arrow] (mu1.east)  -- ++(0.4,0) |- (a1.west);
+\draw[arrow] (sig1.east) -- ++(0.4,0) |- (a1.west);
+\draw[arrow] (mu2.east)  -- ++(0.4,0) |- (a2.west);
+\draw[arrow] (sig2.east) -- ++(0.4,0) |- (a2.west);
 
 \end{tikzpicture}
 \caption{The structure of the Mars rover control policy network. GRU (256 hidden units) processes 29D proprioceptive features and outputs 10D actions (6 drive velocities + 4 steering angles).}
