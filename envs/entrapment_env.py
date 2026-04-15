@@ -241,7 +241,12 @@ class EntrapmentEnv(DirectRLEnv):
             stage = get_current_stage()
             up_axis = UsdGeom.GetStageUpAxis(stage)
             builder = nt.ModelBuilder(up_axis=up_axis)
-            builder.add_usd(stage, skip_mesh_approximation=True)
+            builder.add_usd(
+                stage,
+                skip_mesh_approximation=True,
+                collapse_fixed_joints=False,   # keep differential/rocker link bodies separate
+                load_visual_shapes=True,        # needed for correct visual transforms
+            )
             NewtonManager.set_builder(builder)
         NewtonManager.instantiate_builder_from_stage = _fast_instantiate
 
