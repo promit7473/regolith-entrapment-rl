@@ -75,10 +75,10 @@ ESCAPE_DISTANCE = 1.5                       # m — escape the entrapment zone
 # Regolith pit geometry (per env, centred at env origin)
 # 2.0 m × 2.0 m patch — wide enough that all 6 wheels stay fully buried during
 # rocking maneuvers and the rover can't trivially escape sideways off the edge.
-# Particle count per env ≈ 38 400 (80×80×6 at PPC=2, voxel=0.05 m).
+# Particle count per env ≈ 64 000 (80×80×10 at PPC=2, voxel=0.05 m, depth=0.25m).
 SAND_HALF_X  = 1.0
 SAND_HALF_Y  = 1.0
-SAND_DEPTH   = 0.15
+SAND_DEPTH   = 0.25           # raised from 0.15 — deeper bed so axle-level burial is possible
 VOXEL_SIZE   = 0.05
 PPC          = 2.0
 
@@ -122,7 +122,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # Domain randomization ranges (inspired by Bi & Ding 2026, Table 9)
     dr_motor_gain_range  = (0.8, 1.2)   # multiplicative gain on drive velocity targets
     dr_obs_noise_std     = 0.02         # additive Gaussian noise on observations
-    dr_sinkage_range     = (0.06, 0.12) # m — deeper burial so entrapment is real and consistent
+    dr_sinkage_range     = (0.12, 0.22) # m — bury wheel axle, not just rim (was 0.06–0.12)
 
     # MuJoCo Warp solver — same choice as view_rover.py.
     # XPBD cannot stably support an articulated rover regardless of contact settings
@@ -446,17 +446,17 @@ class EntrapmentEnv(DirectRLEnv):
 
         _p(f"[MPM] Finalizing sand model ({len(sand_builder.particle_q)} particles)...")
         self.sand_model = sand_builder.finalize(device=device)
-        self.sand_model.particle_mu = 0.7
-        self.sand_model.particle_ke = 5.0e4   # ~50 kPa — keeps CFL < 1 at dt=0.005s
-        # NOTE: higher ke (e.g. 3e7 Pa) causes particle explosion: CFL ~ 13×,
-        # particles near wheel SDF escape the 1.2m sand box, VDB grid balloons → OOM.
+        self.sand_model.particle_mu = 0.9     # raised from 0.7 — higher inter-particle friction
+        self.sand_model.particle_ke = 2.0e5   # raised from 5e4 — stiffer (200 kPa); still below CFL blow-up
+        # NOTE: ke > ~5e5 Pa causes particle explosion: CFL > 1, VDB grid balloons → OOM.
+        # 2e5 is the safe upper bound verified empirically at dt=0.005s.
         _p("[MPM] Sand model finalized.")
 
         mpm_opt = SolverImplicitMPM.Options()
         mpm_opt.voxel_size        = VOXEL_SIZE
         mpm_opt.tolerance         = 1.0e-5
         mpm_opt.grid_type         = "sparse"
-        mpm_opt.transfer_scheme   = "pic"
+        mpm_opt.transfer_scheme   = "apic"   # angular-momentum-conserving PIC — better wheel↔sand momentum transfer
         mpm_opt.strain_basis      = "P0"
         mpm_opt.max_iterations    = 30
         mpm_opt.critical_fraction = 0.025
@@ -995,8 +995,10 @@ class EntrapmentEnv(DirectRLEnv):
 
         self.prev_action[env_ids] = 0.0
         self.prev_v_x[env_ids] = 0.0
-        self._entrap_counter[env_ids] = 0.0
-        self._entrap_flag[env_ids] = 0.0
+        # Rover spawns buried in sand → treat as already trapped from step 0.
+        # This activates the rocking reward immediately without waiting 15 steps.
+        self._entrap_counter[env_ids] = float(self._ENTRAP_STEPS_THRESH)
+        self._entrap_flag[env_ids] = 1.0
         self._torque_anomaly_counter[env_ids] = 0.0
         self._torque_anomaly_flag[env_ids] = 0.0
         self._prev_drive_torque_norm[env_ids] = 0.0
