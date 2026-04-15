@@ -326,6 +326,10 @@ class EntrapmentEnv(DirectRLEnv):
         print(f"[Scene] Cloning {self.num_envs} environments ...")
         self.scene.clone_environments(copy_from_source=True)
         print(f"[Scene] Clone done.")
+        
+        # NOTE: Mars gravity (3.72 m/s²) is set inside _init_mpm / _init_viewer_only
+        # because NewtonManager._model is None here (model built by Newton's start callbacks).
+
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=[])
         self.scene.articulations["robot"] = self.robot
@@ -381,6 +385,10 @@ class EntrapmentEnv(DirectRLEnv):
         robot_model = NewtonManager._model
         device      = NewtonManager._device
         num_envs    = self.num_envs
+
+        # Set Mars gravity — model is available now (start callback runs after build).
+        robot_model.set_gravity(wp.vec3(0.0, 0.0, -3.72))
+        _p("[Gravity] Set to Mars gravity: 3.72 m/s²")
 
         # Debug: dump Newton model structure
         _p(f"[Debug] Newton model: body_count={robot_model.body_count}, "
@@ -621,6 +629,12 @@ class EntrapmentEnv(DirectRLEnv):
         """Lightweight viewer init — no MPM, just rigid-body visualization."""
         self._viewer = None
         self._render_frame = 0
+
+        # Set Mars gravity (model is available in start callbacks).
+        if hasattr(NewtonManager, '_model') and NewtonManager._model is not None:
+            NewtonManager._model.set_gravity(wp.vec3(0.0, 0.0, -3.72))
+            print("[Gravity] Set to Mars gravity: 3.72 m/s²")
+
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             print("[Viewer-Only] No display — disabled.")
             return
