@@ -1494,6 +1494,108 @@ Real-world test & Yes (orchard) & Planned (sand tray) \\
 
 With 200K timesteps on RTX 5070 Ti (64 envs): $\sim$57\% escape rate from 8--15\,cm sinkage in Martian gravity (peaking at 99\% mid-training), 0.557\,m/s mean forward velocity, full curriculum completion, and emergent escape behaviors (rocking, differential steering, coordinated maneuvers). Policy entropy remains elevated (std dev 1.496), indicating further training is needed for stable convergence.
 
+\subsection{Full System Architecture: Dual-Brain Policy}
+
+Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture. During normal traversal the rover runs the RLRoverLab navigation policy~\cite{rlroverlab}; upon entrapment detection the Escape Brain (our GRU-PPO policy) takes control and hands back once the rover has freed itself.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.82, transform shape,
+    >=Stealth,
+    font=\sffamily\small,
+    outerbox/.style={rectangle, draw=black!60, thick, rounded corners=6pt,
+                     fill=white, inner sep=12pt},
+    sensorbox/.style={rectangle, draw=black!50, thick, rounded corners=3pt,
+                      fill=gray!10, align=center, minimum width=2.8cm,
+                      minimum height=1.0cm, font=\small},
+    detectorbox/.style={rectangle, draw=red!60!black, thick, rounded corners=3pt,
+                        fill=red!8, align=center, minimum width=6cm,
+                        minimum height=1.2cm, font=\small},
+    navbox/.style={rectangle, draw=green!50!black, thick, rounded corners=3pt,
+                   fill=green!10, align=center, minimum width=3.8cm,
+                   minimum height=1.2cm, font=\small},
+    escapebox/.style={rectangle, draw=red!60!black, thick, rounded corners=3pt,
+                      fill=red!10, align=center, minimum width=3.8cm,
+                      minimum height=1.2cm, font=\small},
+    motorbox/.style={rectangle, draw=black!50, thick, rounded corners=3pt,
+                     fill=gray!10, align=center, minimum width=5cm,
+                     minimum height=1.0cm, font=\small},
+    decisionnode/.style={diamond, draw=orange!70!black, thick, fill=orange!15,
+                    align=center, minimum width=2.2cm, minimum height=1.2cm,
+                    font=\small\bfseries, aspect=2},
+    arr/.style={->, thick},
+    grenarr/.style={->, thick, color=green!50!black},
+    redarr/.style={->, thick, color=red!60!black},
+    grayarr/.style={->, thick, dashed, color=black!40},
+]
+
+% ── Onboard computer bounding box ──
+\node[outerbox, minimum width=12cm, minimum height=9.5cm]
+    (rpi) at (0, 0) {};
+\node[font=\footnotesize\itshape, text=black!60, anchor=north west]
+    at ([xshift=6pt, yshift=-4pt]rpi.north west) {Onboard Computer (RPi 5)};
+
+% ── Sensor nodes ──
+\node[sensorbox] (imu)      at (-3.8,  3.2) {\textbf{IMU}\\{\footnotesize acc, gyro}};
+\node[sensorbox] (encoders) at ( 0,    3.2) {\textbf{Wheel Encoders}\\{\footnotesize vel, torque}};
+\node[sensorbox] (gps)      at ( 3.8,  3.2) {\textbf{Goal / GPS}\\{\footnotesize target position}};
+
+% ── Entrapment Detector ──
+\node[detectorbox] (detector) at (0, 1.6)
+    {\textbf{Entrapment Detector}\\{\footnotesize CNN-GRU (Phase 1)}\\
+     {\footnotesize $P(\text{normal}),\; P(\text{sinking}),\; P(\text{entrapped})$}};
+
+% ── Decision diamond ──
+\node[decisionnode] (decision) at (0, -0.4) {Entrapped?};
+
+% ── Navigation Brain ──
+\node[navbox] (navbrain) at (-3.5, -2.2)
+    {\textbf{Navigation Brain}\\{\footnotesize RLRoverLab policy}\\
+     {\footnotesize point-to-point nav}};
+
+% ── Escape Brain ──
+\node[escapebox] (escapebrain) at (3.5, -2.2)
+    {\textbf{Escape Brain}\\{\footnotesize Our GRU-PPO policy}\\
+     {\footnotesize entrapment recovery}};
+
+% ── Motor Commands ──
+\node[motorbox] (motor) at (0, -4.0)
+    {\textbf{Motor Commands}\\{\footnotesize drive (6) + steer (4)}};
+
+% ── Sensor → Detector arrows ──
+\draw[arr] (imu.south)      -- (imu.south      |- detector.north);
+\draw[arr] (encoders.south) -- (detector.north);
+\draw[arr] (gps.south)      -- (gps.south      |- detector.north);
+
+% ── Detector → Decision ──
+\draw[arr] (detector.south) -- (decision.north)
+    node[midway, right=3pt, font=\footnotesize] {entrap flag};
+
+% ── Decision → Nav Brain (No) ──
+\draw[grenarr] (decision.west) -- (navbrain.east)
+    node[midway, above, font=\footnotesize\bfseries, text=green!50!black] {No};
+
+% ── Decision → Escape Brain (Yes) ──
+\draw[redarr] (decision.east) -- (escapebrain.west)
+    node[midway, above, font=\footnotesize\bfseries, text=red!60!black] {Yes};
+
+% ── Nav Brain → Motor ──
+\draw[grenarr] (navbrain.south) |- (motor.west);
+
+% ── Escape Brain → Motor ──
+\draw[redarr] (escapebrain.south) |- (motor.east);
+
+% ── Escaped feedback: Escape Brain back to decision ──
+\draw[grayarr] (escapebrain.north) -- ++(0, 0.6) -- ++(-1.5, 0)
+    node[midway, above, font=\footnotesize\itshape, text=black!50] {escaped}
+    -- (decision.north east);
+
+\end{tikzpicture}
+\caption{Dual-brain onboard architecture. The CNN-GRU entrapment detector switches control between the RLRoverLab navigation policy (normal traversal) and our GRU-PPO escape policy (entrapment recovery). Both policies share the same motor command interface.}
+\label{fig:dual_brain}
+\end{figure}
+
 \subsection{Future Work}
 
 \begin{enumerate}
@@ -1530,6 +1632,9 @@ A.~Jain, M.~Ono, and P.~Shankar, ``Reinforcement learning for planetary rover lo
 
 \bibitem{fankhauser2018}
 P.~Fankhauser, M.~Hutter, and R.~Siegwart, ``Robust robot autonomy through recovery behaviors for the ANYmal quadrupedal robot,'' in \textit{IEEE/RSJ IROS}, pp.~6238--6245, 2018.
+
+\bibitem{rlroverlab}
+M.~Magnusson \textit{et al.}, ``RLRoverLab: A Reinforcement Learning Benchmark for Rover Navigation,'' \url{https://github.com/abmoRobotics/RLRoverLab}, 2024.
 
 \bibitem{newton}
 NVIDIA, ``Newton Physics Engine,'' \url{https://github.com/NVIDIA-Newton/newton}, 2024.
