@@ -1600,7 +1600,7 @@ BPTT sequence length & 16 & Truncated backprop \\
 \end{tabularx}
 \end{table}
 \end{tcolorbox}
-
+\newpage
 \subsubsection{Training Hardware}
 
 All 200{,}000-timestep experiments were conducted on a single workstation. Table~\ref{tab:hardware} summarises the system configuration.
@@ -1623,8 +1623,7 @@ All 200{,}000-timestep experiments were conducted on a single workstation. Table
 \textbf{GPU (Training)} & NVIDIA RTX 5070 Ti, 16\,GB GDDR7 (primary, Isaac Sim + MPM kernels) \\
 \textbf{GPU (Display)} & Intel Iris Xe (integrated, desktop rendering only) \\
 \textbf{RAM} & 40\,GB DDR5 (39{,}825\,MiB usable) \\
-\textbf{Training load} & $\sim$10.2\,GB RAM used during 64-environment training \\
-\textbf{Parallel envs} & 64 (RTX 5070 Ti, 16\,GB VRAM sufficient) \\
+\textbf{Training load} & $\sim$10.2\,GB RAM used during 32-environment training \\
 \textbf{Approx. wall time} & $\sim$6--8 hours for 200{,}000 timesteps \\
 \bottomrule
 \end{tabularx}
@@ -1901,20 +1900,8 @@ The following dashboard displays running data from a single evaluation episode, 
 
 \begin{figure}[H]
 \centering
-\imagePlaceholder[\textwidth]{12cm}{%
-    \textbf{[Episode Running Data Dashboard to be generated]}\\[1em]
-    Layout (5 panels, matching Bi \& Ding Figs.~18/19/23/25):\\[0.5em]
-    \begin{tabular}{ll}
-    \textbf{Top-left:} & Setting Speed 6 wheel drive velocities (L/R differentiated) \\
-    \textbf{Top-right:} & Torque of six motors FL, ML, RL, FR, MR, RR \\
-    \textbf{Mid-left:} & IMU pitch angle over time \\
-    \textbf{Mid-right:} & Entrapment \& anomaly status (binary flags) \\
-    \textbf{Bottom:} & Robot Track Map XY trajectory on MPM sand heightmap \\
-    & \quad with color = time, targets = escape milestones, arrows = heading \\
-    \end{tabular}\\[0.5em]
-    Generate with: \texttt{python3 scripts/plot\_episode.py --from-file episode.npz}
-}
-\caption{Episode running data dashboard for a single evaluation episode with the trained GRU-PPO policy (to be generated). Format matches Bi and Ding~\cite{bi2026escape}, Figs.~18/19.}
+\includegraphics[width=\textwidth]{figures/episode_dashboard.png}
+\caption{Episode running data dashboard for a single evaluation episode (random policy baseline). Five panels: (top-left) wheel drive velocities with left/right differentiation; (top-right) drive motor torques FL, ML, RL, FR, MR, RR; (mid-left) IMU pitch angle; (mid-right) entrapment and torque anomaly binary flags; (bottom) XY trajectory on MPM sand with time-coloured path, escape milestone rings, and heading arrows. Format matches Bi and Ding~\cite{bi2026escape}, Figs.~18/19.}
 \label{fig:episode_dashboard}
 \end{figure}
 
@@ -1981,7 +1968,7 @@ Training steps & 4M & 200K (early) \\
 Reward type & GAIL fusion & Handcrafted shaped \\
 \midrule
 \multicolumn{3}{l}{\textbf{Results}} \\
-Escape rate & 90\% & $\sim$80\% \\
+Escape rate & 90\% & $\sim$60\% \\
 Real-world test & Yes (outdoor orchard) & Planned (sand tray) \\
 \bottomrule
 \end{tabularx}

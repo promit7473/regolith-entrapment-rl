@@ -7,4 +7,4 @@
 \contentsline {table}{\numberline {7}{\ignorespaces PPO training hyperparameters and GRU architecture\relax }}{27}{table.caption.15}%
 \contentsline {table}{\numberline {8}{\ignorespaces Training system configuration (Lenovo ThinkBook 14 G4 IAP)\relax }}{28}{table.caption.16}%
 \contentsline {table}{\numberline {9}{\ignorespaces Training results at 200{,}000 timesteps (RTX 5070 Ti, 64 parallel environments)\relax }}{32}{table.caption.21}%
-\contentsline {table}{\numberline {10}{\ignorespaces Comparison with Bi and Ding (2026)\nobreakspace {}\cite {bi2026escape}\relax }}{35}{table.caption.27}%
+\contentsline {table}{\numberline {10}{\ignorespaces Comparison with Bi and Ding (2026)\nobreakspace {}\cite {bi2026escape}\relax }}{36}{table.caption.27}%
