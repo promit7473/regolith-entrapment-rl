@@ -265,9 +265,14 @@ class EntrapmentEnv(DirectRLEnv):
                 builder.shape_flags[s] = builder.shape_flags[s] & ~nt.ShapeFlags.COLLIDE_SHAPES
 
             # Add proxy sphere ONLY on wheel bodies — sole collision geometry.
+            # density=0.0 (massless) auto-disables has_particle_collision, so we
+            # must explicitly re-enable it so MPM setup_collider registers these
+            # spheres as SDF colliders (COLLIDE_PARTICLES flag).
             cfg = nt.ModelBuilder.ShapeConfig(
                 ke=2e3, kd=1e2, kf=1e3, mu=0.75, density=0.0,
-                has_shape_collision=True, is_visible=False,
+                has_shape_collision=True,
+                has_particle_collision=True,   # ← critical: enables COLLIDE_PARTICLES
+                is_visible=False,
             )
             body_keys = builder.body_key if hasattr(builder, 'body_key') else []
             n_wheels = 0
@@ -475,6 +480,7 @@ class EntrapmentEnv(DirectRLEnv):
         self.mpm_solver.enrich_state(self.sand_state)
 
         n_col = mpm_model.collider_body_count
+        _p(f"[MPM] collider_body_count={n_col}  — if 0, wheel↔sand coupling is DISABLED")
         if n_col > 0 and self.sand_state.body_q is not None:
             robot_state_init = NewtonManager._state_0
             wp.copy(self.sand_state.body_q,
