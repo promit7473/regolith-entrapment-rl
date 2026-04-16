@@ -452,9 +452,9 @@ class EntrapmentEnv(DirectRLEnv):
         _p(f"[MPM] Finalizing sand model ({len(sand_builder.particle_q)} particles)...")
         self.sand_model = sand_builder.finalize(device=device)
         self.sand_model.particle_mu = 0.9     # raised from 0.7 — higher inter-particle friction
-        self.sand_model.particle_ke = 2.0e5   # raised from 5e4 — stiffer (200 kPa); still below CFL blow-up
-        # NOTE: ke > ~5e5 Pa causes particle explosion: CFL > 1, VDB grid balloons → OOM.
-        # 2e5 is the safe upper bound verified empirically at dt=0.005s.
+        self.sand_model.particle_ke = 1.0e15  # match Newton reference example — implicit solver is unconditionally stable
+        # NOTE: CFL blow-up seen previously was caused by missing subtract_body_force (double-counted velocities),
+        # not by ke itself. SolverImplicitMPM is unconditionally stable for any ke value.
         _p("[MPM] Sand model finalized.")
 
         mpm_opt = SolverImplicitMPM.Options()
@@ -600,13 +600,26 @@ class EntrapmentEnv(DirectRLEnv):
         mpm_dt      = NewtonManager._dt
 
         if self.sand_state.body_q is not None and self._n_col_bodies > 0:
-            wp.copy(self.sand_state.body_q,
+            n = min(self._n_col_bodies, state_0.body_q.shape[0])
+            # subtract_body_force: copies body_q/qd into sand_state while removing
+            # the previously applied sand force from the velocity — prevents
+            # double-counting in the MPM collider boundary conditions.
+            # This matches the reference pattern in example_mpm_twoway_coupling.py.
+            wp.launch(
+                subtract_body_force,
+                dim=n,
+                inputs=[
+                    mpm_dt,
                     state_0.body_q,
-                    count=min(self._n_col_bodies, state_0.body_q.shape[0]))
-        if self.sand_state.body_qd is not None and self._n_col_bodies > 0:
-            wp.copy(self.sand_state.body_qd,
                     state_0.body_qd,
-                    count=min(self._n_col_bodies, state_0.body_qd.shape[0]))
+                    self._body_sand_f,
+                    robot_model.body_inv_inertia,
+                    robot_model.body_inv_mass,
+                    self.sand_state.body_q,
+                    self.sand_state.body_qd,
+                ],
+                device=self.device,
+            )
 
         self.mpm_solver.step(
             self.sand_state, self.sand_state,
