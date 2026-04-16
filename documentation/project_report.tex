@@ -178,7 +178,7 @@ Wheel entrapment in granular regolith is one of the most critical failure modes 
 
 We couple the Newton physics engine's Material Point Method (MPM)~\cite{sulsky1994particle} with Isaac Lab's~\cite{isaaclab} rigid-body solver to produce physically accurate granular soil behaviour under Martian gravity ($3.72\,\text{m/s}^2$). A recurrent policy trained with Proximal Policy Optimization (PPO)~\cite{schulman2017ppo} and Gated Recurrent Units (GRU)~\cite{cho2014gru} operates on a 29-dimensional proprioceptive state comprising wheel velocities, slip ratios, IMU readings, drive torques, and dual entrapment detection flags. Curriculum learning progressively increases wheel sinkage from 12\,cm to 22\,cm across 32 parallel training environments on a single workstation (Intel i7-1255U, NVIDIA RTX 5070 Ti).
 
-Training over 200{,}000 timesteps achieves an 60\% escape rate with a mean forward velocity of 0.25\,m/s and full curriculum completion. The policy develops emergent escape behaviours including coordinated rocking manoeuvres and asymmetric wheel-steering sequences not explicitly programmed. Planned next steps cover scaling to 2M+ timesteps, a CNN-GRU sinkage detection classifier, and on-rover deployment via sim2sim validation or possibly ONNX Runtime on a Raspberry Pi 5 at 10\,Hz.
+Training over 200{,}000 timesteps achieves a 60\% escape rate with a mean forward velocity of 0.25\,m/s and full curriculum completion. The policy develops emergent escape behaviours including coordinated rocking manoeuvres and asymmetric wheel-steering sequences not explicitly programmed. The primary next step is \textbf{sim-to-sim validation}: transfer to a second simulator (MuJoCo standalone or Gazebo with terramechanics) across sloped terrain, variable soil density, and lunar gravity to confirm that escape behaviours are not engine-specific artefacts. Physical deployment on a Raspberry Pi 5 via ONNX Runtime at 10\,Hz is a secondary objective, contingent on successful sim-to-sim transfer and availability of the AAU rover hardware.
 \end{abstract}
 
 % ──────────────────────────── TOC ─────────────────────────────────
@@ -401,10 +401,14 @@ strategies that generalise across terrain conditions.
 \end{tcolorbox}
 
 \vspace{4pt}
-\begin{tcolorbox}[objbox, colframe=headerblue, title={5.\enspace Sim-to-Real Transfer}]
-: Establish a complete deployment pipeline comprising domain randomisation during training,
-ONNX export of the trained GRU policy, and real-time inference on a Raspberry Pi 5,
-bridging the simulation-to-reality gap for onboard autonomous operation.
+\begin{tcolorbox}[objbox, colframe=headerblue, title={5.\enspace Sim-to-Sim Validation \& Sim-to-Real Transfer \textit{(if possible)}}]
+: \textbf{Primary ---} Validate that escape behaviours generalise beyond the Newton MPM engine
+via cross-simulator transfer (MuJoCo standalone or Gazebo with terramechanics), multi-terrain
+stress-testing (sloped beds $\pm15^\circ$, variable soil density $\rho\in[1200,1600]\,\text{kg/m}^3$,
+lunar gravity), and multi-seed statistical evaluation.
+\textbf{Secondary (contingent) ---} If sim-to-sim succeeds and AAU rover hardware is available,
+export the GRU policy to ONNX and validate $<$5\,ms inference at 10\,Hz on a Raspberry Pi 5
+for onboard autonomous operation.
 \end{tcolorbox}
 \vspace{6pt}
 
