@@ -1369,23 +1369,13 @@ The simulation environment couples two physics solvers through Newton's two-way 
 \centering
 \begin{subfigure}[b]{0.48\textwidth}
     \centering
-    \imagePlaceholder[\linewidth]{5cm}{%
-        \textbf{[Newton ViewerGL Screenshot]}\\[0.5em]
-        Mars rover on MPM regolith bed\\
-        (side view, particles visible)\\[0.3em]
-        \texttt{eval.py --num\_envs 1}
-    }
+    \includegraphics[width=\linewidth]{figures/side_view.png}
     \caption{Side view of rover on regolith}
 \end{subfigure}
 \hfill
 \begin{subfigure}[b]{0.48\textwidth}
     \centering
-    \imagePlaceholder[\linewidth]{5cm}{%
-        \textbf{[Newton ViewerGL Screenshot]}\\[0.5em]
-        Mars rover sinking into sand bed\\
-        (isometric view, sinkage visible)\\[0.3em]
-        \texttt{eval.py --num\_envs 1}
-    }
+    \includegraphics[width=\linewidth]{figures/isometric.png}
     \caption{Isometric view showing wheel sinkage}
 \end{subfigure}
 \caption{Newton simulation environment showing the AAU 6-wheel Mars rover on granular regolith. The MPM particle bed (2.0\,m $\times$ 2.0\,m $\times$ 0.15\,m) provides realistic sinkage and wheel--sand interaction under Martian gravity (3.72\,m/s$^2$). Screenshots to be captured from Newton ViewerGL.}
