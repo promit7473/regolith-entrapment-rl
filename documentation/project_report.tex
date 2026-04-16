@@ -98,7 +98,7 @@
 % ──────────────────────────── Headers ─────────────────────────────
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\textit{Regolith Wheel Entrapment Recovery}}
+\fancyhead[L]{\small RL-Based Wheel Entrapment Recovery for Mars Rovers}
 \fancyhead[R]{\small\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
@@ -139,18 +139,18 @@ Course Code: \textbf{RME 4100 (Project)}\\[1.0cm]
 {\large\textbf{Adaptive Neural Control for Mars Rover Wheel\\[0.3em]
 Entrapment Recovery in Granular Terrain}}\\[1.2cm]
 
-Meraj Hossain Promit\\[0.3em]
+Meraj Hossain Promit[SH-172-029]\\[0.3em]
 \&\\[0.3em]
-Chandak Chakma\\[1.2cm]
+Chandak Chakma[JN-172-026]\\[1.2cm]
 
 {\large\textbf{Under the supervision of}}\\[2.2cm]
-
+\vspace{3cm}
 \begin{minipage}[t]{0.45\textwidth}
 \centering
 \rule{0.75\linewidth}{0.8pt}\\[0.5em]
 \textbf{Supervisor}\\
-Dr. Md Mehedi Hasan\\
-Assistant Professor\\
+Md. Jubair Ahmed Sourov\\
+Lecturer\\
 Department of Robotics and Mechatronics\\
 Engineering\\
 University of Dhaka
@@ -176,9 +176,9 @@ University of Dhaka
 \noindent
 Wheel entrapment in granular regolith is one of the most critical failure modes for planetary rovers, as demonstrated by the permanent immobilization of NASA's Spirit rover in 2009~\cite{arvidson2011spirit}. This project develops an autonomous entrapment recovery system for a 6-wheel rocker-bogie Mars rover using deep reinforcement learning trained entirely in simulation.
 
-We couple the Newton physics engine's Material Point Method (MPM)~\cite{sulsky1994particle} with Isaac Lab's~\cite{isaaclab} rigid-body solver to produce physically accurate granular soil behaviour under Martian gravity ($3.72\,\text{m/s}^2$). A recurrent policy trained with Proximal Policy Optimization (PPO)~\cite{schulman2017ppo} and Gated Recurrent Units (GRU)~\cite{cho2014gru} operates on a 29-dimensional proprioceptive state comprising wheel velocities, slip ratios, IMU readings, drive torques, and dual entrapment detection flags. Curriculum learning progressively increases wheel sinkage from 6\,cm to 12\,cm across 64 parallel training environments on a single workstation (Intel i7-1255U, NVIDIA RTX 5070 Ti).
+We couple the Newton physics engine's Material Point Method (MPM)~\cite{sulsky1994particle} with Isaac Lab's~\cite{isaaclab} rigid-body solver to produce physically accurate granular soil behaviour under Martian gravity ($3.72\,\text{m/s}^2$). A recurrent policy trained with Proximal Policy Optimization (PPO)~\cite{schulman2017ppo} and Gated Recurrent Units (GRU)~\cite{cho2014gru} operates on a 29-dimensional proprioceptive state comprising wheel velocities, slip ratios, IMU readings, drive torques, and dual entrapment detection flags. Curriculum learning progressively increases wheel sinkage from 12\,cm to 22\,cm across 32 parallel training environments on a single workstation (Intel i7-1255U, NVIDIA RTX 5070 Ti).
 
-Training over 200{,}000 timesteps achieves an 80\% escape rate with a mean forward velocity of 0.25\,m/s and full curriculum completion. The policy develops emergent escape behaviours including coordinated rocking manoeuvres and asymmetric wheel-steering sequences not explicitly programmed. Planned next steps cover scaling to 2M+ timesteps, a CNN-GRU sinkage detection classifier, and on-rover deployment via ONNX Runtime on a Raspberry Pi 5 at 10\,Hz.
+Training over 200{,}000 timesteps achieves an 60\% escape rate with a mean forward velocity of 0.25\,m/s and full curriculum completion. The policy develops emergent escape behaviours including coordinated rocking manoeuvres and asymmetric wheel-steering sequences not explicitly programmed. Planned next steps cover scaling to 2M+ timesteps, a CNN-GRU sinkage detection classifier, and on-rover deployment via sim2sim validation or possibly ONNX Runtime on a Raspberry Pi 5 at 10\,Hz.
 \end{abstract}
 
 % ──────────────────────────── TOC ─────────────────────────────────
@@ -253,7 +253,7 @@ The shaped reward $R$ is the sum of seven terms : three incentives and four pena
 \begin{tcolorbox}[dashedbox]
 \begin{equation}
     R_t \;=\; \underbrace{r_{\text{progress}} + r_{\text{escape}} + r_{\text{rocking}}}_{\text{incentives}}
-          \;-\; \underbrace{p_{\text{slip}} + p_{\text{tilt}} + p_{\text{smooth}} + p_{\text{abnormal}}}_{\text{penalties} \;(\text{all positive, subtracted})}
+          \;-\; (\underbrace{p_{\text{slip}} + p_{\text{tilt}} + p_{\text{smooth}} + p_{\text{abnormal}})}_{\text{penalties} \;(\text{all positive, subtracted})}
     \label{eq:reward_total}
 \end{equation}
 \end{tcolorbox}
@@ -374,35 +374,35 @@ This research aims to develop a complete autonomous entrapment detection and rec
 
 \vspace{6pt}
 \begin{tcolorbox}[objbox, colframe=headerblue, title={1.\enspace Realistic Simulation}]
-Build a high-fidelity simulation environment coupling granular material physics (Newton MPM)
+: Build a high-fidelity simulation environment coupling granular material physics (Newton MPM)
 with articulated rover dynamics (Isaac Lab) under Martian gravity ($3.72\,\text{m/s}^2$),
 enabling realistic wheel--soil interaction for RL training.
 \end{tcolorbox}
 
 \vspace{4pt}
 \begin{tcolorbox}[objbox, colframe=headerblue, title={2.\enspace Entrapment Detection}]
-Develop a dual-sensor detection scheme combining slip-ratio monitoring and drive-torque
+: Develop a dual-sensor detection scheme combining slip-ratio monitoring and drive-torque
 anomaly detection for robust, real-time entrapment classification without external
 sensing or GPS.
 \end{tcolorbox}
 
 \vspace{4pt}
 \begin{tcolorbox}[objbox, colframe=headerblue, title={3.\enspace Recovery Policy}]
-Train a recurrent RL policy (PPO + GRU) that autonomously discovers and executes
+: Train a recurrent RL policy (PPO + GRU) that autonomously discovers and executes
 effective escape manoeuvres, including rocking, steering pivots, and differential
 drive, from varying degrees of wheel sinkage (6–12\,cm curriculum).
 \end{tcolorbox}
 
 \vspace{4pt}
 \begin{tcolorbox}[objbox, colframe=headerblue, title={4.\enspace Curriculum Learning}]
-Implement progressive difficulty scheduling that begins with shallow sinkage and
+: Implement progressive difficulty scheduling that begins with shallow sinkage and
 gradually increases entrapment severity, enabling the policy to learn robust escape
 strategies that generalise across terrain conditions.
 \end{tcolorbox}
 
 \vspace{4pt}
 \begin{tcolorbox}[objbox, colframe=headerblue, title={5.\enspace Sim-to-Real Transfer}]
-Establish a complete deployment pipeline comprising domain randomisation during training,
+: Establish a complete deployment pipeline comprising domain randomisation during training,
 ONNX export of the trained GRU policy, and real-time inference on a Raspberry Pi 5,
 bridging the simulation-to-reality gap for onboard autonomous operation.
 \end{tcolorbox}
@@ -1743,6 +1743,95 @@ Target: F1 $> 0.90$ on ``entrapped'' class, latency $< 1$\,s, inference $< 5$\,m
 \end{figure}
 
 
+% ─────── Full System Vision ───────────────────────────────────────
+\subsection{Full System Architecture: Dual-Brain Policy}
+
+Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture. During normal traversal the rover runs the RLRoverLab navigation policy~\cite{rlroverlab}; upon entrapment detection the Escape Brain (our GRU-PPO policy) takes control and hands back once the rover has freed itself.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    >=Stealth, font=\sffamily\small,
+    sbox/.style={rectangle, draw=black!50, thick, rounded corners=3pt,
+                 fill=white, align=center,
+                 minimum width=2.9cm, minimum height=1.1cm},
+    dbox/.style={rectangle, draw=black!60, line width=1.2pt,
+                 rounded corners=4pt, fill=white, align=center,
+                 minimum width=9.8cm, minimum height=1.5cm},
+    nbox/.style={rectangle, draw=black!60, line width=1.2pt,
+                 rounded corners=4pt, fill=white, align=center,
+                 minimum width=3.9cm, minimum height=1.6cm},
+    ebox/.style={rectangle, draw=black!60, line width=1.2pt,
+                 rounded corners=4pt, fill=lightblue!30, align=center,
+                 minimum width=3.9cm, minimum height=1.6cm},
+    mbox/.style={rectangle, draw=black!55, line width=1.2pt,
+                 rounded corners=4pt, fill=white, align=center,
+                 minimum width=5.5cm, minimum height=1.1cm},
+    dec/.style={diamond, draw=orange!65!black, line width=1.2pt,
+                fill=none, align=center, aspect=2.8,
+                font=\small\bfseries},
+    a/.style={-Stealth, thick},
+    ga/.style={-Stealth, line width=1.5pt, color=green!45!black},
+    ra/.style={-Stealth, line width=1.5pt, color=red!55!black},
+    da/.style={-Stealth, thick, dashed, color=black!35},
+]
+
+\node[rectangle, draw=black!45, thick, rounded corners=8pt,
+      dashed, fill=none,
+      minimum width=14.0cm, minimum height=10.4cm]
+      (rpi) at (0, 1.6) {};
+\node[anchor=north west, font=\footnotesize, text=black!50]
+    at (rpi.north west) {Onboard Computer (RPi\,5)};
+
+\node[sbox] (imu) at (-4,  5.6) {\textbf{IMU}\\{\scriptsize acc, gyro}};
+\node[sbox] (enc) at ( 0,  5.6) {\textbf{Wheel Encoders}\\{\scriptsize vel, torque}};
+\node[sbox] (gps) at ( 4,  5.6) {\textbf{Goal / GPS}\\{\scriptsize target position}};
+
+\node[dbox] (det) at (0, 3.6)
+    {\textbf{Entrapment Detector}\\[2pt]
+     {\small CNN-GRU \ (Phase 1)}\\
+     {\scriptsize $P(\mathrm{normal}),\quad P(\mathrm{sinking}),\quad
+      P(\mathrm{entrapped})$}};
+
+\node[dec]  (dmd) at (0, 1.7) {\textbf{Entrapped?}};
+
+\node[nbox] (nav) at (-4, -0.3)
+    {\textbf{Navigation Brain}\\[2pt]
+     {\small RLRoverLab policy}\\
+     {\scriptsize point-to-point nav}};
+
+\node[ebox] (esc) at ( 4, -0.3)
+    {\textbf{Escape Brain}\\[2pt]
+     {\small Our GRU-PPO policy}\\
+     {\scriptsize entrapment recovery}};
+
+\node[mbox] (mot) at (0, -2.6)
+    {\textbf{Motor Commands}\\{\scriptsize drive\,(6)\,+\,steer\,(4)}};
+
+\draw[a] (imu.south) -- (imu |- det.north);
+\draw[a] (enc.south) -- (det.north);
+\draw[a] (gps.south) -- (gps |- det.north);
+\draw[a] (det.south) -- (dmd.north)
+    node[midway, right=4pt, font=\scriptsize] {entrap flag};
+\draw[ga] (dmd.west) -| (nav.north)
+    node[pos=0.18, above, font=\small\bfseries, text=green!45!black] {No};
+\draw[ra] (dmd.east) -| (esc.north)
+    node[pos=0.18, above, font=\small\bfseries, text=red!55!black] {Yes};
+\draw[ga] (nav.south) |- (mot.west);
+\draw[ra] (esc.south) |- (mot.east);
+\draw[da] (esc.west) -- (0, -0.3) -- (dmd.south)
+    node[pos=0.75, right=3pt, font=\scriptsize, text=black!45] {escaped};
+
+\end{tikzpicture}
+\caption{Dual-brain onboard architecture deployed on the Raspberry Pi 5.
+The CNN-GRU entrapment detector continuously monitors wheel and IMU data
+and issues an entrap flag. During normal traversal the \textbf{Navigation Brain}
+(RLRoverLab policy) drives the rover; when entrapment is detected the
+\textbf{Escape Brain} (our GRU-PPO policy) takes over until the rover
+escapes, then hands control back.}
+\label{fig:dual_brain}
+\end{figure}
+
 % ══════════════════════════════════════════════════════════════════
 %                       4. RESULTS
 % ══════════════════════════════════════════════════════════════════
@@ -1983,96 +2072,6 @@ Physical deployment is contingent on successful completion of Priority 1--2 and 
     \item \textbf{Outdoor gravel validation}: unstructured outdoor terrain to evaluate generalization beyond the simulation sand bed geometry.
     \item \textbf{Dual-brain integration}: connect the escape policy with the RLRoverLab navigation policy~\cite{rlroverlab} via the entrapment detector for a complete autonomous traversal and recovery system.
 \end{itemize}
-
-% ─────── Full System Vision ───────────────────────────────────────
-\subsection{Full System Architecture: Dual-Brain Policy}
-
-Figure~\ref{fig:dual_brain} illustrates the complete onboard system architecture. During normal traversal the rover runs the RLRoverLab navigation policy~\cite{rlroverlab}; upon entrapment detection the Escape Brain (our GRU-PPO policy) takes control and hands back once the rover has freed itself.
-
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[
-    >=Stealth, font=\sffamily\small,
-    sbox/.style={rectangle, draw=black!50, thick, rounded corners=3pt,
-                 fill=white, align=center,
-                 minimum width=2.9cm, minimum height=1.1cm},
-    dbox/.style={rectangle, draw=black!60, line width=1.2pt,
-                 rounded corners=4pt, fill=white, align=center,
-                 minimum width=9.8cm, minimum height=1.5cm},
-    nbox/.style={rectangle, draw=black!60, line width=1.2pt,
-                 rounded corners=4pt, fill=white, align=center,
-                 minimum width=3.9cm, minimum height=1.6cm},
-    ebox/.style={rectangle, draw=black!60, line width=1.2pt,
-                 rounded corners=4pt, fill=lightblue!30, align=center,
-                 minimum width=3.9cm, minimum height=1.6cm},
-    mbox/.style={rectangle, draw=black!55, line width=1.2pt,
-                 rounded corners=4pt, fill=white, align=center,
-                 minimum width=5.5cm, minimum height=1.1cm},
-    dec/.style={diamond, draw=orange!65!black, line width=1.2pt,
-                fill=none, align=center, aspect=2.8,
-                font=\small\bfseries},
-    a/.style={-Stealth, thick},
-    ga/.style={-Stealth, line width=1.5pt, color=green!45!black},
-    ra/.style={-Stealth, line width=1.5pt, color=red!55!black},
-    da/.style={-Stealth, thick, dashed, color=black!35},
-]
-
-\node[rectangle, draw=black!45, thick, rounded corners=8pt,
-      dashed, fill=none,
-      minimum width=14.0cm, minimum height=10.4cm]
-      (rpi) at (0, 1.6) {};
-\node[anchor=north west, font=\footnotesize, text=black!50]
-    at (rpi.north west) {Onboard Computer (RPi\,5)};
-
-\node[sbox] (imu) at (-4,  5.6) {\textbf{IMU}\\{\scriptsize acc, gyro}};
-\node[sbox] (enc) at ( 0,  5.6) {\textbf{Wheel Encoders}\\{\scriptsize vel, torque}};
-\node[sbox] (gps) at ( 4,  5.6) {\textbf{Goal / GPS}\\{\scriptsize target position}};
-
-\node[dbox] (det) at (0, 3.6)
-    {\textbf{Entrapment Detector}\\[2pt]
-     {\small CNN-GRU \ (Phase 1)}\\
-     {\scriptsize $P(\mathrm{normal}),\quad P(\mathrm{sinking}),\quad
-      P(\mathrm{entrapped})$}};
-
-\node[dec]  (dmd) at (0, 1.7) {\textbf{Entrapped?}};
-
-\node[nbox] (nav) at (-4, -0.3)
-    {\textbf{Navigation Brain}\\[2pt]
-     {\small RLRoverLab policy}\\
-     {\scriptsize point-to-point nav}};
-
-\node[ebox] (esc) at ( 4, -0.3)
-    {\textbf{Escape Brain}\\[2pt]
-     {\small Our GRU-PPO policy}\\
-     {\scriptsize entrapment recovery}};
-
-\node[mbox] (mot) at (0, -2.6)
-    {\textbf{Motor Commands}\\{\scriptsize drive\,(6)\,+\,steer\,(4)}};
-
-\draw[a] (imu.south) -- (imu |- det.north);
-\draw[a] (enc.south) -- (det.north);
-\draw[a] (gps.south) -- (gps |- det.north);
-\draw[a] (det.south) -- (dmd.north)
-    node[midway, right=4pt, font=\scriptsize] {entrap flag};
-\draw[ga] (dmd.west) -| (nav.north)
-    node[pos=0.18, above, font=\small\bfseries, text=green!45!black] {No};
-\draw[ra] (dmd.east) -| (esc.north)
-    node[pos=0.18, above, font=\small\bfseries, text=red!55!black] {Yes};
-\draw[ga] (nav.south) |- (mot.west);
-\draw[ra] (esc.south) |- (mot.east);
-\draw[da] (esc.west) -- (0, -0.3) -- (dmd.south)
-    node[pos=0.75, right=3pt, font=\scriptsize, text=black!45] {escaped};
-
-\end{tikzpicture}
-\caption{Dual-brain onboard architecture deployed on the Raspberry Pi 5.
-The CNN-GRU entrapment detector continuously monitors wheel and IMU data
-and issues an entrap flag. During normal traversal the \textbf{Navigation Brain}
-(RLRoverLab policy) drives the rover; when entrapment is detected the
-\textbf{Escape Brain} (our GRU-PPO policy) takes over until the rover
-escapes, then hands control back.}
-\label{fig:dual_brain}
-\end{figure}
-
 
 % ══════════════════════════════════════════════════════════════════
 %                       REFERENCES
