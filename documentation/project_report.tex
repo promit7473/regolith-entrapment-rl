@@ -1318,6 +1318,50 @@ Figure~\ref{fig:drl_block_diagram} shows the block diagram of the reward-shaped 
 % ─────── 3.1 Work Already Done ────────────────────────────────────
 \subsection{Work Already Done}
 
+\subsubsection{Robot Platform}
+
+The AAU 6-wheel rocker-bogie Mars rover features a suspension system identical in topology to NASA's Curiosity and Perseverance rovers.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{/home/mhpromit7473/regolith_entrapment_research/documentation/figures/rl_rover_lab_usd.png}
+    \caption{AAU 6-wheel Mars rover USD asset from RLRoverLab}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{/home/mhpromit7473/regolith_entrapment_research/documentation/figures/rover_newton_mpm.png}
+    \caption{Rover on MPM granular regolith bed in Newton simulation}
+\end{subfigure}
+\caption{The AAU Mars rover platform used in simulation. (a) USD model render showing the 6-wheel rocker-bogie suspension from RLRoverLab. (b) Rover in Newton simulation environment with granular regolith particles under Martian gravity (3.72\,m/s$^2$).}
+\label{fig:rover_platform}
+\end{figure}
+
+\begin{tcolorbox}[dashedbox, left=0pt, right=0pt, top=4pt, bottom=4pt]
+\begin{table}[H]
+\centering
+\caption{AAU Mars rover joint configuration}
+\label{tab:rover_joints}
+\small
+\setlength{\tabcolsep}{8pt}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{X >{\centering}p{1.6cm} >{\centering}p{2.4cm} >{\centering\arraybackslash}p{2.0cm}}
+\toprule
+\rowcolor{gray!20}
+\textbf{Joint Type} & \textbf{Count} & \textbf{Control Mode} & \textbf{Range} \\
+\midrule
+Drive (continuous) & 6 & Velocity & $\pm 6$\,rad/s \\
+Steer (revolute) & 4 & Position & $\pm 0.6$\,rad \\
+Passive (rocker/diff.) & \textit{N} & Free (unactuated) & -- \\
+\bottomrule
+\multicolumn{4}{l}{\footnotesize Drive joints mapped to $[-1,1]$ $\to$ $\pm6$\,rad/s;\enspace steer joints mapped to $[-1,1]$ $\to$ $\pm0.6$\,rad.}
+\end{tabularx}
+\end{table}
+\end{tcolorbox}
+
+\newpage
 \subsubsection{Simulation Environment}
 
 The simulation environment couples two physics solvers through Newton's two-way coupling interface~\cite{newton}, as illustrated in Figure~\ref{fig:physics_stack}. The rigid-body solver follows the MuJoCo~\cite{todorov2012mujoco} CPU backend, while the granular solver uses SolverImplicitMPM based on the MPM formulation of Sulsky et al.~\cite{sulsky1994particle} with Drucker-Prager elastoplasticity for sand~\cite{klar2016sand}.
@@ -1422,50 +1466,6 @@ Observation noise & $\mathcal{N}(0,\,0.02)$ & Additive Gaussian noise \\
 Sinkage range & 0.08--0.15\,m & Curriculum-driven \\
 Spawn yaw & $\pm 15^\circ$ & Random heading offset \\
 \bottomrule
-\end{tabularx}
-\end{table}
-\end{tcolorbox}
-
-\newpage
-\subsubsection{Robot Platform}
-
-The AAU 6-wheel rocker-bogie Mars rover features a suspension system identical in topology to NASA's Curiosity and Perseverance rovers.
-
-\begin{figure}[H]
-\centering
-\begin{subfigure}[b]{0.48\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{/home/mhpromit7473/regolith_entrapment_research/documentation/figures/rl_rover_lab_usd.png}
-    \caption{AAU 6-wheel Mars rover USD asset from RLRoverLab}
-\end{subfigure}
-\hfill
-\begin{subfigure}[b]{0.48\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{/home/mhpromit7473/regolith_entrapment_research/documentation/figures/rover_newton_mpm.png}
-    \caption{Rover on MPM granular regolith bed in Newton simulation}
-\end{subfigure}
-\caption{The AAU Mars rover platform used in simulation. (a) USD model render showing the 6-wheel rocker-bogie suspension from RLRoverLab. (b) Rover in Newton simulation environment with granular regolith particles under Martian gravity (3.72\,m/s$^2$).}
-\label{fig:rover_platform}
-\end{figure}
-
-\begin{tcolorbox}[dashedbox, left=0pt, right=0pt, top=4pt, bottom=4pt]
-\begin{table}[H]
-\centering
-\caption{AAU Mars rover joint configuration}
-\label{tab:rover_joints}
-\small
-\setlength{\tabcolsep}{8pt}
-\renewcommand{\arraystretch}{1.4}
-\begin{tabularx}{\textwidth}{X >{\centering}p{1.6cm} >{\centering}p{2.4cm} >{\centering\arraybackslash}p{2.0cm}}
-\toprule
-\rowcolor{gray!20}
-\textbf{Joint Type} & \textbf{Count} & \textbf{Control Mode} & \textbf{Range} \\
-\midrule
-Drive (continuous) & 6 & Velocity & $\pm 6$\,rad/s \\
-Steer (revolute) & 4 & Position & $\pm 0.6$\,rad \\
-Passive (rocker/diff.) & \textit{N} & Free (unactuated) & -- \\
-\bottomrule
-\multicolumn{4}{l}{\footnotesize Drive joints mapped to $[-1,1]$ $\to$ $\pm6$\,rad/s;\enspace steer joints mapped to $[-1,1]$ $\to$ $\pm0.6$\,rad.}
 \end{tabularx}
 \end{table}
 \end{tcolorbox}
