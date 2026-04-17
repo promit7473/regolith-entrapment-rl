@@ -263,8 +263,9 @@ class EntrapmentEnv(DirectRLEnv):
 
         # Ground plane + proxy collision shapes via Newton builder callback.
         # The USD mesh collision shapes (329 of them) flood XPBD's contact buffer
-        # → NaN. Fix: disable mesh collision, add 6 invisible proxy spheres on
-        # wheel bodies only (same fix as view_rover.py).
+        # → NaN. Real wheel mesh SDF voxelization hangs (high-poly Mars_Rover.usd).
+        # Fix: disable all mesh collision, add 6 invisible proxy spheres on
+        # wheel bodies only as SDF colliders for MPM sand coupling.
         def _newton_init_cb():
             builder = NewtonManager._builder
             n_shapes = getattr(builder, 'shape_count', 0)
