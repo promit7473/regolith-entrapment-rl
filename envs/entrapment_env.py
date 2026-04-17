@@ -9,7 +9,7 @@ Physics stack:
 Mars environment:
   • Static terrain mesh  : RLRoverLab terrain_merged.usd (photogrammetry Mars analog)
   • Rock scatter         : 10 rock USDs placed randomly each episode reset
-  • Regolith bed         : 1.2 m × 1.2 m × 0.15 m XPBD particle bed per env
+  • Regolith bed         : 2.0 m × 2.0 m × 0.25 m MPM particle bed per env
 
 Robot: 6-wheel rocker-bogie Mars rover (Mars_Rover.usd)
   Drive joints  (6) : .*Drive_Continuous   — velocity control, ±6 rad/s
@@ -210,6 +210,14 @@ class EntrapmentEnv(DirectRLEnv):
         self._torque_anomaly_counter = torch.zeros(self.num_envs, device=self.device)
         self._torque_anomaly_flag    = torch.zeros(self.num_envs, device=self.device)
         self._prev_drive_torque_norm = torch.zeros(self.num_envs, 6, device=self.device)
+        # Threshold rationale (tuned for AAU rover on Mars-gravity regolith):
+        #   0.85 — wheels at >85% torque limit during free driving is unusual; buried wheels
+        #          routinely saturate to 95-100%, so 0.85 gives a small safety margin.
+        #   0.10 — a 10% torque swing per step (at 25Hz) indicates wheel slip/grab cycling,
+        #          which distinguishes struggling from steady high-torque climbing.
+        #   20   — ~0.8 s at 25Hz; long enough to reject transient bumps, short enough
+        #          to detect genuine entrapment before the episode ends.
+        # If torque_anomaly_rate stays near 0 or near 1 in TensorBoard, recalibrate these.
         self._TORQUE_ANOMALY_THRESH       = 0.85  # mean |torque|/limit — sustained near-limit
         self._TORQUE_ANOMALY_DELTA_THRESH = 0.10  # mean torque fluctuation — struggling signal
         self._TORQUE_ANOMALY_STEPS_THRESH = 20    # ~0.8s sustained before flagging
@@ -217,8 +225,11 @@ class EntrapmentEnv(DirectRLEnv):
         # Domain randomization: per-env motor gain (randomized at reset)
         self._motor_gain = torch.ones(self.num_envs, 1, device=self.device)
         
-        # Curriculum learning progress tracker (across episodes)
-        self._curriculum_progress = torch.zeros(1, device=self.device)  # Tracks overall training progress
+        # Curriculum learning progress tracker (across episodes).
+        # _total_timesteps is set by train.py after env creation so the curriculum
+        # denominator scales correctly with --timesteps. Default 200k if not set.
+        self._curriculum_progress = torch.zeros(1, device=self.device)
+        self._total_timesteps = 200_000  # overwritten by train.py via env._total_timesteps = args_cli.timesteps
 
         # Per-env rock pose storage (num_envs, ROCKS_PER_ENV, 3)
         self._rock_positions = torch.zeros(
@@ -957,10 +968,13 @@ class EntrapmentEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
 
         # Curriculum: one increment per env reset, normalised by total expected resets.
-        # 200k steps / 750 steps-per-episode (30s×25Hz) × 64 envs ≈ 17066 total resets.
-        # We want progress to reach ~1.0 by end of training.
+        # Expected resets = timesteps / steps_per_episode = timesteps / (episode_length_s * policy_hz).
+        # Computed dynamically so it scales correctly with --num_envs and --timesteps.
         if hasattr(self, '_curriculum_progress'):
-            self._curriculum_progress += len(env_ids) / 17066.0
+            policy_hz        = 1.0 / (self.cfg.decimation * self.cfg.sim.dt)
+            steps_per_ep     = int(self.cfg.episode_length_s * policy_hz)
+            total_resets_est = max(1, self._total_timesteps // steps_per_ep)
+            self._curriculum_progress += len(env_ids) / float(total_resets_est)
             self._curriculum_progress = torch.clamp(self._curriculum_progress, max=1.0)
 
         # ── Robot pose ───────────────────────────────────────────────────────

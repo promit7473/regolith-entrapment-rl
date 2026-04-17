@@ -196,6 +196,10 @@ def train():
     env = gym.make("MarsRover-RegolithEscape-v0", cfg=env_cfg)
     env = SkrlVecEnvWrapper(env, ml_framework="torch")
 
+    # Pass total timesteps to env so curriculum denominator scales correctly
+    # with --timesteps argument instead of assuming a fixed 200k default.
+    env.unwrapped._total_timesteps = args_cli.timesteps
+
     device    = env.device
     num_envs  = env.num_envs
     num_obs   = env_cfg.observation_space

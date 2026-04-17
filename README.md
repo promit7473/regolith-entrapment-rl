@@ -30,7 +30,6 @@ regolith_entrapment_research/
 ├── scripts/                 # Executables
 │   ├── train.py             # PPO training
 │   ├── eval.py              # Evaluation & visualization (Newton ViewerGL)
-│   ├── record.py            # RTX headless recording (MP4/PNG)
 │   ├── plot_episode.py      # Episode dashboard plotting
 │   ├── plot_training.py     # Training curve visualization
 │   └── view_rover.py        # Standalone Newton viewer
@@ -162,7 +161,7 @@ Isaac Sim's GUI is broken in conda-Python; all visualization uses Newton ViewerG
 
 ### Headless Mode (no display needed)
 
-Runs without any GUI window. Use for training, batch evaluation, and video recording.
+Runs without any GUI window. Use for training and batch evaluation.
 
 ```bash
 # Train with 64 parallel environments (headless, ~200k steps)
@@ -179,16 +178,24 @@ Runs without any GUI window. Use for training, batch evaluation, and video recor
 ./launch.sh scripts/eval.py --num_envs 64 --headless --episodes 50 \
     --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
 
-# RTX headless rendering → MP4 video
-./launch.sh scripts/record.py --num_envs 1 --camera side --num_steps 500 \
-    --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
-
 # Monitor training (separate terminal)
 tensorboard --logdir experiments/
 
 # Generate training curve plots
 python3 scripts/plot_training.py --compare
 ```
+
+### Video Recording
+
+Isaac Sim's RTX headless renderer is incompatible with the Newton MPM solver in conda-Python (the Kit extension manager and conda Python runtime conflict). Use Ubuntu's built-in screen recorder instead:
+
+1. Run eval.py with the Newton ViewerGL window open:
+```bash
+./launch.sh scripts/eval.py --num_envs 1 \
+    --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
+```
+2. Wait ~10-15 min for the viewer window to appear.
+3. Press **Ctrl+Alt+Shift+R** (GNOME built-in recorder) or use **OBS Studio** to capture the window.
 
 ### Offline Plotting (save episode data, plot later without Isaac Sim)
 
@@ -316,6 +323,7 @@ python sim2real/rpi5_deploy/rover_controller.py \
 ## [-] Known Issues
 
 - **Isaac Sim GUI broken in conda-Python**: Use Newton ViewerGL instead (`eval.py`, `view_rover.py`)
+- **RTX headless recording broken**: `enable_cameras=True` loads the Isaac Sim RTX stack which deadlocks against Newton MPM in conda-Python. Use Ubuntu screen recorder (GNOME Ctrl+Alt+Shift+R or OBS) on the ViewerGL window instead.
 - **First-run startup time**: 10-15 min for Isaac Sim extension loading + Newton USD build + Warp JIT
 - **Heightmap extraction disabled**: CUDA memory issues; use offline plotting mode
 

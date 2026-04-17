@@ -14,6 +14,9 @@ Usage:
     # Headless evaluation (no viewer, just metrics)
     ./launch.sh scripts/eval.py --num_envs 64 --checkpoint <path> --headless --episodes 50
 
+    # Record video (uses Isaac Lab rgb_array + gym.wrappers.RecordVideo)
+    ./launch.sh scripts/eval.py --num_envs 1 --checkpoint <path> --video --episodes 3
+
     # Save episode data for offline plotting (no need to re-run sim to plot)
     ./launch.sh scripts/eval.py --num_envs 1 --checkpoint <path> --episodes 5 \\
         --save-data experiments/regolith_recovery/episode_data/run1.npz
@@ -38,13 +41,22 @@ parser.add_argument("--no-mpm", action="store_true",
 parser.add_argument("--save-data",  type=str, default=None, metavar="PATH",
                     help="Save episode data to PATH (.npz) for offline plotting "
                          "with: python3 scripts/plot_episode.py --from-file PATH")
+parser.add_argument("--video", action="store_true", default=False,
+                    help="Record video via gym.wrappers.RecordVideo (saves to recordings/)")
+parser.add_argument("--video-length", type=int, default=300,
+                    help="Frames per video clip (default: 300 = ~12s at 25Hz)")
+parser.add_argument("--video-interval", type=int, default=1,
+                    help="Record every N episodes (default: 1 = record all)")
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, hydra_args = parser.parse_known_args()
 # Force SimulationApp creation without heavy RTX rendering stack.
 # LAUNCH_OV_APP=1 avoids "standalone mode" (no SimulationApp) without loading
 # viewport/replicator extensions. Newton ViewerGL handles visualisation.
+# --video additionally sets enable_cameras so Isaac Lab activates rgb_array rendering.
 os.environ["LAUNCH_OV_APP"] = "1"
+if args_cli.video:
+    args_cli.enable_cameras = True
 sys.argv = [sys.argv[0]] + hydra_args
 
 app_launcher = AppLauncher(args_cli)
@@ -105,7 +117,22 @@ def main():
         # Override to limit memory: restrict max_nodes for collision impulse buffer
         print("[Eval] Viewer mode: consider --no-mpm if you get VRAM OOM")
 
-    env = gym.make("MarsRover-RegolithEscape-v0", cfg=env_cfg)
+    render_mode = "rgb_array" if args_cli.video else None
+    env = gym.make("MarsRover-RegolithEscape-v0", cfg=env_cfg, render_mode=render_mode)
+
+    if args_cli.video:
+        import numpy as np
+        out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "recordings")
+        os.makedirs(out_dir, exist_ok=True)
+        env = gym.wrappers.RecordVideo(
+            env,
+            video_folder=out_dir,
+            episode_trigger=lambda ep: ep % args_cli.video_interval == 0,
+            video_length=args_cli.video_length,
+            name_prefix="entrapment",
+        )
+        print(f"[Eval] Video recording → {out_dir}/")
+
     env = SkrlVecEnvWrapper(env, ml_framework="torch")
 
     device  = env.device
