@@ -5,7 +5,7 @@ Robot:  6-wheel rocker-bogie Mars rover
 USD:    robots/Mars_Rover.usd
 
 Joint layout
-  Drive  (velocity control) : FL/ML/RL/FR/MR/RR_Drive_Continuous   ×6
+  Drive  (velocity control) : FL/CL/RL/FR/CR/RR_Drive_Continuous   ×6
   Steer  (position control) : FL/RL/FR/RR_Steer_Revolute            ×4
   Passive (free)            : Rocker_Revolute, Differential_Revolute ×N
 

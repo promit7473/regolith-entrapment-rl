@@ -261,25 +261,39 @@ class EntrapmentEnv(DirectRLEnv):
             NewtonManager.set_builder(builder)
         NewtonManager.instantiate_builder_from_stage = _fast_instantiate
 
-        # Ground plane + proxy collision shapes via Newton builder callback.
+        # Ground plane + proxy cylinder collision shapes via Newton builder callback.
         # The USD mesh collision shapes (329 of them) flood XPBD's contact buffer
-        # → NaN. Real wheel mesh SDF voxelization hangs (high-poly Mars_Rover.usd).
-        # Fix: disable all mesh collision, add 6 invisible proxy spheres on
-        # wheel bodies only as SDF colliders for MPM sand coupling.
+        # → NaN. Real wheel mesh approaches hang (high-poly USD mesh parsing).
+        # Proxy cylinders match real wheel dimensions (r=0.094m, half_width=0.052m)
+        # and resist lateral sand penetration correctly unlike spheres.
+        # Wheel axle is along X in USD frame → rotate cylinder 90° around Y so
+        # its Z-axis (cylinder axis in Newton) aligns with wheel axle (X).
+        WHEEL_HALF_WIDTH = 0.052   # m — from USD: x-extent = 0.1035m / 2
+
         def _newton_init_cb():
             builder = NewtonManager._builder
             n_shapes = getattr(builder, 'shape_count', 0)
             n_bodies = getattr(builder, 'body_count', 0)
             print(f"[Newton Init] bodies={n_bodies}  mesh_shapes={n_shapes}")
 
+            # 90° rotation around Y so cylinder Z-axis aligns with wheel axle (X).
+            # Computed inside callback — wp must be fully initialized first.
+            _HALF_SQRT2 = 0.7071067811865476
+            _WHEEL_ROT  = wp.quat(_HALF_SQRT2, 0.0, _HALF_SQRT2, 0.0)  # xyzw
+            _WHEEL_XFORM = wp.transform(wp.vec3(0.0, 0.0, 0.0), _WHEEL_ROT)
+            # Middle wheels (ML/MR) mount on the main chassis, not rocker arms.
+            # Their Drive body origin sits 0.22 mm lower than front/rear in the USD,
+            # so shift the proxy cylinder up to re-centre it on the wheel geometry.
+            _WHEEL_XFORM_MID = wp.transform(wp.vec3(0.0, 0.0, 0.000223), _WHEEL_ROT)  # +Z in body-frame
+
             # Disable collision on all USD mesh shapes — keep VISIBLE for rendering.
             for s in range(n_shapes):
                 builder.shape_flags[s] = builder.shape_flags[s] & ~nt.ShapeFlags.COLLIDE_SHAPES
 
-            # Add proxy sphere ONLY on wheel bodies — sole collision geometry.
+            # Add proxy cylinder on each wheel body matching real wheel geometry.
             # density=0.0 (massless) auto-disables has_particle_collision, so we
             # must explicitly re-enable it so MPM setup_collider registers these
-            # spheres as SDF colliders (COLLIDE_PARTICLES flag).
+            # cylinders as SDF colliders (COLLIDE_PARTICLES flag).
             cfg = nt.ModelBuilder.ShapeConfig(
                 ke=2e3, kd=1e2, kf=1e3, mu=0.75, density=0.0,
                 has_shape_collision=True,
@@ -291,10 +305,17 @@ class EntrapmentEnv(DirectRLEnv):
             for b in range(n_bodies):
                 name = body_keys[b] if b < len(body_keys) else ''
                 if 'Drive' in name:
-                    builder.add_shape_sphere(body=b, radius=WHEEL_RADIUS, cfg=cfg)
+                    xform = _WHEEL_XFORM_MID if ('CL' in name or 'CR' in name) else _WHEEL_XFORM
+                    builder.add_shape_cylinder(
+                        body=b,
+                        xform=xform,
+                        radius=WHEEL_RADIUS,
+                        half_height=WHEEL_HALF_WIDTH,
+                        cfg=cfg,
+                    )
                     n_wheels += 1
             print(f"[Newton Init] Disabled mesh collision on {n_shapes} shapes, "
-                  f"added {n_wheels} wheel proxy spheres.")
+                  f"added {n_wheels} wheel proxy cylinders (r={WHEEL_RADIUS}m, hw={WHEEL_HALF_WIDTH}m).")
 
             # Fix passive joint effort_limit=0 — MuJoCo Warp rejects actfrcrange=[0,0].
             # Rocker/Differential joints in the USD have effort_limit=0 (free joints).
