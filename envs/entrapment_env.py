@@ -200,6 +200,11 @@ class EntrapmentEnv(DirectRLEnv):
         # Counts consecutive steps where v_x < threshold AND mean_slip > threshold
         self._entrap_counter = torch.zeros(self.num_envs, device=self.device)
         self._entrap_flag    = torch.zeros(self.num_envs, device=self.device)
+
+        # Escape tracking — counted in _get_dones (before reset) so the metric
+        # isn't wiped by the env reset that happens between dones and rewards.
+        self._escape_count = 0       # total escapes across all envs
+        self._episode_count = 0      # total episode terminations (escaped + timed-out + failed)
         self._ENTRAP_VX_THRESH   = 0.15  # m/s — rover making no real progress (raised from 0.05)
         self._ENTRAP_SLIP_THRESH = 0.4   # high slip ratio (lowered slightly for sensitivity)
         self._ENTRAP_STEPS_THRESH = 15   # ~0.6s at 25Hz — avoid triggering on brief slowdowns
@@ -956,7 +961,7 @@ class EntrapmentEnv(DirectRLEnv):
         # saturate the curriculum within seconds of training starting.
 
         self.extras.setdefault("log", {})
-        self.extras["log"]["escape_rate"]        = (dist > ESCAPE_DISTANCE).float().mean()
+        self.extras["log"]["escape_rate"]        = self._escape_count / max(1, self._episode_count)
         self.extras["log"]["milestone_0_5m"]     = (dist > 0.5).float().mean()
         self.extras["log"]["milestone_1_0m"]     = (dist > 1.0).float().mean()
         self.extras["log"]["mean_vx"]            = v_x.mean()
@@ -982,6 +987,14 @@ class EntrapmentEnv(DirectRLEnv):
         sunk    = self.root_pos[:, 2] < -0.20  # chassis root below ground plane by >20cm
 
         terminated = escaped | flipped | sunk
+
+        # Track escape rate before envs are reset
+        done_mask = terminated | time_out
+        n_done = int(done_mask.sum().item())
+        if n_done > 0:
+            self._escape_count  += int(escaped[done_mask].sum().item())
+            self._episode_count += n_done
+
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int] | None):

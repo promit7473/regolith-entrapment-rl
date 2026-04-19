@@ -71,15 +71,30 @@ def get_color(name, idx):
     return PALETTE.get(name, PALETTE.get(f"default_{idx % 5}", "#2166AC"))
 
 
-def smooth(y, w=20):
+def smooth(y, w=20, x=None):
+    """Return (smoothed_y, aligned_x). If x is None, uses integer indices."""
+    if x is None:
+        x = np.arange(len(y), dtype=np.float32)
     if len(y) < w:
-        return y, y
-    k   = np.ones(w) / w
-    s   = np.convolve(y, k, mode="valid")
-    return s, y[len(y) - len(s):]   # smoothed, aligned raw
+        return y, x
+    k = np.ones(w) / w
+    s = np.convolve(y, k, mode="valid")
+    return s, x[len(x) - len(s):]   # smoothed values, aligned steps
+
+
+def _find_latest_event_file(dirpath):
+    """Return the path to the newest tfevents file in dirpath (by mtime)."""
+    import glob
+    candidates = glob.glob(os.path.join(dirpath, "events.out.tfevents.*"))
+    candidates = [f for f in candidates if os.path.isfile(f)]
+    if not candidates:
+        return dirpath
+    return max(candidates, key=os.path.getmtime)
 
 
 def load_scalars(path):
+    if os.path.isdir(path):
+        path = _find_latest_event_file(path)
     ea = event_accumulator.EventAccumulator(
         path, size_guidance={event_accumulator.SCALARS: 0})
     ea.Reload()
@@ -88,10 +103,8 @@ def load_scalars(path):
         ev    = ea.Scalars(tag)
         steps = np.array([e.step  for e in ev], dtype=np.float32)
         vals  = np.array([e.value for e in ev], dtype=np.float32)
-        # Sort by step and deduplicate (smoke-test reruns can append lower steps)
         order = np.argsort(steps, kind="stable")
         steps, vals = steps[order], vals[order]
-        # Keep only the last occurrence of each step value
         _, unique_idx = np.unique(steps[::-1], return_index=True)
         keep = len(steps) - 1 - unique_idx
         keep.sort()
@@ -132,12 +145,12 @@ def plot_reward_convergence(exp_names, all_data, out_path):
         steps  = data[tag]["step"]
         values = data[tag]["value"]
 
-        shade_band(ax, steps, values, color, alpha=0.15)
-        sm, sm_steps = smooth(values, w=15)
-        ax.plot(sm_steps, sm, color=color, linewidth=2.2,
+        shade_band(ax, steps, values, color, alpha=0.12)
+        sm, sm_steps = smooth(values, w=30, x=steps)
+        ax.plot(sm_steps, sm, color=color, linewidth=2.5,
                 label=name, zorder=3)
         # Thin raw line
-        ax.plot(steps, values, color=color, linewidth=0.6, alpha=0.3, zorder=2)
+        ax.plot(steps, values, color=color, linewidth=0.4, alpha=0.15, zorder=2)
         plotted += 1
 
     if plotted == 0:
@@ -176,9 +189,9 @@ def plot_losses(exp_names, all_data, out_path):
             c      = get_color(name, i) if len(exp_names) > 1 else color
             steps  = data[tag]["step"]
             values = data[tag]["value"]
-            sm, sm_steps = smooth(values, w=10)
-            ax.plot(steps, values, color=c, linewidth=0.5, alpha=0.3)
-            ax.plot(sm_steps, sm, color=c, linewidth=2.0,
+            sm, sm_steps = smooth(values, w=30, x=steps)
+            ax.plot(steps, values, color=c, linewidth=0.4, alpha=0.15)
+            ax.plot(sm_steps, sm, color=c, linewidth=2.2,
                     label=name)
 
         if len(exp_names) > 1:
@@ -215,9 +228,9 @@ def plot_policy_metrics(exp_names, all_data, out_path):
             c      = get_color(name, i)
             steps  = data[tag]["step"]
             values = data[tag]["value"]
-            sm, sm_steps = smooth(values, w=10)
-            ax.plot(steps, values, color=c, linewidth=0.5, alpha=0.3)
-            ax.plot(sm_steps, sm, color=c, linewidth=2.0,
+            sm, sm_steps = smooth(values, w=30, x=steps)
+            ax.plot(steps, values, color=c, linewidth=0.4, alpha=0.15)
+            ax.plot(sm_steps, sm, color=c, linewidth=2.2,
                     label=name)
 
         if len(exp_names) > 1:
@@ -256,9 +269,9 @@ def plot_instant_reward(exp_names, all_data, out_path):
 
     steps  = data[tag_r]["step"]
     values = data[tag_r]["value"]
-    sm, sm_steps = smooth(values, w=15)
-    ax1.plot(steps, values, color=color1, linewidth=0.5, alpha=0.3)
-    ax1.plot(sm_steps, sm, color=color1, linewidth=2.2,
+    shade_band(ax1, steps, values, color1, alpha=0.10)
+    sm, sm_steps = smooth(values, w=40, x=steps)
+    ax1.plot(sm_steps, sm, color=color1, linewidth=2.5,
              label="Instant Reward (mean)")
 
     if tag_s in data:
@@ -270,9 +283,8 @@ def plot_instant_reward(exp_names, all_data, out_path):
 
         st = data[tag_s]["step"]
         vl = data[tag_s]["value"]
-        sm2, sm2_steps = smooth(vl, w=15)
-        ax2.plot(st, vl, color=color2, linewidth=0.5, alpha=0.3)
-        ax2.plot(sm2_steps, sm2, color=color2, linewidth=2.2,
+        sm2, sm2_steps = smooth(vl, w=40, x=st)
+        ax2.plot(sm2_steps, sm2, color=color2, linewidth=2.5,
                  label="Policy Std Dev", linestyle="--")
         ax2.legend(loc="upper right", fontsize=8)
 
@@ -287,23 +299,17 @@ def plot_instant_reward(exp_names, all_data, out_path):
 
 def plot_escape_rate(exp_names, all_data, out_path):
     """
-    Escape success rate over training steps.
-    Reads the 'escape_rate' metric logged by the env via extras['log'].
-    skrl wraps these as 'Episode / escape_rate (mean)' in TensorBoard.
-    """
-    # Accept several possible tag names from different skrl/Isaac Lab versions
-    _CANDIDATE_TAGS = [
-        "Info / escape_rate",          # logged by patched post_interaction (train.py)
-        "Episode / escape_rate (mean)",
-        "Episode/escape_rate",
-        "Metrics/escape_rate",
-        "escape_rate",
-    ]
+    Escape progress: milestone hit rates + mean X displacement.
 
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-    ax.set_title("Escape Rate Convergence", pad=8)
+    NOTE: The per-step 'escape_rate' metric was broken in runs before the fix
+    (envs reset before the metric was logged, so it always read 0). We now plot
+    milestone rates and mean_x_disp which correctly show escape progress.
+    Post-fix runs will also show the cumulative escape_rate on the right axis.
+    """
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    ax.set_title("Escape Progress — Milestones & Displacement", pad=8)
     ax.set_xlabel("Training Step")
-    ax.set_ylabel("Escape Rate  (fraction of envs)")
+    ax.set_ylabel("Milestone Hit Rate")
     ax.set_ylim(-0.02, 1.05)
     ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(
@@ -312,31 +318,61 @@ def plot_escape_rate(exp_names, all_data, out_path):
 
     plotted = 0
     for i, (name, data) in enumerate(zip(exp_names, all_data)):
-        tag = next((t for t in _CANDIDATE_TAGS if t in data and
-                    len(data[t]["step"]) > 0), None)
-        if tag is None:
-            continue
-        color  = get_color(name, i)
-        steps  = data[tag]["step"]
-        values = data[tag]["value"]
+        color = get_color(name, i)
+        # Milestone rates
+        for tag, lbl, c in [
+            ("Info / milestone_0_5m", "0.5 m", "#4DAC26"),
+            ("Info / milestone_1_0m", "1.0 m", "#E08214"),
+        ]:
+            if tag in data and len(data[tag]["step"]) > 0:
+                steps  = data[tag]["step"]
+                values = data[tag]["value"]
+                shade_band(ax, steps, values, c, alpha=0.10)
+                sm, sm_steps = smooth(values, w=40, x=steps)
+                ax.plot(sm_steps, sm, color=c, linewidth=2.5,
+                        label=lbl, zorder=3)
+                plotted += 1
 
-        shade_band(ax, steps, values, color, alpha=0.15)
-        sm, sm_steps = smooth(values, w=15)
-        ax.plot(sm_steps, sm, color=color, linewidth=2.2,
-                label=name, zorder=3)
-        ax.plot(steps, values, color=color, linewidth=0.6, alpha=0.3, zorder=2)
-        plotted += 1
+        # Escape rate (cumulative — fixed metric, will be 0 for old runs)
+        _ESCAPE_TAGS = [
+            "Info / escape_rate", "Episode / escape_rate (mean)",
+            "Episode/escape_rate", "escape_rate",
+        ]
+        esc_tag = next((t for t in _ESCAPE_TAGS if t in data and
+                        len(data[t]["step"]) > 0 and
+                        data[t]["value"].max() > 0.001), None)
+        if esc_tag:
+            steps  = data[esc_tag]["step"]
+            values = data[esc_tag]["value"]
+            sm, sm_steps = smooth(values, w=40, x=steps)
+            ax.plot(sm_steps, sm, color="#D6604D", linewidth=2.5,
+                    label="Escape (1.5 m)", zorder=3)
+            plotted += 1
 
     if plotted == 0:
-        # No escape_rate tag found — print available tags for debugging
-        for name, data in zip(exp_names, all_data):
-            episode_tags = [t for t in data if "escape" in t.lower() or "Episode" in t]
-            if episode_tags:
-                print(f"  [escape_rate] Available episode tags for {name}: {episode_tags[:8]}")
         plt.close(fig)
         return
 
-    ax.legend(loc="lower right")
+    # Secondary axis: mean distance from origin (shows escape progress)
+    ax2 = ax.twinx()
+    ax2.set_ylabel("Mean Distance from Origin / m", color="#2166AC")
+    ax2.tick_params(axis="y", labelcolor="#2166AC")
+    ax2.spines["top"].set_visible(False)
+    for i, (name, data) in enumerate(zip(exp_names, all_data)):
+        tag = "Info / mean_dist"
+        if tag in data and len(data[tag]["step"]) > 0:
+            steps  = data[tag]["step"]
+            values = data[tag]["value"]
+            shade_band(ax2, steps, values, "#2166AC", alpha=0.08)
+            sm, sm_steps = smooth(values, w=40, x=steps)
+            ax2.plot(sm_steps, sm, color="#2166AC", linewidth=2.2,
+                     linestyle="--", label="Mean dist (m)", zorder=3)
+    ax2.axhline(1.5, color="#D6604D", linewidth=1.0, linestyle=":",
+                alpha=0.6, label="Escape threshold (1.5 m)")
+    ax2.set_ylim(bottom=0)
+    ax2.legend(loc="center right", fontsize=8)
+
+    ax.legend(loc="upper left")
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
@@ -347,14 +383,19 @@ def plot_escape_rate(exp_names, all_data, out_path):
 
 def plot_summary_table(exp_names, all_data, out_path):
     rows = []
-    col_labels = ["Run", "Steps", "Final Reward (mean)", "Min Reward", "Policy Std Dev"]
+    col_labels = ["Run", "Steps", "Reward (last 10%)", "Min Reward", "Policy Std Dev"]
     for name, data in zip(exp_names, all_data):
         tag_r = "Reward / Total reward (mean)"
         tag_m = "Reward / Total reward (min)"
         tag_s = "Policy / Standard deviation"
         steps   = int(data[tag_r]["step"][-1])  if tag_r in data and len(data[tag_r]["step"]) else 0
-        r_mean  = f"{data[tag_r]['value'][-1]:.3f}" if tag_r in data and len(data[tag_r]['value']) else "—"
-        r_min   = f"{data[tag_m]['value'][-1]:.3f}" if tag_m in data and len(data[tag_m]['value']) else "—"
+        if tag_r in data and len(data[tag_r]['value']):
+            v = data[tag_r]['value']
+            tail = max(1, len(v) // 10)  # mean of last 10% of run
+            r_mean = f"{float(np.mean(v[-tail:])):.2f}"
+        else:
+            r_mean = "—"
+        r_min   = f"{float(np.min(data[tag_m]['value'])):.2f}" if tag_m in data and len(data[tag_m]['value']) else "—"
         std     = f"{data[tag_s]['value'][-1]:.3f}" if tag_s in data and len(data[tag_s]['value']) else "—"
         rows.append([name, f"{steps:,}", r_mean, r_min, std])
 
