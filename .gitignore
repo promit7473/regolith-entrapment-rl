@@ -69,6 +69,7 @@ Thumbs.db
 
 # Logs
 *.log
+MUJOCO_LOG.TXT
 
 # Isaac Sim / Omniverse
 kit/

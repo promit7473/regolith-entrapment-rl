@@ -124,6 +124,24 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     dr_obs_noise_std     = 0.02         # additive Gaussian noise on observations
     dr_sinkage_range     = (0.12, 0.22) # m — bury wheel axle, not just rim (was 0.06–0.12)
 
+    # Entrapment detection thresholds (v_x < vx AND mean_slip > slip for N steps)
+    entrap_vx_thresh    = 0.15   # m/s
+    entrap_slip_thresh  = 0.4
+    entrap_steps_thresh = 15     # ~0.6 s at 25 Hz
+
+    # Post-reset burial grace: force entrap_flag=1 for up to N policy steps after
+    # reset, OR until the rover has moved beyond `burial_grace_dist` from spawn
+    # (whichever comes first). Without this, the step-by-step is_stuck recomputation
+    # can flip the flag to 0 on step 1 when drive commands haven't spun the wheels
+    # yet (mean_slip ≈ 0), wiping out the "spawned buried" guarantee.
+    burial_grace_steps = 25      # 1 s at 25 Hz
+    burial_grace_dist  = 0.15    # m — body-frame distance from spawn
+
+    # Torque anomaly detection (sustained near-limit torque + high fluctuation)
+    torque_anomaly_thresh        = 0.85   # mean |torque|/limit
+    torque_anomaly_delta_thresh  = 0.10   # per-step torque swing
+    torque_anomaly_steps_thresh  = 20     # ~0.8 s at 25 Hz
+
     # MuJoCo Warp solver — same choice as view_rover.py.
     # XPBD cannot stably support an articulated rover regardless of contact settings
     # (329 mesh shapes → contact buffer overflow → NaN; proxy spheres → slow sink → explosion).
@@ -205,9 +223,14 @@ class EntrapmentEnv(DirectRLEnv):
         # isn't wiped by the env reset that happens between dones and rewards.
         self._escape_count = 0       # total escapes across all envs
         self._episode_count = 0      # total episode terminations (escaped + timed-out + failed)
-        self._ENTRAP_VX_THRESH   = 0.15  # m/s — rover making no real progress (raised from 0.05)
-        self._ENTRAP_SLIP_THRESH = 0.4   # high slip ratio (lowered slightly for sensitivity)
-        self._ENTRAP_STEPS_THRESH = 15   # ~0.6s at 25Hz — avoid triggering on brief slowdowns
+        self._ENTRAP_VX_THRESH    = self.cfg.entrap_vx_thresh
+        self._ENTRAP_SLIP_THRESH  = self.cfg.entrap_slip_thresh
+        self._ENTRAP_STEPS_THRESH = self.cfg.entrap_steps_thresh
+
+        # Post-reset burial grace: counts down while the rover is close to spawn.
+        # Forces entrap_flag=1 until either the counter expires or the rover moves
+        # > burial_grace_dist from env origin.
+        self._burial_grace_counter = torch.zeros(self.num_envs, device=self.device)
 
         # Torque-based anomaly detection (inspired by Bi & Ding 2026)
         # Detect when torque CHANGE (not absolute) indicates struggling — avoids always-on issue.
@@ -223,9 +246,9 @@ class EntrapmentEnv(DirectRLEnv):
         #   20   — ~0.8 s at 25Hz; long enough to reject transient bumps, short enough
         #          to detect genuine entrapment before the episode ends.
         # If torque_anomaly_rate stays near 0 or near 1 in TensorBoard, recalibrate these.
-        self._TORQUE_ANOMALY_THRESH       = 0.85  # mean |torque|/limit — sustained near-limit
-        self._TORQUE_ANOMALY_DELTA_THRESH = 0.10  # mean torque fluctuation — struggling signal
-        self._TORQUE_ANOMALY_STEPS_THRESH = 20    # ~0.8s sustained before flagging
+        self._TORQUE_ANOMALY_THRESH       = self.cfg.torque_anomaly_thresh
+        self._TORQUE_ANOMALY_DELTA_THRESH = self.cfg.torque_anomaly_delta_thresh
+        self._TORQUE_ANOMALY_STEPS_THRESH = self.cfg.torque_anomaly_steps_thresh
 
         # Domain randomization: per-env motor gain (randomized at reset)
         self._motor_gain = torch.ones(self.num_envs, 1, device=self.device)
@@ -518,8 +541,17 @@ class EntrapmentEnv(DirectRLEnv):
         self.mpm_solver.enrich_state(self.sand_state)
 
         n_col = mpm_model.collider_body_count
-        _p(f"[MPM] collider_body_count={n_col}  — if 0, wheel↔sand coupling is DISABLED")
-        if n_col > 0 and self.sand_state.body_q is not None:
+        _p(f"[MPM] collider_body_count={n_col}")
+        if n_col == 0:
+            raise RuntimeError(
+                "[MPM] collider_body_count == 0 — wheel↔sand coupling is DISABLED. "
+                "Training would proceed on a rigid ground plane with 64k decorative "
+                "particles, producing plausible-looking but physically meaningless "
+                "results. Check that proxy cylinders in _setup_scene have "
+                "has_particle_collision=True and that mpm_model.setup_collider was "
+                "called with the correct robot model."
+            )
+        if self.sand_state.body_q is not None:
             robot_state_init = NewtonManager._state_0
             wp.copy(self.sand_state.body_q,
                     robot_state_init.body_q,
@@ -608,6 +640,16 @@ class EntrapmentEnv(DirectRLEnv):
         robot_model = NewtonManager._model
         state_0     = NewtonManager._state_0
         mpm_dt      = NewtonManager._dt
+
+        # Zero body_f before accumulating sand forces. Newton does NOT auto-clear
+        # body_f between steps (reference example_mpm_twoway_coupling.py:202
+        # calls state_0.clear_forces() at the start of each substep for this
+        # reason). Without this zero, atomic_add into body_f compounds across
+        # every step — sand forces grow unbounded over training.
+        # We only clear body_f (not joints) because Isaac Lab applies joint
+        # control through a separate actuation path; body_f carries only the
+        # external forces we inject.
+        state_0.body_f.zero_()
 
         self._body_sand_f.zero_()
         wp.launch(
@@ -848,7 +890,24 @@ class EntrapmentEnv(DirectRLEnv):
         mean_slip  = torch.mean(torch.abs(slip), dim=-1)
         is_stuck   = (v_x_scalar < self._ENTRAP_VX_THRESH) & (mean_slip > self._ENTRAP_SLIP_THRESH)
         self._entrap_counter = torch.where(is_stuck, self._entrap_counter + 1, torch.zeros_like(self._entrap_counter))
-        self._entrap_flag    = (self._entrap_counter >= self._ENTRAP_STEPS_THRESH).float()
+        stuck_flag = (self._entrap_counter >= self._ENTRAP_STEPS_THRESH).float()
+
+        # Post-reset burial grace: tick counter down while rover is still near
+        # spawn; zero it out once the rover has escaped the burial zone so the
+        # natural is_stuck logic takes over for the rest of the episode.
+        # Computed here so dist_norm below can reuse pos_xy — actually we need
+        # the xy distance; defer the zero-out to after dist is computed.
+        self.root_pos = wp.to_torch(self.robot.data.root_link_pos_w)
+        pos_xy_grace = self.root_pos[:, :2] - self.scene.env_origins[:, :2]
+        dist_from_spawn = torch.norm(pos_xy_grace, dim=-1)
+        left_spawn = dist_from_spawn > self.cfg.burial_grace_dist
+        self._burial_grace_counter = torch.where(
+            left_spawn,
+            torch.zeros_like(self._burial_grace_counter),
+            (self._burial_grace_counter - 1.0).clamp(min=0.0),
+        )
+        grace_flag = (self._burial_grace_counter > 0.0).float()
+        self._entrap_flag = torch.maximum(stuck_flag, grace_flag)
 
         # Torque-based anomaly detection (inspired by Bi & Ding 2026)
         # Anomaly = sustained near-limit torque WITH high torque fluctuation (struggling).
@@ -859,6 +918,11 @@ class EntrapmentEnv(DirectRLEnv):
         mean_torque_ratio = torch.mean(torque_ratio.abs(), dim=-1)
         torque_delta = torch.mean((drive_torque_norm - self._prev_drive_torque_norm).abs(), dim=-1)
         self._prev_drive_torque_norm = drive_torque_norm.detach().clone()
+        # Stash raw signals for TB logging in _get_rewards (diagnosing why
+        # torque_anomaly_rate was flat zero in prior 200k run).
+        self._dbg_mean_torque_ratio = mean_torque_ratio
+        self._dbg_torque_delta      = torque_delta
+        self._dbg_max_applied_eff   = drive_torque.abs().max()
         is_anomalous = (mean_torque_ratio > self._TORQUE_ANOMALY_THRESH) & \
                        (torque_delta > self._TORQUE_ANOMALY_DELTA_THRESH)
         self._torque_anomaly_counter = torch.where(
@@ -868,9 +932,8 @@ class EntrapmentEnv(DirectRLEnv):
 
         # Distance from env origin, normalised by escape threshold (0=spawn, 1=escaped)
         # Gives the agent explicit progress feedback it cannot infer from velocity alone.
-        self.root_pos   = wp.to_torch(self.robot.data.root_link_pos_w)
-        pos_xy    = self.root_pos[:, :2] - self.scene.env_origins[:, :2]
-        dist_norm = (torch.norm(pos_xy, dim=-1) / ESCAPE_DISTANCE).clamp(0.0, 2.0).unsqueeze(-1)
+        # (root_pos / dist_from_spawn already computed above for burial grace.)
+        dist_norm = (dist_from_spawn / ESCAPE_DISTANCE).clamp(0.0, 2.0).unsqueeze(-1)
 
         # 6 + 6 + 4 + 3 + 1 + 6 + 1 + 1 + 1 = 29
         obs = torch.cat([
@@ -892,9 +955,13 @@ class EntrapmentEnv(DirectRLEnv):
         # NaN guard: clamp velocities to sane range
         v_x = v_x.nan_to_num(0.0).clamp(-10.0, 10.0)
 
+        # All per-step reward terms use step_dt (policy step = sim.dt * decimation)
+        # since _get_rewards fires once per policy step, not per physics step.
+        dt = self.step_dt
+
         # Forward progress — suppressed when trapped so backward rocking isn't penalised.
         # When entrap_flag=1 the rocking bonus takes over as the locomotion signal.
-        r_progress = self.cfg.rew_forward_progress * v_x * self.cfg.sim.dt * (1.0 - self._entrap_flag)
+        r_progress = self.cfg.rew_forward_progress * v_x * dt * (1.0 - self._entrap_flag)
 
         # Escape bonus
         pos_xy     = self.root_pos[:, :2] - self.scene.env_origins[:, :2]
@@ -914,7 +981,7 @@ class EntrapmentEnv(DirectRLEnv):
             )
         # Dense distance shaping: small per-step reward proportional to current distance
         # This gives a smooth gradient toward the escape zone each step.
-        r_escape += 0.5 * dist * self.cfg.sim.dt
+        r_escape += 0.5 * dist * dt
 
         # Slip penalty (drive wheels) - consistent with observation calculation
         # Suppressed when entrap_flag=1: rocking requires high slip, penalising it
@@ -926,16 +993,16 @@ class EntrapmentEnv(DirectRLEnv):
         denom = torch.maximum(torch.abs(drive_vel),
                               torch.abs(v_x_exp).clamp(min=eps))
         slip      = ((drive_vel - v_x_exp) / denom).clamp(-1.0, 1.0)
-        p_slip    = self.cfg.pen_slip * torch.mean(torch.abs(slip), dim=-1) * (1.0 - self._entrap_flag) * self.cfg.sim.dt
+        p_slip    = self.cfg.pen_slip * torch.mean(torch.abs(slip), dim=-1) * (1.0 - self._entrap_flag) * dt
 
         # Tilt penalty
         ang_vel = wp.to_torch(self.robot.data.root_com_ang_vel_b).nan_to_num(0.0)
-        p_tilt  = self.cfg.pen_tilt * torch.norm(ang_vel[:, :2], dim=-1) * self.cfg.sim.dt
+        p_tilt  = self.cfg.pen_tilt * torch.norm(ang_vel[:, :2], dim=-1) * dt
 
         # Action smoothness penalty
         p_smooth = self.cfg.pen_action_delta * torch.norm(
             self.actions - self.prev_action, dim=-1
-        ) * self.step_dt
+        ) * dt
         self.prev_action = self.actions.clone()
 
         # Abnormal action penalty (sustained high torque with low progress).
@@ -947,13 +1014,13 @@ class EntrapmentEnv(DirectRLEnv):
                       * progress_penalty
                       * self._torque_anomaly_flag
                       * (1.0 - self._entrap_flag)
-                      * self.cfg.sim.dt)
+                      * dt)
 
         # Rocking bonus when trapped — per-env tensor, weight raised 0.1 → 1.0.
         # Rewards any alternation in forward/backward velocity while entrap_flag=1,
         # now strong enough to outweigh the (suppressed) slip penalty.
         v_x_change = torch.abs(v_x - self.prev_v_x)
-        p_rocking  = self.cfg.rew_rocking * v_x_change * self._entrap_flag * self.cfg.sim.dt
+        p_rocking  = self.cfg.rew_rocking * v_x_change * self._entrap_flag * dt
         self.prev_v_x = v_x.clone()
 
         # Curriculum progress is updated in _reset_idx (once per episode reset),
@@ -968,6 +1035,12 @@ class EntrapmentEnv(DirectRLEnv):
         self.extras["log"]["mean_abs_slip"]      = torch.mean(torch.abs(slip), dim=-1).mean()
         self.extras["log"]["entrap_flag_rate"]   = self._entrap_flag.mean()
         self.extras["log"]["torque_anomaly_rate"] = self._torque_anomaly_flag.mean()
+        # Torque-signal diagnostics: if raw_mean_torque_ratio stays ~0, applied_effort
+        # isn't populated by the implicit actuator and we need a derived-torque fallback.
+        if hasattr(self, "_dbg_mean_torque_ratio"):
+            self.extras["log"]["raw_mean_torque_ratio"] = self._dbg_mean_torque_ratio.mean()
+            self.extras["log"]["raw_torque_delta"]      = self._dbg_torque_delta.mean()
+            self.extras["log"]["max_applied_effort"]    = self._dbg_max_applied_eff
         self.extras["log"]["mean_dist"]          = dist.mean()
         self.extras["log"]["curriculum_progress"] = self._curriculum_progress.mean()
 
@@ -1067,6 +1140,9 @@ class EntrapmentEnv(DirectRLEnv):
         # This activates the rocking reward immediately without waiting 15 steps.
         self._entrap_counter[env_ids] = float(self._ENTRAP_STEPS_THRESH)
         self._entrap_flag[env_ids] = 1.0
+        # Burial grace: force-hold flag=1 for burial_grace_steps policy steps
+        # after reset (or until rover moves > burial_grace_dist from spawn).
+        self._burial_grace_counter[env_ids] = float(self.cfg.burial_grace_steps)
         self._torque_anomaly_counter[env_ids] = 0.0
         self._torque_anomaly_flag[env_ids] = 0.0
         self._prev_drive_torque_norm[env_ids] = 0.0
