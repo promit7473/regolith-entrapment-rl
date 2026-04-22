@@ -13,9 +13,6 @@ regolith_entrapment_research/
 ├── paths.py                 # Python path configuration (env var overrides)
 ├── paths.sh                 # Bash path configuration (env var overrides)
 │
-├── configs/                 # Configuration
-│   └── ppo_mars_rover_v1.yaml  # PPO hyperparameters
-│
 ├── envs/                    # Environment (core)
 │   ├── entrapment_env.py    # RL environment with MPM coupling
 │   ├── mpm_kernels.py       # Newton-MPM coupling kernels
@@ -316,10 +313,10 @@ python sim2real/rpi5_deploy/rover_controller.py \
 ## [-] Environment Details
 
 - **Python**: 3.11 (conda: env_isaaclab)
-- **Physics (training)**: Isaac Lab `XPBOSolverCfg` (PhysX rigid bodies) + Newton `SolverImplicitMPM` (granular sand)
+- **Physics (training)**: Isaac Lab `MJWarpSolverCfg(use_mujoco_cpu=True)` (MuJoCo CPU rigid bodies) + Newton `SolverImplicitMPM` (granular sand)
 - **Physics (viewer)**: Newton `SolverMuJoCo` (rigid bodies) + Newton `SolverImplicitMPM` (sand)
-- **Solver**: 4 substeps, 50 Hz physics / 25 Hz policy
-- **Note**: Standalone viewer uses MuJoCo solver — Newton's XPBD cannot stably support an articulated rover on a ground plane (329 mesh collision shapes → contact buffer overflow). Mesh collision disabled; 6 invisible proxy spheres on wheel bodies used instead.
+- **Solver**: 4 iterations, 4 substeps, 50 Hz physics / 25 Hz policy
+- **Note**: MuJoCo CPU is used (not Newton XPBD) because Newton's XPBD cannot stably support an articulated rover on a ground plane (329 mesh collision shapes → contact buffer overflow). Mesh collision disabled; 6 invisible proxy spheres on wheel bodies used instead. `use_mujoco_cpu=True` also bypasses the warp-lang / mujoco_warp version conflict (see CLAUDE.md "Warp version").
 - **MPM**: voxel_size=0.05m, sand 2.0m×2.0m×0.15m, µ=0.7 (~38k particles/env)
 
 **Observation Space (29D)**:
@@ -350,7 +347,7 @@ python sim2real/rpi5_deploy/rover_controller.py \
 - **[VERSIONS.md](VERSIONS.md)** — pinned commit SHAs for Newton/IsaacLab/RLRoverLab + driver
 - **[LAB_PC_TRANSFER.md](LAB_PC_TRANSFER.md)** — copy this setup to a second PC without re-downloading
 - **[environment.yml](environment.yml)** — conda env spec (reproducible)
-- **[Configs]**: `configs/ppo_mars_rover_v1.yaml` — PPO hyperparameters
+- **PPO hyperparameters**: hardcoded in `scripts/train.py` (no YAML config — see CLAUDE.md "PPO hyperparams")
 - **[Code]**: `envs/entrapment_env.py` — Main environment with detailed comments
 - **[Paths]**: `paths.py` / `paths.sh` — Configurable path system
 
