@@ -1,0 +1,36 @@
+name: env_isaaclab
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      # Core RL stack
+      - skrl==1.4.3
+      - gymnasium==1.2.0
+      - tensorboard==2.20.0
+      - tensorboardX==2.6.4
+
+      # PyTorch (CUDA 12.8 wheels — match driver on lab PC)
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch==2.7.0+cu128
+      - torchvision==0.22.0+cu128
+
+      # Numerical
+      - numpy==1.26.0
+
+      # Physics / sim
+      - warp-lang==1.13.0
+      - mujoco==3.6.0
+      # Note: mujoco-warp is pulled by Isaac Lab; project uses use_mujoco_cpu=True
+      #       to bypass it. See CLAUDE.md "Warp version" section.
+
+      # ONNX export (sim2real)
+      - onnx==1.20.0
+      - onnxscript==0.5.7
+
+# After `conda env create -f environment.yml`, also install:
+#   1. Isaac Sim 5.1 (copied from dev PC, see LAB_PC_TRANSFER.md)
+#   2. IsaacLab editable: cd ~/IsaacLab && ./isaaclab.sh -i
+#   3. RLRoverLab assets (just clone/copy, no install needed)
