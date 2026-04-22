@@ -80,37 +80,54 @@ This repository provides a **standalone escape policy subsystem** trained to det
 
 ## [-] Installation Guide
 
+> **Reproducibility**: pinned versions (Newton, IsaacLab, RLRoverLab commits + driver) live in **[VERSIONS.md](VERSIONS.md)**.
+> For setting up on a second machine (e.g., lab PC) by copying instead of re-downloading, see **[LAB_PC_TRANSFER.md](LAB_PC_TRANSFER.md)**.
+
 ### 1. Install Dependencies
 
 ```bash
-# Newton Physics Engine
+# Newton Physics Engine — checkout commit 551f6ee (see VERSIONS.md)
 git clone https://github.com/NVIDIA-Newton/newton.git ~/newton
 
-# Isaac Lab
+# Isaac Lab — checkout commit 44c26e31 on feature/newton (see VERSIONS.md)
 git clone https://github.com/isaac-sim/IsaacLab.git ~/IsaacLab
 
-# Isaac Sim (download from NVIDIA Omniverse Launcher)
+# Isaac Sim 5.1 (download from NVIDIA Omniverse Launcher, install to ~/isaac-sim)
 
-# RLRoverLab Assets (optional, for Mars terrain)
+# RLRoverLab Assets (required for AAU Mars rover USD)
 git clone https://github.com/abmoRobotics/RLRoverLab.git ~/RLRoverLab
 ```
 
-### 2. Create Conda Environment
+### 2. Create Conda Environment (pinned)
 
 ```bash
-conda create -n env_isaaclab python=3.11
+conda env create -f environment.yml
 conda activate env_isaaclab
 ```
 
-### 3. Install Python Packages
+This installs PyTorch 2.7+cu128, warp-lang 1.13, skrl 1.4.3, mujoco 3.6.0, ONNX, etc.
+Then install Isaac Lab in editable mode:
 
 ```bash
-pip install torch torchvision torchaudio gymnasium wandb scikit-learn
-pip install pyglet imgui_bundle  # For Newton ViewerGL
-pip install onnxruntime          # For ONNX export/deployment
+cd ~/IsaacLab && ./isaaclab.sh -i
 ```
 
-### 4. Configure Paths (Optional)
+### 3. Apply Newton patch
+
+```bash
+cd ~/newton && git apply ~/regolith_entrapment_research/patches/newton_mujoco_bugfixes.patch
+```
+
+### 4. Set CPU governor to performance
+
+Isaac Sim's init phase is CPU-bound and stalls under `powersave`:
+
+```bash
+sudo apt install linux-tools-common linux-tools-generic
+sudo cpupower frequency-set -g performance
+```
+
+### 5. Configure Paths (Optional)
 
 Default paths assume the following locations. Override with environment variables:
 
@@ -130,7 +147,7 @@ export NEWTON_PATH=/custom/path/to/newton
 ./launch.sh scripts/train.py --num_envs 64
 ```
 
-### 5. Verify Installation
+### 6. Verify Installation
 
 ```bash
 ./launch.sh scripts/train.py --num_envs 1 --timesteps 100
@@ -329,6 +346,10 @@ python sim2real/rpi5_deploy/rover_controller.py \
 
 ## [-] Documentation
 
+- **[CLAUDE.md](CLAUDE.md)** — quick reference: commands, architecture, critical technical notes
+- **[VERSIONS.md](VERSIONS.md)** — pinned commit SHAs for Newton/IsaacLab/RLRoverLab + driver
+- **[LAB_PC_TRANSFER.md](LAB_PC_TRANSFER.md)** — copy this setup to a second PC without re-downloading
+- **[environment.yml](environment.yml)** — conda env spec (reproducible)
 - **[Configs]**: `configs/ppo_mars_rover_v1.yaml` — PPO hyperparameters
 - **[Code]**: `envs/entrapment_env.py` — Main environment with detailed comments
 - **[Paths]**: `paths.py` / `paths.sh` — Configurable path system
