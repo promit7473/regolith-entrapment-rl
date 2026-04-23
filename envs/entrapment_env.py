@@ -70,7 +70,13 @@ DRIVE_JOINTS    = [".*Drive_Continuous"]    # regex — 6 wheels
 STEER_JOINTS    = [".*Steer_Revolute"]      # regex — 4 corners
 DRIVE_VEL_LIMIT = 6.0                       # rad/s
 STEER_POS_LIMIT = 0.6                       # rad  (~34°)
-ESCAPE_DISTANCE = 1.5                       # m — escape the entrapment zone
+ESCAPE_DISTANCE = 0.9                       # m — escape the entrapment zone
+# Sand bed is 2.0 m × 2.0 m centered on env origin (reaches ±1.0 m). A 1.5 m
+# threshold required driving off the 25 cm bed-edge cliff, which triggered
+# flipped|sunk termination before `escaped` could fire — the old 200k run
+# hit the 1.5 m escape 0% of the time. 0.9 m sits comfortably inside the bed
+# with a 10 cm safety margin and measures what we actually care about:
+# self-propelled recovery out of the burial zone.
 
 # Regolith pit geometry (per env, centred at env origin)
 # 2.0 m × 2.0 m patch — wide enough that all 6 wheels stay fully buried during
@@ -1001,9 +1007,11 @@ class EntrapmentEnv(DirectRLEnv):
         dist       = torch.norm(pos_xy, dim=-1)
         time_scale = (self.max_episode_length - self.episode_length_buf) / self.max_episode_length
         
-        # Progressive milestone bonuses at 0.5m, 1.0m, 1.5m (escape).
+        # Progressive milestone bonuses at 0.3 m, 0.6 m, 0.9 m (escape).
+        # Rescaled from the old [0.5, 1.0, 1.5] after ESCAPE_DISTANCE was reduced
+        # to fit inside the 2.0 m sand bed; keeps the three-step gradient shape.
         # ONE-TIME bonus per episode — fires only when the threshold is first crossed.
-        milestones = [0.5, 1.0, ESCAPE_DISTANCE]
+        milestones = [0.3, 0.6, ESCAPE_DISTANCE]
         milestone_weights = [0.2, 0.4, 1.0]
         r_escape = torch.zeros(self.num_envs, device=self.device)
         for i, (thresh, w) in enumerate(zip(milestones, milestone_weights)):
@@ -1062,8 +1070,8 @@ class EntrapmentEnv(DirectRLEnv):
 
         self.extras.setdefault("log", {})
         self.extras["log"]["escape_rate"]        = self._escape_count / max(1, self._episode_count)
-        self.extras["log"]["milestone_0_5m"]     = (dist > 0.5).float().mean()
-        self.extras["log"]["milestone_1_0m"]     = (dist > 1.0).float().mean()
+        self.extras["log"]["milestone_0_3m"]     = (dist > 0.3).float().mean()
+        self.extras["log"]["milestone_0_6m"]     = (dist > 0.6).float().mean()
         self.extras["log"]["mean_vx"]            = v_x.mean()
         self.extras["log"]["mean_abs_slip"]      = torch.mean(torch.abs(slip), dim=-1).mean()
         self.extras["log"]["entrap_flag_rate"]   = self._entrap_flag.mean()

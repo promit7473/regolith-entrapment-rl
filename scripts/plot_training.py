@@ -321,8 +321,8 @@ def plot_escape_rate(exp_names, all_data, out_path):
         color = get_color(name, i)
         # Milestone rates
         for tag, lbl, c in [
-            ("Info / milestone_0_5m", "0.5 m", "#4DAC26"),
-            ("Info / milestone_1_0m", "1.0 m", "#E08214"),
+            ("Info / milestone_0_3m", "0.3 m", "#4DAC26"),
+            ("Info / milestone_0_6m", "0.6 m", "#E08214"),
         ]:
             if tag in data and len(data[tag]["step"]) > 0:
                 steps  = data[tag]["step"]
@@ -346,7 +346,7 @@ def plot_escape_rate(exp_names, all_data, out_path):
             values = data[esc_tag]["value"]
             sm, sm_steps = smooth(values, w=40, x=steps)
             ax.plot(sm_steps, sm, color="#D6604D", linewidth=2.5,
-                    label="Escape (1.5 m)", zorder=3)
+                    label="Escape (0.9 m)", zorder=3)
             plotted += 1
 
     if plotted == 0:
@@ -367,8 +367,8 @@ def plot_escape_rate(exp_names, all_data, out_path):
             sm, sm_steps = smooth(values, w=40, x=steps)
             ax2.plot(sm_steps, sm, color="#2166AC", linewidth=2.2,
                      linestyle="--", label="Mean dist (m)", zorder=3)
-    ax2.axhline(1.5, color="#D6604D", linewidth=1.0, linestyle=":",
-                alpha=0.6, label="Escape threshold (1.5 m)")
+    ax2.axhline(0.9, color="#D6604D", linewidth=1.0, linestyle=":",
+                alpha=0.6, label="Escape threshold (0.9 m)")
     ax2.set_ylim(bottom=0)
     ax2.legend(loc="center right", fontsize=8)
 
