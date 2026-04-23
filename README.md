@@ -43,6 +43,16 @@ regolith_entrapment_research/
 │   └── scripts/
 │       └── train_detector.py  # Train sinkage detector
 │
+├── paper/                   # Paper workspace (gitignored — local only)
+│   ├── paper.tex            # Active IEEE paper
+│   ├── figures/             # Paper assets (logos, scene screenshots, TeX figures)
+│   └── related_tex/         # Archived submissions (project report + presentation)
+│
+├── experiments/             # Training outputs (gitignored, auto-created)
+│   └── regolith_recovery/
+│       ├── ppo_gru_regolith/  # TensorBoard logs + checkpoints per run
+│       └── plots/             # Auto-generated publication-quality plots
+│
 ├── terrain/                 # Terrain configs
 └── stubs/                   # External library stubs
 ```
@@ -304,6 +314,7 @@ python sim2real/rpi5_deploy/rover_controller.py \
 | Component | Improvement | Purpose |
 |-----------|-------------|---------|
 | **Policy Network** | Recurrent PPO + GRU (encoder 128→GRU 256→head 64) | Temporal memory for rocking maneuvers + sustained entrapment |
+| **Asymmetric Actor-Critic** | Critic reads privileged 37D obs (sinkage, burial, body vel); actor restricted to 29D onboard | Lower-variance value estimates without leaking unobservable state into the deployed policy |
 | **Entrapment Detection** | Dual-sensor (slip + torque) | More robust than slip-only |
 | **Reward Function** | Shaped escape + abnormal penalty + rocking bonus | Better learning signals |
 | **Curriculum Learning** | Episode-based sinkage increase | Consistent challenge as policy improves |
@@ -319,7 +330,7 @@ python sim2real/rpi5_deploy/rover_controller.py \
 - **Note**: MuJoCo CPU is used (not Newton XPBD) because Newton's XPBD cannot stably support an articulated rover on a ground plane (329 mesh collision shapes → contact buffer overflow). Mesh collision disabled; 6 invisible proxy spheres on wheel bodies used instead. `use_mujoco_cpu=True` also bypasses the warp-lang / mujoco_warp version conflict (see CLAUDE.md "Warp version").
 - **MPM**: voxel_size=0.05m, sand 2.0m×2.0m×0.15m, µ=0.7 (~38k particles/env)
 
-**Observation Space (29D)**:
+**Policy Observation Space (29D — deployed to rover)**:
 - `wheel_vel` (6) — drive joint velocities normalized by 6 rad/s
 - `slip` (6) — per-wheel slip ratio
 - `steer_pos` (4) — steering joint angles normalized by 0.6 rad
@@ -329,6 +340,16 @@ python sim2real/rpi5_deploy/rover_controller.py \
 - `entrap_flag` (1) — binary entrapment indicator
 - `torque_anomaly` (1) — sustained high-torque anomaly flag
 - `dist_norm` (1) — distance from origin / escape threshold
+
+**Privileged Observation Space (8D — critic only, training only)**:
+- `true_sinkage` (1) — sampled at reset, unobservable onboard
+- `wheel_burial` (1) — live burial depth from MPM sand surface
+- `sand_force_proxy` (1) — mean |drive torque|, gross sand resistance
+- `body_lin_vel` (3) — full body-frame linear velocity
+- `yaw_rate` (1) — body yaw angular velocity
+- `chassis_z` (1) — true chassis height above env origin
+
+The environment returns the 37D concatenation; `GRUPolicyNet` slices `[:, :29]` internally so privileged signals never reach the actor or the ONNX export.
 
 **Action Space (10D)**:
 - `drive_cmd` (6) — velocity targets [-1,1] → ±6 rad/s
@@ -369,5 +390,5 @@ export PXR_EXT_PATH=~/.local/share/ov/data/exts/v2/omni.usd.libs-<hash>
 
 ---
 
-*Last updated: April 2026*  
+*Last updated: 2026-04-23*  
 *Questions? Open an issue on GitHub.*
