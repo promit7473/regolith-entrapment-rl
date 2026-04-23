@@ -12,6 +12,18 @@ import argparse
 import os
 import sys
 
+# Workaround: Python 3.11's platform._sys_version regex fails on some
+# conda-forge sys.version strings ('... | packaged by conda-forge | ... Oct 22 2025 ...').
+# wandb.init triggers the parse via settings.to_proto() → platform.python_implementation().
+# Pre-seed platform's cache so the parse is never attempted.
+import platform as _platform
+_platform._sys_version_cache[sys.version] = (
+    "CPython",
+    f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+    "", "", "", "",
+    sys.version.split("[", 1)[-1].rstrip("]") if "[" in sys.version else "",
+)
+
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Mars Rover Regolith Escape Recovery RL Training")
