@@ -916,24 +916,31 @@ class EntrapmentEnv(DirectRLEnv):
         grace_flag = (self._burial_grace_counter > 0.0).float()
         self._entrap_flag = torch.maximum(stuck_flag, grace_flag)
 
-        # Torque-based anomaly detection (inspired by Bi & Ding 2026)
-        # Anomaly = sustained near-limit torque WITH high torque fluctuation (struggling).
-        # Using both magnitude AND delta avoids the always-on problem: in sand the rover
-        # needs high torque, but true entrapment also shows rapid torque oscillation as
-        # wheels alternately grip and slip.
-        torque_ratio = (drive_torque / drive_effort_lim).clamp(0.0, 2.0)
-        mean_torque_ratio = torch.mean(torque_ratio.abs(), dim=-1)
+        # Torque-based anomaly detection (inspired by Bi & Ding 2026).
+        # Prior logic used (mean_ratio > 0.85) AND (delta > 0.10), which is physically
+        # contradictory: saturation -> near-constant torque -> low delta, fluctuation ->
+        # not saturated -> low mean. The AND gate fired near-never and the rate was flat
+        # zero in the 200k run. Replaced with OR of two independent struggle signatures,
+        # both computed from |torque|/limit (abs FIRST so backward-rocking isn't clipped).
+        torque_abs_norm = (drive_torque / drive_effort_lim).abs().clamp(0.0, 2.0)
+        mean_torque_ratio = torch.mean(torque_abs_norm, dim=-1)
         torque_delta = torch.mean((drive_torque_norm - self._prev_drive_torque_norm).abs(), dim=-1)
         self._prev_drive_torque_norm = drive_torque_norm.detach().clone()
-        # Stash raw signals for TB logging in _get_rewards (diagnosing why
-        # torque_anomaly_rate was flat zero in prior 200k run).
         self._dbg_mean_torque_ratio = mean_torque_ratio
         self._dbg_torque_delta      = torque_delta
         self._dbg_max_applied_eff   = drive_torque.abs().max()
-        is_anomalous = (mean_torque_ratio > self._TORQUE_ANOMALY_THRESH) & \
-                       (torque_delta > self._TORQUE_ANOMALY_DELTA_THRESH)
+
+        # Saturation signature OR oscillation signature — either alone indicates struggle.
+        saturated   = mean_torque_ratio > self._TORQUE_ANOMALY_THRESH
+        oscillating = torque_delta      > self._TORQUE_ANOMALY_DELTA_THRESH
+        is_anomalous = saturated | oscillating
+
+        # Leaky counter: brief dropouts (e.g. a single frame where neither condition
+        # holds) don't zero the history. Tolerates up to a ~3-step gap before decaying.
         self._torque_anomaly_counter = torch.where(
-            is_anomalous, self._torque_anomaly_counter + 1, torch.zeros_like(self._torque_anomaly_counter)
+            is_anomalous,
+            self._torque_anomaly_counter + 1.0,
+            (self._torque_anomaly_counter - 0.34).clamp(min=0.0),
         )
         self._torque_anomaly_flag = (self._torque_anomaly_counter >= self._TORQUE_ANOMALY_STEPS_THRESH).float()
 
