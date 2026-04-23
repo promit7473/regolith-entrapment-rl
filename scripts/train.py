@@ -257,7 +257,13 @@ def train():
             "experiment_name":    "ppo_gru_regolith",
             "write_interval":     100,
             "checkpoint_interval": 2000,
-            "wandb":              False,
+            "wandb":              True,
+            "wandb_kwargs": {
+                "project":  "regolith-entrapment-rl",
+                "name":     "ppo_gru_asymmetric_v1",
+                "tags":     ["asymmetric-critic", "gru", "5070ti"],
+                "sync_tensorboard": True,   # mirror TB scalars into W&B automatically
+            },
         },
     })
 
