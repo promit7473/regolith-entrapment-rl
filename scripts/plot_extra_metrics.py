@@ -221,37 +221,51 @@ def plot_detection_flags(data, out_path):
 # ── Figure: Reward Breakdown (mean/min/max band) ────────────────────────────
 
 def plot_reward_breakdown(data, out_path):
-    tag_mean = "Reward / Total reward (mean)"
-    tag_min  = "Reward / Total reward (min)"
-    tag_max  = "Reward / Total reward (max)"
+    """Per-component reward breakdown: shows which term drives the total.
 
-    if tag_mean not in data:
-        return
+    Reads the Info / rew_* and Info / pen_* scalars logged from _get_rewards.
+    Penalties are logged with their sign already flipped (stored negative) so
+    everything stacks naturally around zero on a single linear axis.
+    """
+    components = [
+        ("Info / rew_progress", "r_progress",  "#1B7837"),
+        ("Info / rew_escape",   "r_escape",    "#4DAC26"),
+        ("Info / rew_rocking",  "r_rocking",   "#66BD63"),
+        ("Info / pen_slip",     "-p_slip",     "#D6604D"),
+        ("Info / pen_tilt",     "-p_tilt",     "#E08214"),
+        ("Info / pen_smooth",   "-p_smooth",   "#FDAE61"),
+        ("Info / pen_abnormal", "-p_abnormal", "#B2182B"),
+    ]
 
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    ax.set_title("Total Episode Reward (mean ± min/max)", pad=8)
+    if not any(tag in data for tag, _, _ in components):
+        return   # old run without per-component logging — skip silently
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.set_title("Reward Breakdown — Per-Component Contribution", pad=8)
     ax.set_xlabel("Training Step")
-    ax.set_ylabel("Episode Reward")
+    ax.set_ylabel("Mean Per-Step Reward Term")
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(fmt_step))
     ax.spines[["top", "right"]].set_visible(False)
+    ax.axhline(0, color="#666", linewidth=0.7, linestyle=":")
 
-    steps = data[tag_mean]["step"]
-    mean_v = data[tag_mean]["value"]
+    plotted = 0
+    for tag, label, color in components:
+        if tag not in data or len(data[tag]["step"]) == 0:
+            continue
+        steps  = data[tag]["step"]
+        values = data[tag]["value"]
+        sm, sm_steps = smooth(values, w=30, x=steps)
+        ax.plot(sm_steps, sm, color=color, linewidth=2.0, label=label, zorder=3)
+        plotted += 1
 
-    if tag_min in data and tag_max in data:
-        min_v = data[tag_min]["value"]
-        max_v = data[tag_max]["value"]
-        # Align lengths
-        n = min(len(steps), len(min_v), len(max_v))
-        ax.fill_between(steps[:n], min_v[:n], max_v[:n],
-                        color="#2166AC", alpha=0.15, label="Min–Max band")
+    # Total episode reward is already plotted in reward_convergence.png; omit
+    # it here so the per-component curves aren't squashed by a much larger scale.
 
-    shade_band(ax, steps, mean_v, "#2166AC", alpha=0.10)
-    sm, sm_steps = smooth(mean_v, w=30, x=steps)
-    ax.plot(sm_steps, sm, color="#2166AC", linewidth=2.5, label="Mean reward")
-    ax.axhline(0, color="#888", linewidth=0.5, linestyle=":")
-    ax.legend(loc="lower right")
+    if plotted == 0:
+        plt.close(fig)
+        return
 
+    ax.legend(loc="upper left", ncol=2, fontsize=8)
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)

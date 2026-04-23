@@ -1085,6 +1085,17 @@ class EntrapmentEnv(DirectRLEnv):
         self.extras["log"]["mean_dist"]          = dist.mean()
         self.extras["log"]["curriculum_progress"] = self._curriculum_progress.mean()
 
+        # Per-component reward logging (signed; penalties stored negative to match
+        # their contribution to the total). Enables a real "reward breakdown" plot
+        # that shows which term is driving learning instead of just the aggregate.
+        self.extras["log"]["rew_progress"] = r_progress.mean()
+        self.extras["log"]["rew_escape"]   = r_escape.mean()
+        self.extras["log"]["rew_rocking"]  = p_rocking.mean()
+        self.extras["log"]["pen_slip"]     = (-p_slip).mean()
+        self.extras["log"]["pen_tilt"]     = (-p_tilt).mean()
+        self.extras["log"]["pen_smooth"]   = (-p_smooth).mean()
+        self.extras["log"]["pen_abnormal"] = (-p_abnormal).mean()
+
         return r_progress + r_escape - p_slip - p_tilt - p_smooth - p_abnormal + p_rocking
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
