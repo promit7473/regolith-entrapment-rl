@@ -60,6 +60,11 @@ GRU_LAYERS  = 1     # GRU stacked layers
 SEQ_LEN     = 32    # BPTT sequence length (~1.3s at 25Hz — covers entrap detection window)
 ROLLOUTS    = 64    # Steps stored per env per update (64 / 32 = 2 seqs per env, 2× more data)
 
+# Asymmetric actor-critic: policy reads the first POLICY_OBS_DIM dims, critic
+# reads the full tensor (policy obs + privileged oracle features). Must match
+# envs/entrapment_env.py EntrapmentEnvCfg.policy_observation_space.
+POLICY_OBS_DIM = 29
+
 
 # ── Model definitions ──────────────────────────────────────────────────────────
 
@@ -89,8 +94,10 @@ class GRUPolicyNet(GaussianMixin, Model):
         self._layers    = GRU_LAYERS
         self._seq_len   = SEQ_LEN
 
+        # Policy encoder sees only the on-board observation slice, never the
+        # privileged features — those are critic-only.
         self.encoder = nn.Sequential(
-            nn.Linear(self.num_observations, 128), nn.ELU(),
+            nn.Linear(POLICY_OBS_DIM, 128), nn.ELU(),
         )
         self.gru = nn.GRU(128, GRU_HIDDEN, num_layers=GRU_LAYERS, batch_first=False)
         self.head = nn.Sequential(
@@ -109,7 +116,9 @@ class GRUPolicyNet(GaussianMixin, Model):
         }
 
     def compute(self, inputs, role=""):
-        states = inputs["states"]  # (batch*seq, obs) or (num_envs, obs)
+        # Slice off privileged features; the policy sees only the first POLICY_OBS_DIM
+        # dims so the learned policy stays deployable on the real rover.
+        states = inputs["states"][:, :POLICY_OBS_DIM]
         rnn_list = inputs.get("rnn", [None])
         hidden = rnn_list[0] if (rnn_list and rnn_list[0] is not None) else None
 
@@ -136,6 +145,10 @@ class GRUValueNet(DeterministicMixin, Model):
     """
     Recurrent value critic: same GRU architecture as policy, scalar output.
     Shares no weights with policy.
+
+    Reads the full observation tensor (policy obs + privileged oracle features),
+    so the critic gets a lower-variance value estimate than the actor. The
+    privileged slice is discarded at deployment — only the policy is exported.
     """
 
     def __init__(self, obs_space, act_space, device, num_envs, clip_actions=False):

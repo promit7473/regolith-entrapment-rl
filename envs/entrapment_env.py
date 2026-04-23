@@ -99,7 +99,11 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # 6 drive vel + 6 slip + 4 steer pos + 3 imu acc + 1 gravity_z
     # + 6 drive torque + 1 entrapment flag + 1 torque anomaly flag
     # + 1 dist_norm (distance from origin / escape threshold) = 29
-    observation_space = 29
+    policy_observation_space     = 29
+    privileged_observation_space = 8   # oracle features (sinkage, burial, body vel, ...)
+    use_privileged_critic        = True
+    # Concatenated obs: policy slices [:29], critic reads full [:37].
+    observation_space = 29 + 8
     # 6 drive cmd + 4 steer cmd = 10
     action_space      = 10
     state_space       = 0
@@ -218,6 +222,9 @@ class EntrapmentEnv(DirectRLEnv):
         # Counts consecutive steps where v_x < threshold AND mean_slip > threshold
         self._entrap_counter = torch.zeros(self.num_envs, device=self.device)
         self._entrap_flag    = torch.zeros(self.num_envs, device=self.device)
+
+        # Per-env true sinkage (sampled each reset) — privileged critic signal.
+        self._sinkage = torch.zeros(self.num_envs, device=self.device)
 
         # Escape tracking — counted in _get_dones (before reset) so the metric
         # isn't wiped by the env reset that happens between dones and rewards.
@@ -943,9 +950,28 @@ class EntrapmentEnv(DirectRLEnv):
             dist_norm,
         ], dim=-1)
         obs = obs.nan_to_num(0.0).clamp(-5.0, 5.0)
-        # Domain randomization: additive observation noise
+        # Domain randomization: additive observation noise (policy obs only — critic
+        # sees clean privileged signals, so noise is applied before concatenation).
         if self.cfg.dr_obs_noise_std > 0.0:
             obs = obs + self.cfg.dr_obs_noise_std * torch.randn_like(obs)
+
+        if self.cfg.use_privileged_critic:
+            # Oracle features for asymmetric critic. Not exposed to the policy at
+            # train or deploy time — the critic slices [:, 29:] from the full obs.
+            chassis_z    = self.root_pos[:, 2:3] - self.scene.env_origins[:, 2:3]
+            wheel_center_z = chassis_z - CHASSIS_TO_WHEEL_Z
+            sand_top_z   = SAND_DEPTH
+            wheel_burial = (sand_top_z - wheel_center_z).clamp(min=0.0)
+            sand_force_proxy = drive_torque.abs().mean(dim=-1, keepdim=True)
+            priv = torch.cat([
+                self._sinkage.unsqueeze(-1),   # 1: episode-static true sinkage
+                wheel_burial,                  # 1: live burial depth
+                sand_force_proxy,              # 1: gross sand resistance
+                self.root_vel_b,               # 3: full body linear velocity
+                self.ang_vel_b[:, 2:3],        # 1: yaw rate
+                chassis_z,                     # 1: true chassis height above env origin
+            ], dim=-1).nan_to_num(0.0).clamp(-5.0, 5.0)   # (N, 8)
+            obs = torch.cat([obs, priv], dim=-1)          # (N, 37)
         return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
@@ -1105,6 +1131,7 @@ class EntrapmentEnv(DirectRLEnv):
             sinkage_min, sinkage_max,
             (len(env_ids),), self.device,
         )
+        self._sinkage[env_ids] = sinkage_depth
         default_root_pose[:, 2] = (
             self.scene.env_origins[env_ids, 2]
             + SAND_DEPTH + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS - sinkage_depth
