@@ -249,8 +249,8 @@ def train():
     ppo_cfg = PPO_RNN_DEFAULT_CONFIG.copy()
     ppo_cfg.update({
         "rollouts":           ROLLOUTS,
-        "learning_epochs":    5,
-        "mini_batches":       4,
+        "learning_epochs":    3,   # reduced from 5 — prevents critic overfit on easy curriculum episodes
+        "mini_batches":       8,   # raised from 4 — smaller batches, more gradient steps per rollout
         "discount_factor":    0.99,
         "lambda":             0.95,
         "learning_rate":      3e-4,

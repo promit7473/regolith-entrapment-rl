@@ -9,9 +9,15 @@ Joint layout
   Steer  (position control) : FL/RL/FR/RR_Steer_Revolute            ×4
   Passive (free)            : Rocker_Revolute, Differential_Revolute ×N
 
-Velocity control:  stiffness=0, damping=4000
+Velocity control:  stiffness=0, damping=4000, effort_limit=80 Nm
 Steering control:  stiffness=8000, damping=1000
 Passive joints:    stiffness=0,  damping=0,  effort=0
+
+Torque signal rationale (damping=4000, effort_limit=80):
+  Free driving steady-state (v_error ≈ 0.005 rad/s) → τ = 20 Nm, ratio = 0.25 → no anomaly ✓
+  Sand burial               (v_error ≈ 2   rad/s)   → τ = 8000 → capped 80 Nm → ratio = 1.0 → anomaly ✓
+  Root fix: effort_limit 12→80 Nm. Old limit caused ratio=1.0 always (12 Nm saturated at v_error=0.003).
+  Damping unchanged — rover dynamics preserved, minimal intervention.
 """
 
 import os
@@ -35,7 +41,7 @@ MARS_ROVER_CFG = ArticulationCfg(
             rest_offset=0.01,
         ),
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-            max_linear_velocity=1.5,
+            max_linear_velocity=3.0,   # raised: escape maneuver needs >1.5 m/s headroom
             max_angular_velocity=1000.0,
             max_depenetration_velocity=0.5,
             disable_gravity=False,
@@ -59,9 +65,9 @@ MARS_ROVER_CFG = ArticulationCfg(
         "wheel_drive": ImplicitActuatorCfg(
             joint_names_expr=[".*Drive_Continuous"],
             velocity_limit_sim=6.0,    # rad/s
-            effort_limit_sim=12.0,     # Nm
+            effort_limit_sim=80.0,     # Nm — raised from 12: torque ratio now varies (0.25 free, 1.0 buried)
             stiffness=0.0,
-            damping=4000.0,
+            damping=4000.0,            # unchanged — dynamics preserved; effort_limit raise alone fixes the signal
         ),
         # 4 corner steering joints — position control
         "wheel_steer": ImplicitActuatorCfg(

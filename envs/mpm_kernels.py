@@ -65,6 +65,49 @@ def subtract_body_force(
     body_qd_res[b] = body_qd[b] - wp.spatial_vector(delta_v, delta_w)
 
 
+# ── Post-reset settle clamp ────────────────────────────────────────────────────
+
+@wp.kernel
+def clamp_sand_forces_during_settle(
+    body_f:          wp.array(dtype=wp.spatial_vector),
+    env_settle:      wp.array(dtype=int),
+    bodies_per_env:  int,
+    force_cap:       float,
+    torque_cap:      float,
+):
+    """Cap linear/angular sand force on each body while its env is in the
+    post-reset settle window.
+
+    Reset teleports the chassis into the sand volume; MPM resolves the
+    penetration as a one-step impulse that can launch the rover. While
+    `env_settle[env] > 0` we clamp each body's force magnitude so MPM
+    contact still supports the rover but can't eject it.
+    """
+    b   = wp.tid()
+    env = b // bodies_per_env
+    if env_settle[env] <= 0:
+        return
+    f = body_f[b]
+    lin = wp.spatial_top(f)
+    ang = wp.spatial_bottom(f)
+    lin_mag = wp.length(lin)
+    if lin_mag > force_cap:
+        lin = lin * (force_cap / lin_mag)
+    ang_mag = wp.length(ang)
+    if ang_mag > torque_cap:
+        ang = ang * (torque_cap / ang_mag)
+    body_f[b] = wp.spatial_vector(lin, ang)
+
+
+@wp.kernel
+def decrement_settle_counter(
+    env_settle: wp.array(dtype=int),
+):
+    i = wp.tid()
+    if env_settle[i] > 0:
+        env_settle[i] = env_settle[i] - 1
+
+
 # ── Escaped-particle clamp ─────────────────────────────────────────────────────
 
 @wp.kernel

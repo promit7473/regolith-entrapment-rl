@@ -4,7 +4,7 @@ Extra training metric plots not covered by plot_training.py.
 Generates:
   1. Curriculum & Milestones   — curriculum_progress + milestone hit rates
   2. Environment Metrics       — mean_dist, mean_vx, mean_abs_slip
-  3. Detection Flags           — entrap_flag_rate, torque_anomaly_rate
+  3. Detection Flags           — entrap_flag_rate, slip_anomaly_rate
   4. Reward Breakdown          — instantaneous reward mean/min/max bands
   5. Training Overview         — 2×3 combined figure for paper/report
 
@@ -143,24 +143,24 @@ def plot_curriculum_milestones(data, out_path):
     ax1.set_ylim(-0.05, 1.1)
 
     # Milestones + distance
-    ax2.set_title("Milestone Hit Rate & Mean Distance", pad=6)
+    ax2.set_title("Escape Progress Along Heading & Mean Distance", pad=6)
     ax2.set_xlabel("Training Step")
-    ax2.set_ylabel("Hit Rate")
+    ax2.set_ylabel("Fraction of Envs Past Threshold")
     ax2.xaxis.set_major_formatter(ticker.FuncFormatter(fmt_step))
     ax2.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
     ax2.spines[["top", "right"]].set_visible(False)
-    _plot_tag(ax2, data, "Info / milestone_0_5m", "#4DAC26", "0.5 m")
-    _plot_tag(ax2, data, "Info / milestone_1_0m", "#E08214", "1.0 m")
+    _plot_tag(ax2, data, "Info / progress_0_5m", "#4DAC26", "0.5 m")
+    _plot_tag(ax2, data, "Info / progress_1_0m", "#E08214", "1.0 m")
+    _plot_tag(ax2, data, "Info / progress_2_0m", "#B2182B", "2.0 m")
     ax2.legend(loc="upper left")
     ax2.set_ylim(-0.05, 1.1)
-    # Secondary axis: mean distance from origin
     if "Info / mean_dist" in data and len(data["Info / mean_dist"]["step"]) > 0:
         ax2r = ax2.twinx()
-        ax2r.set_ylabel("Mean Dist / m", color="#2166AC")
+        ax2r.set_ylabel("Mean Projected Dist / m", color="#2166AC")
         ax2r.tick_params(axis="y", labelcolor="#2166AC")
         ax2r.spines["top"].set_visible(False)
         _plot_tag(ax2r, data, "Info / mean_dist", "#2166AC", "Mean dist (m)")
-        ax2r.axhline(1.5, color="#D6604D", linewidth=1.0, linestyle=":", alpha=0.7, label="Escape (1.5 m)")
+        ax2r.axhline(3.0, color="#D6604D", linewidth=1.0, linestyle=":", alpha=0.7, label="Escape (3.0 m)")
         ax2r.set_ylim(bottom=0)
         ax2r.legend(loc="center right", fontsize=7.5)
 
@@ -208,7 +208,7 @@ def plot_detection_flags(data, out_path):
     ax.spines[["top", "right"]].set_visible(False)
 
     _plot_tag(ax, data, "Info / entrap_flag_rate", "#D6604D", "Entrapment flag", w=25)
-    _plot_tag(ax, data, "Info / torque_anomaly_rate", "#E08214", "Torque anomaly", w=25)
+    _plot_tag(ax, data, "Info / slip_anomaly_rate", "#E08214", "Slip anomaly", w=25)
     ax.legend(loc="upper right")
     ax.set_ylim(-0.05, 1.1)
 
@@ -328,13 +328,15 @@ def plot_training_overview(data, out_path):
     ax.legend(loc="upper left")
 
     ax = axes[1, 1]
-    ax.set_title("Milestone Hit Rates")
-    ax.set_xlabel("Step"); ax.set_ylabel("Rate")
+    ax.set_title("Escape Progress Along Heading (omnidirectional)")
+    ax.set_xlabel("Step"); ax.set_ylabel("Fraction Past Threshold")
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(fmt_step))
     ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
     ax.spines[["top", "right"]].set_visible(False)
-    _plot_tag(ax, data, "Info / milestone_0_5m", "#4DAC26", "0.5 m")
-    _plot_tag(ax, data, "Info / milestone_1_0m", "#E08214", "1.0 m")
+    _plot_tag(ax, data, "Info / progress_0_5m",  "#4DAC26", "0.5 m")
+    _plot_tag(ax, data, "Info / progress_1_0m",  "#E08214", "1.0 m")
+    _plot_tag(ax, data, "Info / progress_2_0m",  "#B2182B", "2.0 m")
+    _plot_tag(ax, data, "Info / progress_3_0m",  "#762A83", "3.0 m (escape — fully clear)")
     ax.legend(loc="upper left")
     ax.set_ylim(-0.05, 1.1)
 
@@ -345,7 +347,7 @@ def plot_training_overview(data, out_path):
     ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
     ax.spines[["top", "right"]].set_visible(False)
     _plot_tag(ax, data, "Info / entrap_flag_rate", "#D6604D", "Entrapment", w=25)
-    _plot_tag(ax, data, "Info / torque_anomaly_rate", "#E08214", "Torque anomaly", w=25)
+    _plot_tag(ax, data, "Info / slip_anomaly_rate", "#E08214", "Slip anomaly", w=25)
     _plot_tag(ax, data, "Info / mean_abs_slip", "#2166AC", "Mean |slip|", w=25)
     ax.legend(loc="upper right")
     ax.set_ylim(-0.05, 1.1)

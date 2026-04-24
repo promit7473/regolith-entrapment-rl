@@ -88,6 +88,8 @@ logs/
 experiments/
 recordings/
 *.npz
+wandb/
+.claude/
 
 # Cache and temporary files
 .cache/
