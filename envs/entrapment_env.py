@@ -9,7 +9,7 @@ Physics stack:
 Mars environment:
   • Static terrain mesh  : RLRoverLab terrain_merged.usd (photogrammetry Mars analog)
   • Rock scatter         : 10 rock USDs placed randomly each episode reset
-  • Regolith bed         : 3.0 m × 2.5 m × 0.30 m MPM particle bed per env
+  • Regolith bed         : 3.5 m × 3.5 m × 0.60 m MPM particle bed per env
 
 Robot: 6-wheel rocker-bogie Mars rover (Mars_Rover.usd)
   Drive joints  (6) : .*Drive_Continuous   — velocity control, ±6 rad/s
@@ -87,7 +87,7 @@ ESCAPE_DISTANCE = 3.0                       # m — projected travel along escap
 SAND_HALF    = 1.75            # m — half-side of the square sand bed
 SAND_HALF_X  = SAND_HALF      # kept for kernel call compatibility
 SAND_HALF_Y  = SAND_HALF
-SAND_DEPTH   = 0.30           # deeper bed — axle-level burial on hard curriculum
+SAND_DEPTH   = 0.60           # v8: 0.30 → 0.60. Curriculum sinkage tops out at 0.28 m and wheel radius is 0.10 m → wheel bottom at 0.38 m below surface at max sinkage. 0.60 m bed leaves 0.22 m (>2× wheel radius) of compliant sand below the deepest wheel position — fully removes the rigid-floor confound that fed the bulldoze exploit at 0.30 m. Particle count scales ~2× (z cells 12 → 24).
 VOXEL_SIZE   = 0.05
 PPC          = 2.0    # particles per cell; voxel=0.05 preserved so SDF coupling quality unchanged
 
@@ -125,7 +125,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     action_space      = 10
     state_space       = 0
 
-    episode_length_s = 30.0  # raised from 20s: rocking recovery takes several back-forth cycles
+    episode_length_s = 40.0  # v8: 30 → 40. With effort_limit 22 Nm + pen_action_mag the policy can't bulldoze; real recovery (Bi & Ding 2026: ~12–15 s per rocking attempt) needs headroom for multiple attempts before the timeout clips a converging recovery.
     decimation       = 2     # policy at 25 Hz
     skip_mpm         = False  # set True for viewer-only mode (no sand physics)
 
@@ -136,9 +136,21 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     rew_escape_bonus     = 20.0  # raised: escaping must be the highest-value action
     pen_slip             = 0.5   # halved: slip is unavoidable in sand, not a primary signal
     pen_tilt             = 0.3
-    pen_action_delta     = 0.05
+    pen_action_delta     = 0.12  # raised 0.05 → 0.12: smooths action profile without stacking too aggressively against escape reward when combined with new pen_hop
     pen_abnormal         = 0.3   # reduced: anomaly flag is still imperfect
     rew_rocking          = 0.5   # additive bootstrap bonus during entrapment; primary escape signal is now r_progress + Δdist shaping in r_escape (un-gated 2026-04-24)
+    # Vertical-hop penalty: -|v_z| × dt. Directly punishes chassis vertical motion
+    # (bouncing/hopping). Was inert before — locomotion-time bouncing in v6 was
+    # emergent from saturated torque, not from any hop reward. This term makes the
+    # hop-and-grab strategy explicitly costly so the policy must find a smoother gait.
+    pen_hop              = 0.5
+    # Action-magnitude penalty (v8): -‖action‖₂² × dt. Direct pressure away from
+    # max-magnitude commands. v7's effort_limit drop (80 → 40) fixed bouncing but
+    # the policy just relearned bang-bang at the new cap (raw_mean_torque_ratio=1.000).
+    # Pairs with v8's effort_limit 40 → 22: cap forces smaller commands; this term
+    # pushes the policy to use less than the full cap, restoring true torque headroom
+    # and dynamic range needed for the torque-anomaly obs feature to be informative.
+    pen_action_mag       = 0.05
 
     # Domain randomization ranges (inspired by Bi & Ding 2026, Table 9)
     dr_motor_gain_range  = (0.8, 1.2)   # multiplicative gain on drive velocity targets
@@ -167,7 +179,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # FIX (entrap_flag_rate was 4.2%): burial grace was too short (25 steps / 0.15m).
     # Bouncing rover exited 0.15m before grace expired, clearing the flag instantly.
     # Extended to 75 steps (3s) / 0.5m — flag stays on through rocking cycles.
-    burial_grace_steps = 75      # 3 s at 25 Hz — covers full initial rocking window
+    burial_grace_steps = 50      # v8: 75 → 50 (3s → 2s). At 75 the flag-rate floor (~0.30) was so high that real re-entrapment signal was buried in the grace plateau (entrap_flag_rate ≈ 0.33 ≈ floor). 50 still covers the initial rocking window but lets the flag clear faster so re-entrap is observable.
     burial_grace_dist  = 0.50    # m — must leave spawn zone meaningfully before flag clears
 
     # Slip-based anomaly detection: sustained high slip + low progress = struggling.
@@ -177,9 +189,29 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # Slip+velocity formulation is informative regardless of actuator tuning:
     #   stuck:    slip>0.65 AND v_x<0.20 → fires ✓
     #   escaping: slip high BUT v_x>0.20 → does not fire ✓
-    slip_anomaly_thresh       = 0.65   # mean |slip| above free-progress driving
+    # Threshold raised 0.65 → 0.92: at 0.65 the flag fired on baseline sand-driving
+    # (slip_anomaly_rate ≈ 0.98 saturated → 0 information). 0.92 only triggers on
+    # genuinely pathological slip, restoring discriminative power.
+    slip_anomaly_thresh       = 0.92   # mean |slip| above free-progress driving
     slip_anomaly_vx_thresh    = 0.20   # m/s — still counts as making progress
     slip_anomaly_steps_thresh = 15     # ~0.6 s at 25 Hz
+
+    # Trivial-escape detection: clearing 0.3 m within this many policy steps flags
+    # a bounce-exploit (rover popping out of spawn). Was 125 (5 s) — false-positived
+    # a converged policy escaping in ~4.76 s. 50 (2 s) only catches genuine instant pops.
+    trivial_escape_steps_thresh = 50
+
+    # Lateral-drift termination: episode terminates if perpendicular distance from
+    # the escape axis exceeds env_spacing/2 - safety margin. Prevents inter-env
+    # collisions when the policy drifts sideways instead of progressing.
+    lateral_oob_margin = 1.0  # m — subtract from env_spacing/2
+
+    # Curriculum backoff: regress curriculum_progress when the policy collapses
+    # (low escape rate) OR exploits bouncing (high trivial rate). Asymmetric — slower
+    # decay than advance to avoid thrashing, but breaks the monotonic-progress trap.
+    curriculum_backoff_rate_thresh    = 0.20
+    curriculum_backoff_trivial_thresh = 0.60
+    curriculum_backoff_scale          = 0.25  # × curriculum_speed
 
     # MuJoCo Warp solver — same choice as view_rover.py.
     # XPBD cannot stably support an articulated rover regardless of contact settings
@@ -216,7 +248,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
 
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
         num_envs=16,
-        env_spacing=14.0,    # 2×SAND_HALF(3.5m) + 2×ESCAPE_DISTANCE(4.0m) + ~7m buffer — omnidirectional escape safe
+        env_spacing=14.0,    # 2×SAND_HALF(3.5m) + 2×ESCAPE_DISTANCE(3.0m) = 13.0m → 1.0m total buffer (0.5m/side); see lateral_oob_margin for termination bound
         replicate_physics=True,
         clone_in_fabric=True,
     )
@@ -331,17 +363,62 @@ class EntrapmentEnv(DirectRLEnv):
         # spheres for collision instead). With skip_mesh_approximation=True it's <30s.
         @classmethod
         def _fast_instantiate(cls):
-            from pxr import UsdGeom
+            import time as _t
+            print("[fast_instantiate] FIRED — using skip_mesh_approximation=True path", flush=True)
+            from pxr import UsdGeom, UsdPhysics
             from isaaclab.sim._impl.newton_manager import get_current_stage
             stage = get_current_stage()
             up_axis = UsdGeom.GetStageUpAxis(stage)
             builder = nt.ModelBuilder(up_axis=up_axis)
+
+            # ── Runtime USD collision-mesh strip ─────────────────────────────
+            # Mars_Rover.usd carries 368 collision-mesh prims. With
+            # `skip_mesh_approximation=True` Newton skips convex-hull build
+            # but still calls `add_shape_mesh` for each, which builds a Warp
+            # mesh + BVH per shape. On this hardware that grinds for ≥1 hour
+            # (sometimes hangs across reboots).
+            #
+            # We never use these collision meshes: wheel contact uses proxy
+            # cylinders added in `_newton_init_cb` below, and the chassis
+            # talks to sand only via the MPM coupling kernels — nothing in
+            # the env queries USD collision shapes.
+            #
+            # Deactivating CollisionAPI prims in-memory (not on disk) makes
+            # add_usd skip them entirely. ~30s init instead of 1h+.
+            # If you ever suspect this is hiding a real contact, set
+            # STRIP_COLLISION_MESHES=False to revert.
+            STRIP_COLLISION_MESHES = True
+            if STRIP_COLLISION_MESHES:
+                # IMPORTANT: don't `SetActive(False)` on the prim — Mars_Rover.usd
+                # uses unified visual+collision mesh prims (same Mesh prim carries
+                # both UsdGeom.Mesh schema and UsdPhysics.CollisionAPI). Deactivating
+                # would also delete the visual mesh and the rover renders as just
+                # proxy shapes.
+                #
+                # Instead: unbind the CollisionAPI so the prim still renders but
+                # Newton's USD parser skips the expensive add_shape_mesh step.
+                _t_strip = _t.time()
+                stripped = 0
+                for prim in stage.Traverse():
+                    if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI):
+                        prim.RemoveAPI(UsdPhysics.CollisionAPI)
+                        # Also remove MeshCollisionAPI if present (carries the
+                        # approximation hint that triggers mesh-shape registration).
+                        if prim.HasAPI(UsdPhysics.MeshCollisionAPI):
+                            prim.RemoveAPI(UsdPhysics.MeshCollisionAPI)
+                        stripped += 1
+                print(f"[fast_instantiate] Unbound CollisionAPI from {stripped} mesh prims "
+                      f"(visuals preserved) in {_t.time()-_t_strip:.2f}s", flush=True)
+
+            print("[fast_instantiate] Calling builder.add_usd(stage, skip_mesh_approximation=True)…", flush=True)
+            _t0 = _t.time()
             builder.add_usd(
                 stage,
                 skip_mesh_approximation=True,
                 collapse_fixed_joints=False,   # keep differential/rocker link bodies separate
                 load_visual_shapes=True,        # needed for correct visual transforms
             )
+            print(f"[fast_instantiate] add_usd done in {_t.time()-_t0:.1f}s", flush=True)
             NewtonManager.set_builder(builder)
         NewtonManager.instantiate_builder_from_stage = _fast_instantiate
 
@@ -571,9 +648,14 @@ class EntrapmentEnv(DirectRLEnv):
         _p(f"[MPM] Finalizing sand model ({len(sand_builder.particle_q)} particles)...")
         self.sand_model = sand_builder.finalize(device=device)
         self.sand_model.particle_mu = 0.9     # raised from 0.7 — higher inter-particle friction
-        self.sand_model.particle_ke = 1.0e15  # match Newton reference example — implicit solver is unconditionally stable
-        # NOTE: CFL blow-up seen previously was caused by missing subtract_body_force (double-counted velocities),
-        # not by ke itself. SolverImplicitMPM is unconditionally stable for any ke value.
+        # particle_ke = bulk stiffness. Lowered 1e15 → 1e8 to match physical sand
+        # bulk modulus (~30–100 MPa). The Newton reference's 1e15 is for a ball-drop
+        # demo and treats sand as near-incompressible — wheel impulses then bounce
+        # off a rigid bed (trampoline effect → "hop-and-grab" locomotion). At 1e8
+        # the bed compresses realistically under wheel load. Implicit MPM solver is
+        # unconditionally stable at any ke; previous CFL blow-up came from missing
+        # subtract_body_force (double-counted velocities), not from ke itself.
+        self.sand_model.particle_ke = 1.0e8
         _p("[MPM] Sand model finalized.")
 
         mpm_opt = SolverImplicitMPM.Options()
@@ -908,7 +990,8 @@ class EntrapmentEnv(DirectRLEnv):
             if not hasattr(self, '_vis_radii') or len(self._vis_radii) != n_vis:
                 self._vis_radii  = wp.full(n_vis, VOXEL_SIZE * 0.6,
                                            dtype=wp.float32, device=sand_pts.device)
-                self._vis_colors = wp.full(n_vis, wp.vec3(0.76, 0.60, 0.42),
+                # Mars-red palette — matches sim2sim_validation/validation_env.py.
+                self._vis_colors = wp.full(n_vis, wp.vec3(0.62, 0.30, 0.20),
                                            dtype=wp.vec3, device=sand_pts.device)
 
             self._viewer.log_points(
@@ -928,11 +1011,19 @@ class EntrapmentEnv(DirectRLEnv):
         self._inject_sand_forces()
 
     def _apply_action(self) -> None:
+        # Zero actions for envs that have already crossed the escape threshold this
+        # policy step but haven't been reset yet — eliminates the ~0.02 m post-escape
+        # drift between done detection and _reset_idx.
+        root_xy   = wp.to_torch(self.robot.data.root_link_pos_w)[:, :2]
+        rel_pos   = root_xy - self._spawn_pos
+        axial     = (rel_pos * self._escape_dir).sum(dim=-1)
+        live_mask = (axial <= ESCAPE_DISTANCE).float().unsqueeze(-1)
+
         # Drive: velocity targets (with domain-randomized motor gain)
-        drive_targets = self.actions[:, :6] * DRIVE_VEL_LIMIT * self._motor_gain
+        drive_targets = self.actions[:, :6] * DRIVE_VEL_LIMIT * self._motor_gain * live_mask
         self.robot.set_joint_velocity_target(drive_targets, joint_ids=self._drive_ids)
         # Steer: position targets
-        steer_targets = self.actions[:, 6:] * STEER_POS_LIMIT
+        steer_targets = self.actions[:, 6:] * STEER_POS_LIMIT * live_mask
         self.robot.set_joint_position_target(steer_targets, joint_ids=self._steer_ids)
 
     def _get_observations(self) -> dict:
@@ -1077,7 +1168,9 @@ class EntrapmentEnv(DirectRLEnv):
 
         # World-frame velocity projected onto per-episode escape heading for r_progress.
         # Body-frame v_x is kept for slip, rocking, and anomaly terms (wheel-relative).
-        v_world_xy = wp.to_torch(self.robot.data.root_com_lin_vel_w)[:, :2].nan_to_num(0.0).clamp(-10.0, 10.0)
+        v_world_full = wp.to_torch(self.robot.data.root_com_lin_vel_w).nan_to_num(0.0).clamp(-10.0, 10.0)
+        v_world_xy = v_world_full[:, :2]
+        v_z_world  = v_world_full[:, 2]
         v_x_world = (v_world_xy * self._escape_dir).sum(dim=-1)
 
         # All per-step reward terms use step_dt (policy step = sim.dt * decimation)
@@ -1139,11 +1232,25 @@ class EntrapmentEnv(DirectRLEnv):
         ang_vel = wp.to_torch(self.robot.data.root_com_ang_vel_b).nan_to_num(0.0)
         p_tilt  = self.cfg.pen_tilt * torch.norm(ang_vel[:, :2], dim=-1) * dt
 
+        # Vertical-hop penalty: directly punish |v_z| to discourage bouncing.
+        # Locomotion-time bouncing was emergent from torque saturation (v6 audit:
+        # raw_mean_torque_ratio = 0.9995 → every step max-thrust → impulsive lurches).
+        # Gated by burial_grace: involuntary z-drift from gravity + sinkage spike
+        # during the grace window must not be penalised — the policy has no control over it.
+        grace_active = (self._burial_grace_counter > 0.0).float()
+        p_hop = self.cfg.pen_hop * torch.abs(v_z_world) * (1.0 - grace_active) * dt
+
         # Action smoothness penalty
         p_smooth = self.cfg.pen_action_delta * torch.norm(
             self.actions - self.prev_action, dim=-1
         ) * dt
         self.prev_action = self.actions.clone()
+
+        # Action-magnitude penalty (v8): pushes policy off the torque saturator.
+        # Squared L2 — quadratic so penalty grows fast as commands approach the cap,
+        # but is tiny for moderate-magnitude commands. Combined with effort_limit 22 Nm
+        # this restores torque-signal dynamic range.
+        p_action_mag = self.cfg.pen_action_mag * torch.sum(self.actions ** 2, dim=-1) * dt
 
         # Abnormal action penalty (sustained high torque with low progress).
         # Suppressed when entrap_flag=1: backward rocking is intentional recovery,
@@ -1196,7 +1303,7 @@ class EntrapmentEnv(DirectRLEnv):
         # envs show first_progress_step = -1 and are excluded.
         crossed = self._first_progress_step > 0
         if crossed.any():
-            trivial = crossed & (self._first_progress_step < 125.0)
+            trivial = crossed & (self._first_progress_step < float(self.cfg.trivial_escape_steps_thresh))
             self.extras["log"]["trivial_escape_frac"] = (
                 trivial.float().sum() / crossed.float().sum()
             )
@@ -1215,8 +1322,10 @@ class EntrapmentEnv(DirectRLEnv):
         self.extras["log"]["pen_smooth"]   = (-p_smooth).mean()
         self.extras["log"]["pen_abnormal"] = (-p_abnormal).mean()
         self.extras["log"]["pen_reverse"]  = p_reverse.mean()
+        self.extras["log"]["pen_hop"]      = (-p_hop).mean()
+        self.extras["log"]["pen_action_mag"] = (-p_action_mag).mean()
 
-        return r_progress + r_escape - p_slip - p_tilt - p_smooth - p_abnormal - p_reverse + p_rocking
+        return r_progress + r_escape - p_slip - p_tilt - p_smooth - p_abnormal - p_reverse - p_hop - p_action_mag + p_rocking
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         self.root_pos  = wp.to_torch(self.robot.data.root_link_pos_w)
@@ -1233,7 +1342,16 @@ class EntrapmentEnv(DirectRLEnv):
         flipped = grav_b[:, 2] > -0.34   # >70° tilt
         sunk    = self.root_pos[:, 2] < -0.20  # chassis root below ground plane by >20cm
 
-        terminated = escaped | flipped | sunk
+        # Lateral out-of-bounds: drift perpendicular to escape_dir > env_spacing/2 - margin.
+        # Without this, a sideways-drifting rover never terminates and can collide with
+        # neighboring envs (env_spacing=14 m → bound at 6 m lateral).
+        axial_vec      = axial_progress_done.unsqueeze(-1) * self._escape_dir
+        lateral_vec    = rel_pos_done - axial_vec
+        lateral_dist   = torch.linalg.norm(lateral_vec, dim=-1)
+        lateral_bound  = float(self.cfg.scene.env_spacing) * 0.5 - self.cfg.lateral_oob_margin
+        lateral_oob    = lateral_dist > lateral_bound
+
+        terminated = escaped | flipped | sunk | lateral_oob
 
         # Tick per-env episode step counter and capture first-time-past-0.3m as a
         # trivial-escape diagnostic: if the rover clears a token progress threshold
@@ -1288,6 +1406,7 @@ class EntrapmentEnv(DirectRLEnv):
             # Previous default of 1.0 advanced the curriculum unconditionally during the first
             # ~window_size episodes — observed pushing curriculum to 0.08 with escape_rate=0.
             competence_gate = 0.0
+            backoff_gate    = 0.0
             if self._recent_escapes_full:
                 recent_rate  = self._recent_escapes.mean().item()
                 trivial_frac = float(self.extras.get("log", {}).get("trivial_escape_frac", 1.0))
@@ -1295,11 +1414,13 @@ class EntrapmentEnv(DirectRLEnv):
                 trivial_ok = trivial_frac <  0.25
                 if rate_ok and trivial_ok:
                     competence_gate = 1.0
-            self._curriculum_progress += (
-                competence_gate * curriculum_speed
-                * len(env_ids) / float(total_resets_est)
-            )
-            self._curriculum_progress = torch.clamp(self._curriculum_progress, max=1.0)
+                # Backoff: regression OR bounce-exploit collapse → decay curriculum.
+                if (recent_rate  <  self.cfg.curriculum_backoff_rate_thresh
+                    or trivial_frac >  self.cfg.curriculum_backoff_trivial_thresh):
+                    backoff_gate = self.cfg.curriculum_backoff_scale
+            step_norm = len(env_ids) / float(total_resets_est)
+            self._curriculum_progress += (competence_gate * curriculum_speed - backoff_gate * curriculum_speed) * step_norm
+            self._curriculum_progress = torch.clamp(self._curriculum_progress, min=0.0, max=1.0)
 
         # ── Robot pose ───────────────────────────────────────────────────────
         default_root_pose = wp.to_torch(
@@ -1404,9 +1525,12 @@ class EntrapmentEnv(DirectRLEnv):
                 pass
 
         # ── Domain randomisation: sand friction ─────────────────────────────
+        # Range narrowed 0.4–1.0 → 0.6–0.9: low end (0.4) was wet-sand-like →
+        # trivial escapes inflated the metric; high end (1.0) was near-impossible.
+        # 0.6–0.9 spans realistic dry-Mars-regolith friction without bimodal outcomes.
         if self._mpm_ready:
             self.sand_model.particle_mu = float(
-                sample_uniform(0.4, 1.0, (1,), self.device).item()
+                sample_uniform(0.6, 0.9, (1,), self.device).item()
             )
 
         # ── Reset MPM sand patches ────────────────────────────────────────────

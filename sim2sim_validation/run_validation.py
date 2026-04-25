@@ -24,18 +24,28 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Sim2Sim Validation: A→B with entrapment recovery")
 parser.add_argument("--checkpoint",   type=str,   required=True,
-                    help="Path to trained PPO checkpoint (.pt)")
+                    help="Path to trained PPO checkpoint (.pt). "
+                         "Note: skrl's `best_agent.pt` is selected by total reward; "
+                         "the highest-escape-rate checkpoint is usually the final one "
+                         "(e.g. agent_200000.pt). Prefer the final checkpoint for eval "
+                         "unless you specifically want the best-reward snapshot.")
 parser.add_argument("--num_envs",     type=int,   default=8,
                     help="Parallel environments (must be ≤ training num_envs for PPO_RNN states)")
 parser.add_argument("--num_trials",   type=int,   default=20,
                     help="Total trials to run (spread across envs)")
-parser.add_argument("--goal_x",       type=float, default=6.0,
-                    help="Goal position X in world frame (m) — B")
+parser.add_argument("--goal_x",       type=float, default=3.0,
+                    help="Goal B position X in env-local frame (m). "
+                         "Default 3.0 places B on platform east of sand pit.")
 parser.add_argument("--goal_y",       type=float, default=0.0,
-                    help="Goal position Y in world frame (m) — B")
+                    help="Goal B position Y in env-local frame (m).")
 parser.add_argument("--max_steps",    type=int,   default=2000,
                     help="Max policy steps per trial before timeout")
 parser.add_argument("--seed",         type=int,   default=123)
+parser.add_argument("--experiments",  type=str,   default="recovery_gps",
+                    help="Comma-separated list of experiment modes to run sequentially "
+                         "in a single Newton init. Options: recovery_gps, "
+                         "recovery_random, no_recovery. Example: "
+                         "--experiments recovery_gps,recovery_random,no_recovery")
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, hydra_args = parser.parse_known_args()
@@ -52,6 +62,7 @@ import torch
 import torch.nn as nn
 import gymnasium as gym
 import numpy as np
+import warp as wp
 
 from isaaclab_rl.skrl import SkrlVecEnvWrapper
 
@@ -65,8 +76,8 @@ from skrl.utils import set_seed
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-import envs  # registers "MarsRover-RegolithEscape-v0"
-from envs.entrapment_env import EntrapmentEnv, EntrapmentEnvCfg
+import envs  # registers "MarsRover-RegolithEscape-v0" and "MarsRover-Sim2SimValidation-v0"
+from sim2sim_validation.validation_env import ValidationEnv, ValidationEnvCfg
 
 from sim2sim_validation.nav_controller import PDNavController
 from sim2sim_validation.mode_switcher import ModeSwitcher, Mode
@@ -164,8 +175,12 @@ class GRUValueNet(DeterministicMixin, Model):
 
 def build_agent(env, device, num_envs, checkpoint_path):
     """Load the PPO_RNN agent from checkpoint."""
-    obs_space = env.observation_space
-    act_space = env.action_space
+    # Match train.py's manual space construction so model layer sizes are identical
+    # to what the checkpoint was trained with (37D obs, 10D action).
+    num_obs = env.unwrapped.cfg.observation_space
+    num_act = env.unwrapped.cfg.action_space
+    obs_space = gym.spaces.Box(low=-math.inf, high=math.inf, shape=(num_obs,))
+    act_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(num_act,))
 
     policy = GRUPolicyNet(obs_space, act_space, device, num_envs)
     value  = GRUValueNet(obs_space, act_space, device, num_envs)
@@ -174,7 +189,7 @@ def build_agent(env, device, num_envs, checkpoint_path):
 
     cfg = PPO_RNN_DEFAULT_CONFIG.copy()
     cfg["state_preprocessor"]       = RunningStandardScaler
-    cfg["state_preprocessor_kwargs"] = {"size": obs_space, "device": device}
+    cfg["state_preprocessor_kwargs"] = {"size": num_obs, "device": device}
     cfg["value_preprocessor"]       = RunningStandardScaler
     cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 
@@ -188,16 +203,39 @@ def build_agent(env, device, num_envs, checkpoint_path):
         action_space=act_space,
         device=device,
     )
+    # Standard skrl order: init() (sets up writer/checkpoints dir) before load().
+    # In skrl 1.x init() does not touch model/preprocessor state, so order is
+    # not critical for correctness — but doing init first matches the docs.
+    agent.init()
     agent.load(checkpoint_path)
     agent.set_running_mode("eval")
     return agent
 
 
+def reset_agent_rnn_state(agent):
+    """
+    Zero the agent's per-env GRU hidden state(s) so the next experiment starts
+    with a clean recurrent context. Without this, mode 2 inherits whatever
+    hidden state the policy ended mode 1 on, contaminating the comparison.
+
+    skrl PPO_RNN stores RNN states on the agent itself as
+    `_rnn_initial_states` and `_rnn_final_states`, both dicts keyed by role.
+    """
+    for attr in ("_rnn_initial_states", "_rnn_final_states"):
+        states = getattr(agent, attr, None)
+        if not states:
+            continue
+        for role_states in states.values():
+            for h in role_states:
+                if hasattr(h, "zero_"):
+                    h.zero_()
+
+
 def get_pos_yaw(env_unwrapped):
-    """Extract (pos_xy, yaw) from root_state [x,y,z, qx,qy,qz,qw, ...]."""
-    root = env_unwrapped.robot.data.root_state_w   # (N, 13+)
-    pos_xy = root[:, :2].clone()
-    qx, qy, qz, qw = root[:, 3], root[:, 4], root[:, 5], root[:, 6]
+    """Extract (pos_xy, yaw) from root pose [x,y,z, qx,qy,qz,qw] (Newton order)."""
+    pose = wp.to_torch(env_unwrapped.robot.data.root_link_pose_w)  # (N, 7)
+    pos_xy = pose[:, :2].clone()
+    qx, qy, qz, qw = pose[:, 3], pose[:, 4], pose[:, 5], pose[:, 6]
     yaw = torch.atan2(2.0*(qw*qz + qx*qy), 1.0 - 2.0*(qy*qy + qz*qz))
     return pos_xy, yaw
 
@@ -208,43 +246,31 @@ def override_escape_dir(env_unwrapped, goal_xy_tensor):
     This makes the PPO primitive (trained with random headings) orient toward B.
     Must be called after env reset, before the escape primitive fires.
     """
-    pos_xy = env_unwrapped.robot.data.root_state_w[:, :2]
+    pose = wp.to_torch(env_unwrapped.robot.data.root_link_pose_w)
+    pos_xy = pose[:, :2]
     rel = goal_xy_tensor - pos_xy                           # (N, 2)
     dist = torch.norm(rel, dim=-1, keepdim=True).clamp(min=1e-3)
     env_unwrapped._escape_dir = rel / dist
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# ── Per-experiment trial loop ─────────────────────────────────────────────────
 
-def main():
-    set_seed(args_cli.seed)
-    device    = "cuda" if torch.cuda.is_available() else "cpu"
-    num_envs  = args_cli.num_envs
+def run_experiment(
+    mode_name: str,
+    env, unwrapped: ValidationEnv, agent,
+    goal_xy: torch.Tensor,
+    num_envs: int, num_trials: int, max_steps: int, device: str,
+):
+    """
+    Run `num_trials` trials in the given experiment mode and return a summary dict.
 
-    # ── Build env ─────────────────────────────────────────────────────────────
-    cfg = EntrapmentEnvCfg()
-    cfg.scene.num_envs = num_envs
-    # Disable curriculum for validation — use a fixed, representative sinkage
-    cfg.sinkage_min    = 0.18
-    cfg.sinkage_max    = 0.22
+    mode_name:
+      recovery_gps    — PPO escape primitive, escape_dir overridden toward B
+      recovery_random — PPO escape primitive, escape_dir = env's random sample
+      no_recovery     — PD nav only; ignore entrap_flag (rover stays stuck)
+    """
+    assert mode_name in ("recovery_gps", "recovery_random", "no_recovery"), mode_name
 
-    raw_env = gym.make("MarsRover-RegolithEscape-v0", cfg=cfg)
-    env     = SkrlVecEnvWrapper(raw_env)
-    unwrapped: EntrapmentEnv = raw_env.unwrapped
-
-    # ── Build and load agent ───────────────────────────────────────────────────
-    print(f"[sim2sim] Loading checkpoint: {args_cli.checkpoint}")
-    agent = build_agent(env, device, num_envs, args_cli.checkpoint)
-
-    # ── Goal B (GPS) ──────────────────────────────────────────────────────────
-    goal_world = torch.tensor([args_cli.goal_x, args_cli.goal_y],
-                               dtype=torch.float32, device=device)
-    # Per-env goal: each env is offset by Isaac Lab's env_origins
-    # (N, 2) in world frame = env_origin[:, :2] + local goal
-    env_origins_xy = unwrapped.scene.env_origins[:, :2]           # (N, 2)
-    goal_xy = env_origins_xy + goal_world.unsqueeze(0)             # (N, 2)
-
-    # ── Controllers & trackers ─────────────────────────────────────────────────
     nav = PDNavController(
         num_envs=num_envs, device=device,
         drive_speed=0.6, heading_gain=1.2, arrival_radius=0.5,
@@ -258,65 +284,87 @@ def main():
 
     metrics = MetricsTracker(
         num_envs=num_envs, device=device, goal_xy=goal_xy,
+        # Don't credit "escape" to the policy in the no_recovery baseline:
+        # there the PPO primitive is never invoked, so a 3 m projected-distance
+        # crossing comes from PD nav alone and shouldn't be reported as recovery.
+        attribute_escape=(mode_name != "no_recovery"),
     )
 
-    # ── Validation loop ────────────────────────────────────────────────────────
-    num_trials    = args_cli.num_trials
-    max_steps     = args_cli.max_steps
-    trials_done   = 0
-    trial_step    = torch.zeros(num_envs, dtype=torch.long, device=device)
-
-    obs, _ = env.reset()
+    trials_done = 0
+    trial_step  = torch.zeros(num_envs, dtype=torch.long, device=device)
     all_env_ids = torch.arange(num_envs, device=device)
 
-    # Initialize metrics for first episode
+    # Per-step trace for trial 0, env 0 only (paper trajectory figure).
+    # Capture is cheap: ~6 small tensors per policy step.
+    trace = {
+        "t":           [],   # seconds
+        "pos_xy":      [],   # (2,)
+        "action":      [],   # (10,)
+        "mode":        [],   # int (Mode enum)
+        "entrap_flag": [],   # 0/1
+        "spawn_xy":    None, # (2,) recorded on reset
+        "goal_xy":     goal_xy[0].detach().cpu().tolist(),  # env 0 goal
+    }
+    POLICY_DT = 0.04   # 25 Hz
+
+    obs, _ = env.reset()
     pos_xy, _ = get_pos_yaw(unwrapped)
     metrics.begin_trial(all_env_ids, pos_xy)
     switcher.reset(all_env_ids)
+    trace["spawn_xy"] = pos_xy[0].detach().cpu().tolist()
 
-    # Override escape_dir to point toward B for every env
-    override_escape_dir(unwrapped, goal_xy)
+    if mode_name == "recovery_gps":
+        override_escape_dir(unwrapped, goal_xy)
+    # recovery_random / no_recovery: leave env's _escape_dir alone (random per reset)
 
-    agent.init()
     states = obs
+    capturing_trace = True   # disabled after trial 0 of this experiment finishes
 
-    print(f"\n[sim2sim] Running {num_trials} trials across {num_envs} envs "
-          f"(goal B = [{args_cli.goal_x:.1f}, {args_cli.goal_y:.1f}] m from env origin)\n")
+    print(f"\n[exp:{mode_name}] {num_trials} trials  "
+          f"(goal B in env-local frame = [{args_cli.goal_x:.1f}, "
+          f"{args_cli.goal_y:.1f}] m)\n")
 
     while trials_done < num_trials:
         pos_xy, yaw = get_pos_yaw(unwrapped)
 
-        # ── Mode FSM ──────────────────────────────────────────────────────────
-        # Extract entrap_flag from obs (index 26 in 29D obs)
         entrap_flag = states[:, 26].clamp(0.0, 1.0)
-        mode, newly_escaped, _ = switcher.update(pos_xy, entrap_flag, goal_xy)
+        mode_fsm, newly_triggered, newly_escaped, _ = switcher.update(pos_xy, entrap_flag, goal_xy)
 
-        # ── Override escape_dir when escape mode just triggered ───────────────
-        # switcher already computed escape_dir = toward B at trigger time,
-        # but we force the env's internal buffer too so the PPO dist_norm obs
-        # is computed correctly against the GPS-directed heading.
-        just_triggered = (mode == Mode.ESCAPE) & (switcher.steps_in_escape == 1)
-        if just_triggered.any():
-            for i in just_triggered.nonzero(as_tuple=True)[0].tolist():
-                unwrapped._escape_dir[i] = switcher.escape_dir[i]
+        # GPS-directed escape: rewrite env's _escape_dir at trigger time
+        if mode_name == "recovery_gps":
+            just_triggered = (mode_fsm == Mode.ESCAPE) & (switcher.steps_in_escape == 1)
+            if just_triggered.any():
+                for i in just_triggered.nonzero(as_tuple=True)[0].tolist():
+                    unwrapped._escape_dir[i] = switcher.escape_dir[i]
 
-        # ── Choose action ──────────────────────────────────────────────────────
         nav_action, arrived = nav.step(pos_xy, yaw)
 
         with torch.no_grad():
-            ppo_action, _, _ = agent.act({"states": states}, role="policy")
+            # skrl PPO_RNN.act signature: act(states_tensor, timestep, timesteps).
+            # It applies the state preprocessor and threads RNN state internally.
+            # In eval mode (set_running_mode("eval")) the policy returns the mean.
+            ppo_action, _, _ = agent.act(states, timestep=0, timesteps=1)
 
-        # NAVIGATE / REPLANNED → use PD nav;  ESCAPE → use PPO primitive
-        navigating_mask = (mode != Mode.ESCAPE).unsqueeze(-1).float()
-        action = nav_action * navigating_mask + ppo_action * (1.0 - navigating_mask)
+        if mode_name == "no_recovery":
+            # PD nav only; never hand off to PPO. Rover stays stuck if buried.
+            action = nav_action
+        else:
+            navigating_mask = (mode_fsm != Mode.ESCAPE).unsqueeze(-1).float()
+            action = nav_action * navigating_mask + ppo_action * (1.0 - navigating_mask)
 
-        # ── Step environment ───────────────────────────────────────────────────
         obs_next, _, terminated, truncated, _ = env.step(action)
         states = obs_next
 
-        # ── Metrics update ────────────────────────────────────────────────────
+        if capturing_trace:
+            trace["t"].append(float(trial_step[0].item()) * POLICY_DT)
+            trace["pos_xy"].append(pos_xy[0].detach().cpu().tolist())
+            trace["action"].append(action[0].detach().cpu().tolist())
+            trace["mode"].append(int(mode_fsm[0].item()))
+            trace["entrap_flag"].append(float(entrap_flag[0].item()))
+
         metrics.step(
             pos_xy=pos_xy,
+            newly_triggered=newly_triggered,
             newly_escaped=newly_escaped,
             arrived=arrived,
             escape_dir=switcher.escape_dir,
@@ -327,6 +375,9 @@ def main():
 
         if done_mask.any():
             done_ids = done_mask.nonzero(as_tuple=True)[0]
+            # Stop trace capture once env 0's first trial finishes
+            if capturing_trace and (0 in done_ids.tolist()):
+                capturing_trace = False
             finished = metrics.end_trial(done_ids)
             for r in finished:
                 trials_done += 1
@@ -341,24 +392,81 @@ def main():
                     break
 
             if trials_done < num_trials:
-                # Reset finished envs
+                fresh_pos_xy, _ = get_pos_yaw(unwrapped)
                 trial_step[done_ids] = 0
-                metrics.begin_trial(done_ids, pos_xy)
+                metrics.begin_trial(done_ids, fresh_pos_xy)
                 switcher.reset(done_ids)
-                override_escape_dir(unwrapped, goal_xy)
+                if mode_name == "recovery_gps":
+                    pose_all = wp.to_torch(unwrapped.robot.data.root_link_pose_w)
+                    pos_done = pose_all[done_ids, :2]
+                    rel = goal_xy[done_ids] - pos_done
+                    dist = torch.norm(rel, dim=-1, keepdim=True).clamp(min=1e-3)
+                    unwrapped._escape_dir[done_ids] = rel / dist
 
-    # ── Summary ────────────────────────────────────────────────────────────────
     metrics.print_summary()
     summary = metrics.summary()
+    summary["trace"] = trace   # per-step record from trial 0, env 0
+    return summary
 
-    # Save JSON
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+def main():
+    set_seed(args_cli.seed)
+    device   = "cuda" if torch.cuda.is_available() else "cpu"
+    num_envs = args_cli.num_envs
+
+    cfg = ValidationEnvCfg()
+    cfg.scene.num_envs = num_envs
+    # Use override goals from CLI in the validation env's cfg fields too,
+    # so the env-side termination uses the same goal as the harness-side metrics.
+    cfg.val_goal_x = args_cli.goal_x
+    cfg.val_goal_y = args_cli.goal_y
+
+    print(f"[sim2sim] Calling gym.make (Newton init starts here — first cold launch can take 10-15 min)…", flush=True)
+    raw_env = gym.make("MarsRover-Sim2SimValidation-v0", cfg=cfg)
+    print(f"[sim2sim] gym.make returned. Wrapping env…", flush=True)
+    env     = SkrlVecEnvWrapper(raw_env, ml_framework="torch")
+    unwrapped: ValidationEnv = raw_env.unwrapped
+    unwrapped._total_timesteps = 200_000  # matches train.py default; only affects curriculum which we bypass via cfg overrides
+    print(f"[sim2sim] Env ready (num_envs={num_envs}). Building agent…", flush=True)
+
+    print(f"[sim2sim] Loading checkpoint: {args_cli.checkpoint}")
+    agent = build_agent(env, device, num_envs, args_cli.checkpoint)
+    print(f"[sim2sim] Agent initialized. Starting experiments.", flush=True)
+
+    goal_world = torch.tensor([args_cli.goal_x, args_cli.goal_y],
+                              dtype=torch.float32, device=device)
+    env_origins_xy = unwrapped.scene.env_origins[:, :2]
+    goal_xy = env_origins_xy + goal_world.unsqueeze(0)
+
+    experiment_modes = [m.strip() for m in args_cli.experiments.split(",") if m.strip()]
+    print(f"[sim2sim] Experiments to run: {experiment_modes}")
+
+    all_summaries = {}
+    for mode_name in experiment_modes:
+        # Reset GRU hidden state between experiments so runs are independent.
+        # Without this, mode N+1 inherits the recurrent context that mode N
+        # ended on, biasing the comparison.
+        reset_agent_rnn_state(agent)
+        summary = run_experiment(
+            mode_name=mode_name,
+            env=env, unwrapped=unwrapped, agent=agent,
+            goal_xy=goal_xy,
+            num_envs=num_envs,
+            num_trials=args_cli.num_trials,
+            max_steps=args_cli.max_steps,
+            device=device,
+        )
+        all_summaries[mode_name] = summary
+
     out_dir = os.path.join(REPO_ROOT, "experiments", "sim2sim")
     os.makedirs(out_dir, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = os.path.join(out_dir, f"summary_{ts}.json")
     with open(out_path, "w") as f:
-        json.dump({"args": vars(args_cli), "summary": summary}, f, indent=2)
-    print(f"[sim2sim] Results saved → {out_path}")
+        json.dump({"args": vars(args_cli), "experiments": all_summaries}, f, indent=2)
+    print(f"\n[sim2sim] All experiments complete. Results → {out_path}")
 
     env.close()
     simulation_app.close()

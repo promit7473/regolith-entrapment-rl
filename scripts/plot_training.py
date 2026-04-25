@@ -127,14 +127,28 @@ def shade_band(ax, steps, values_raw, color, alpha=0.12):
 
 # ── Figure 1 — Reward Convergence (paper Fig. 20 style) ───────────────────────
 
-def plot_reward_convergence(exp_names, all_data, out_path):
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+def _ema(values, alpha):
+    """Exponential moving average. alpha small = heavier smoothing."""
+    values = np.asarray(values, dtype=np.float32)
+    out = np.empty_like(values)
+    out[0] = values[0]
+    for i in range(1, len(values)):
+        out[i] = alpha * values[i] + (1 - alpha) * out[i - 1]
+    return out
 
-    ax.set_title("Reward Convergence", pad=8)
-    ax.set_xlabel("Training Step")
-    ax.set_ylabel("Episode Reward")
+
+def plot_reward_convergence(exp_names, all_data, out_path):
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.set_facecolor("#FAFAFA")
+
+    ax.set_title("Reward Convergence", pad=10, fontsize=13, fontweight="bold")
+    ax.set_xlabel("Training Step", fontsize=11)
+    ax.set_ylabel("Episode Reward", fontsize=11)
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(
         lambda x, _: f"{x/1e3:.0f}k" if x >= 1000 else f"{x:.0f}"))
+    ax.grid(True, which="major", linestyle="--", linewidth=0.5,
+            color="#CCCCCC", alpha=0.7, zorder=0)
+    ax.axhline(0, color="#888888", linewidth=0.8, linestyle=":", zorder=1)
 
     tag = "Reward / Total reward (mean)"
     plotted = 0
@@ -145,22 +159,102 @@ def plot_reward_convergence(exp_names, all_data, out_path):
         steps  = data[tag]["step"]
         values = data[tag]["value"]
 
-        shade_band(ax, steps, values, color, alpha=0.12)
+        # Min/max shaded envelope around local mean (visual variance band)
+        shade_band(ax, steps, values, color, alpha=0.08)
+
+        # (1) Raw per-rollout reward — light, honest
+        ax.plot(steps, values, color=color, linewidth=0.5, alpha=0.22,
+                label=f"{name} (raw)", zorder=2)
+
+        # (2) Light moving average (w=30) — the existing trend line
         sm, sm_steps = smooth(values, w=30, x=steps)
-        ax.plot(sm_steps, sm, color=color, linewidth=2.5,
-                label=name, zorder=3)
-        # Thin raw line
-        ax.plot(steps, values, color=color, linewidth=0.4, alpha=0.15, zorder=2)
+        ax.plot(sm_steps, sm, color=color, linewidth=1.6, alpha=0.75,
+                label=f"{name} (MA w=30)", zorder=3)
+
+        # (3) Isotonic regression — monotone non-decreasing envelope, then
+        # wide SavGol to round the step-function into a smooth rise-and-flat.
+        from scipy.signal import savgol_filter
+        try:
+            from sklearn.isotonic import IsotonicRegression
+        except ImportError:
+            IsotonicRegression = None
+
+        ISO_COLOR   = "#C0392B"     # crimson red
+        ISO_SG_W    = 351           # wider post-smoothing for softer S-curve
+        ISO_SG_POLY = 2
+
+        if IsotonicRegression is not None and len(values) > ISO_SG_W:
+            iso = IsotonicRegression(increasing=True)
+            y_arr = np.asarray(values, dtype=np.float32)
+            x_arr = np.asarray(steps, dtype=np.float32)
+            fit = iso.fit_transform(x_arr, y_arr)
+            w = ISO_SG_W if ISO_SG_W % 2 == 1 else ISO_SG_W + 1
+            w = min(w, len(fit) - (1 - len(fit) % 2))
+            if w >= ISO_SG_POLY + 2:
+                # Edge-pad with true endpoint values so SavGol can't pull
+                # the start/end away from the true min/max.
+                pad = w // 2
+                padded = np.concatenate([
+                    np.full(pad, fit[0]), fit, np.full(pad, fit[-1])
+                ])
+                padded = savgol_filter(padded, window_length=w,
+                                       polyorder=ISO_SG_POLY)
+                fit = padded[pad:-pad]
+                # Hard-anchor endpoints to true isotonic values
+                fit[0]  = float(iso.fit_transform(x_arr, y_arr)[0])
+                fit[-1] = float(y_arr[-max(1, len(y_arr)//20):].mean())
+            steps_arr = np.asarray(steps)
+            # Soft fill under the converged curve for visual weight
+            ax.fill_between(steps_arr, fit.min(), fit, color=ISO_COLOR,
+                            alpha=0.08, zorder=3.5)
+            # Main converged-learning curve
+            ax.plot(steps_arr, fit, color=ISO_COLOR, linewidth=2.2,
+                    solid_capstyle="round",
+                    label=f"{name} (isotonic regression)", zorder=5)
+
+            # Sparse error bars: local std of raw values around sampled points
+            n_bars = 12
+            idxs = np.linspace(0, len(steps_arr) - 1, n_bars, dtype=int)
+            half = max(5, len(y_arr) // (n_bars * 2))
+            errs = np.array([
+                y_arr[max(0, j - half):min(len(y_arr), j + half)].std()
+                for j in idxs
+            ])
+            ERR_COLOR = "#7B1E1E"   # deep burgundy — complements crimson
+            ax.errorbar(steps_arr[idxs], fit[idxs], yerr=errs,
+                        fmt="none", ecolor=ERR_COLOR, elinewidth=1.2,
+                        capsize=3, capthick=1.2, alpha=0.85, zorder=5.5,
+                        label=f"{name} (±1σ local)")
+
+            # Annotate start and plateau
+            start_x, start_y = steps_arr[0], float(fit[0])
+            end_x,   end_y   = steps_arr[-1], float(fit[-1])
+            ax.scatter([start_x, end_x], [start_y, end_y],
+                       s=45, color=ISO_COLOR, zorder=6,
+                       edgecolor="white", linewidth=1.2)
+            ax.annotate(f"start: {start_y:+.1f}",
+                        xy=(start_x, start_y),
+                        xytext=(10, -14), textcoords="offset points",
+                        fontsize=9, color=ISO_COLOR)
+            ax.annotate(f"plateau: {end_y:+.1f}",
+                        xy=(end_x, end_y),
+                        xytext=(-12, 38), textcoords="offset points",
+                        ha="right", fontsize=9, color=ISO_COLOR,
+                        fontweight="bold")
         plotted += 1
 
     if plotted == 0:
         plt.close(fig)
         return
 
-    ax.legend(loc="lower right")
+    leg = ax.legend(loc="lower right", framealpha=0.95,
+                    fontsize=9, edgecolor="#CCCCCC")
+    leg.get_frame().set_linewidth(0.5)
     ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["left", "bottom"]].set_color("#666666")
+    ax.tick_params(colors="#444444")
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     print(f"  [saved] {out_path}")
 

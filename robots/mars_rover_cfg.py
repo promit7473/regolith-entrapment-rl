@@ -9,15 +9,17 @@ Joint layout
   Steer  (position control) : FL/RL/FR/RR_Steer_Revolute            ×4
   Passive (free)            : Rocker_Revolute, Differential_Revolute ×N
 
-Velocity control:  stiffness=0, damping=4000, effort_limit=80 Nm
+Velocity control:  stiffness=0, damping=4000, effort_limit=40 Nm
 Steering control:  stiffness=8000, damping=1000
 Passive joints:    stiffness=0,  damping=0,  effort=0
 
-Torque signal rationale (damping=4000, effort_limit=80):
-  Free driving steady-state (v_error ≈ 0.005 rad/s) → τ = 20 Nm, ratio = 0.25 → no anomaly ✓
-  Sand burial               (v_error ≈ 2   rad/s)   → τ = 8000 → capped 80 Nm → ratio = 1.0 → anomaly ✓
-  Root fix: effort_limit 12→80 Nm. Old limit caused ratio=1.0 always (12 Nm saturated at v_error=0.003).
-  Damping unchanged — rover dynamics preserved, minimal intervention.
+Torque signal rationale (damping=4000, effort_limit=40):
+  Free driving steady-state (v_error ≈ 0.005 rad/s) → τ = 20 Nm, ratio = 0.50 → no anomaly ✓
+  Sand burial               (v_error ≈ 2   rad/s)   → τ = 8000 → capped 40 Nm → ratio = 1.0 → anomaly ✓
+  Effort limit lowered 80 → 40 Nm: torque was saturating ~99.95% of the time at 80,
+  giving every step max-thrust → impulsive lurches → visible "hop-and-grab" bouncing.
+  Halving the cap restores torque-signal headroom AND gives a smoother thrust profile
+  (mid-range τ values are now reachable instead of always saturated).
 """
 
 import os
@@ -65,7 +67,7 @@ MARS_ROVER_CFG = ArticulationCfg(
         "wheel_drive": ImplicitActuatorCfg(
             joint_names_expr=[".*Drive_Continuous"],
             velocity_limit_sim=6.0,    # rad/s
-            effort_limit_sim=80.0,     # Nm — raised from 12: torque ratio now varies (0.25 free, 1.0 buried)
+            effort_limit_sim=22.0,     # Nm — v8: 40 still saturated (raw_mean_torque_ratio=1.000) — policy learned bang-bang at 40 too. Free-driving steady-state τ ≈ 20 Nm, so 22 forces the policy off the saturator and gives genuine thrust dynamic range. Was 80 → 40 in v7 (fixed bouncing) → 22 in v8 (fixes saturation).
             stiffness=0.0,
             damping=4000.0,            # unchanged — dynamics preserved; effort_limit raise alone fixes the signal
         ),

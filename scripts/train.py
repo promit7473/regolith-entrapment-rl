@@ -218,12 +218,15 @@ def train():
     env_cfg = EntrapmentEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
 
+    print(f"[train] Calling gym.make (Newton init starts here — first cold launch can take 10-15 min)…", flush=True)
     env = gym.make("MarsRover-RegolithEscape-v0", cfg=env_cfg)
+    print(f"[train] gym.make returned. Wrapping env…", flush=True)
     env = SkrlVecEnvWrapper(env, ml_framework="torch")
 
     # Pass total timesteps to env so curriculum denominator scales correctly
     # with --timesteps argument instead of assuming a fixed 200k default.
     env.unwrapped._total_timesteps = args_cli.timesteps
+    print(f"[train] Env ready (num_envs={args_cli.num_envs}). Building agent…", flush=True)
 
     device    = env.device
     num_envs  = env.num_envs

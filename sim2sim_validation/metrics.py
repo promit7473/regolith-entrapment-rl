@@ -35,12 +35,20 @@ class TrialResult:
 
 
 class MetricsTracker:
-    """Accumulates per-step data and computes trial-level metrics."""
+    """Accumulates per-step data and computes trial-level metrics.
 
-    def __init__(self, num_envs: int, device: str, goal_xy: torch.Tensor):
-        self.num_envs  = num_envs
-        self.device    = device
-        self.goal_xy   = goal_xy.to(device)   # (N, 2) or (2,) broadcast
+    `attribute_escape` toggles whether the `escaped` field is filled from the
+    ModeSwitcher's `newly_escaped` signal. Set False for the `no_recovery`
+    baseline so we don't claim a recovery when the PD controller happens to
+    drag the rover past the 3 m projected-distance threshold on its own.
+    """
+
+    def __init__(self, num_envs: int, device: str, goal_xy: torch.Tensor,
+                 attribute_escape: bool = True):
+        self.num_envs        = num_envs
+        self.device          = device
+        self.goal_xy         = goal_xy.to(device)   # (N, 2) or (2,) broadcast
+        self.attribute_escape = attribute_escape
 
         self.results: List[TrialResult] = []
 
@@ -52,6 +60,8 @@ class MetricsTracker:
         self._path_length   = torch.zeros(self.num_envs, device=self.device)
         self._prev_pos      = torch.zeros(self.num_envs, 2, device=self.device)
         self._escape_step   = torch.full((self.num_envs,), -1.0, device=self.device)
+        self._trigger_step  = torch.full((self.num_envs,), -1.0, device=self.device)
+        self._trigger_pos   = torch.zeros(self.num_envs, 2, device=self.device)
         self._goal_step     = torch.full((self.num_envs,), -1.0, device=self.device)
         self._start_pos     = torch.zeros(self.num_envs, 2, device=self.device)
         self._escaped_flag  = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -66,16 +76,19 @@ class MetricsTracker:
         self._prev_pos[env_ids]     = start_pos[env_ids].clone()
         self._start_pos[env_ids]    = start_pos[env_ids].clone()
         self._escape_step[env_ids]  = -1.0
+        self._trigger_step[env_ids] = -1.0
+        self._trigger_pos[env_ids]  = start_pos[env_ids].clone()  # default if never triggered
         self._goal_step[env_ids]    = -1.0
         self._escaped_flag[env_ids] = False
         self._reached_flag[env_ids] = False
 
     def step(
         self,
-        pos_xy:       torch.Tensor,   # (N, 2)
-        newly_escaped: torch.Tensor,  # (N,) bool
-        arrived:      torch.Tensor,   # (N,) bool — nav controller reached goal
-        escape_dir:   torch.Tensor,   # (N, 2) escape direction used
+        pos_xy:           torch.Tensor,   # (N, 2)
+        newly_triggered:  torch.Tensor,   # (N,) bool — entrap detected this step
+        newly_escaped:    torch.Tensor,   # (N,) bool — escape completed this step
+        arrived:          torch.Tensor,   # (N,) bool — nav controller reached goal
+        escape_dir:       torch.Tensor,   # (N, 2) escape direction used
     ):
         """Update accumulators each policy step."""
         self._step += 1
@@ -85,11 +98,17 @@ class MetricsTracker:
         self._path_length += delta
         self._prev_pos = pos_xy.clone()
 
-        # Record escape step
-        new_esc = newly_escaped & ~self._escaped_flag
-        self._escape_step = torch.where(new_esc, self._step, self._escape_step)
-        self._escaped_flag |= newly_escaped
-        self._escape_dir[new_esc] = escape_dir[new_esc].clone()
+        # Record entrap-trigger step + position (first trigger only, for time-to-escape
+        # and heading-error reference). Skip in no_recovery (escape never fires).
+        if self.attribute_escape:
+            first_trig = newly_triggered & (self._trigger_step < 0)
+            self._trigger_step = torch.where(first_trig, self._step, self._trigger_step)
+            self._trigger_pos[first_trig] = pos_xy[first_trig].clone()
+
+            new_esc = newly_escaped & ~self._escaped_flag
+            self._escape_step = torch.where(new_esc, self._step, self._escape_step)
+            self._escaped_flag |= newly_escaped
+            self._escape_dir[new_esc] = escape_dir[new_esc].clone()
 
         # Record goal step
         new_arr = arrived & ~self._reached_flag
@@ -107,18 +126,25 @@ class MetricsTracker:
             pl = max(self._path_length[i].item(), 1e-6)
             eff = sl / pl
 
-            # Escape heading error vs true direction to B
+            # Escape heading error vs true direction to B from the entrapment point
+            # (where the escape primitive actually started — not the trial spawn).
             goal = self.goal_xy[i] if self.goal_xy.dim() == 2 else self.goal_xy
-            true_dir = goal - self._start_pos[i]
+            true_dir = goal - self._trigger_pos[i]
             true_dir = true_dir / (torch.norm(true_dir) + 1e-6)
             dot = (self._escape_dir[i] * true_dir).sum().clamp(-1.0, 1.0)
             heading_err_deg = math.degrees(math.acos(dot.item()))
+
+            # time_to_escape = steps from entrap-trigger → escape success.
+            # -1 if either never triggered or never escaped.
+            esc_step = int(self._escape_step[i].item())
+            trig_step = int(self._trigger_step[i].item())
+            t_to_esc = (esc_step - trig_step) if (esc_step > 0 and trig_step >= 0) else -1
 
             results.append(TrialResult(
                 trial_id           = self._trial_id,
                 reached_goal       = bool(self._reached_flag[i].item()),
                 escaped            = bool(self._escaped_flag[i].item()),
-                time_to_escape     = int(self._escape_step[i].item()),
+                time_to_escape     = t_to_esc,
                 time_to_goal       = int(self._goal_step[i].item()),
                 path_length        = pl,
                 straight_line_dist = sl,
@@ -153,6 +179,20 @@ class MetricsTracker:
             "time_to_goal":        _stats(goal_times),
             "path_efficiency":     _stats([r.path_efficiency for r in reached]),
             "heading_error_deg":   _stats([r.escape_heading_error for r in escaped]),
+            "trials": [
+                {
+                    "trial_id":             r.trial_id,
+                    "reached_goal":         r.reached_goal,
+                    "escaped":              r.escaped,
+                    "time_to_escape":       r.time_to_escape,
+                    "time_to_goal":         r.time_to_goal,
+                    "path_length":          r.path_length,
+                    "straight_line_dist":   r.straight_line_dist,
+                    "path_efficiency":      r.path_efficiency,
+                    "escape_heading_error": r.escape_heading_error,
+                }
+                for r in self.results
+            ],
         }
 
     def print_summary(self):

@@ -1,12 +1,12 @@
 """
-Simple PD waypoint-following navigation controller.
+Simple proportional waypoint-following navigation controller.
 
 Drives the rover toward a goal point in world frame using:
-  - Proportional heading correction via steering joints
-  - Constant forward drive velocity (reduced near goal)
+  - Proportional heading correction via steering joints (with deadband)
+  - Constant forward drive velocity (zero on arrival)
 
 This is intentionally simple — the paper contribution is the recovery
-primitive, not the navigation. A deterministic PD controller isolates
+primitive, not the navigation. A deterministic controller isolates
 the recovery contribution cleanly for reviewers.
 """
 
@@ -16,7 +16,8 @@ import torch
 
 class PDNavController:
     """
-    Proportional-derivative waypoint follower for the AAU Mars rover.
+    Proportional waypoint follower for the AAU Mars rover.
+    (Class name kept for backward compatibility; controller is P, not PD.)
 
     Inputs:  current world-frame pose (x, y, yaw), goal (x, y)
     Outputs: action tensor [drive_cmd(6), steer_cmd(4)] in [-1, 1]
@@ -29,12 +30,14 @@ class PDNavController:
         drive_speed:     float = 0.6,   # fraction of max drive vel (1.0 = 6 rad/s)
         heading_gain:    float = 1.2,   # P-gain on heading error → steer angle
         arrival_radius:  float = 0.5,   # m — stop when within this distance of goal
+        heading_deadband: float = 0.035, # rad (~2°); below this, no steer (kills jitter)
     ):
-        self.num_envs       = num_envs
-        self.device         = device
-        self.drive_speed    = drive_speed
-        self.heading_gain   = heading_gain
-        self.arrival_radius = arrival_radius
+        self.num_envs        = num_envs
+        self.device          = device
+        self.drive_speed     = drive_speed
+        self.heading_gain    = heading_gain
+        self.arrival_radius  = arrival_radius
+        self.heading_deadband = heading_deadband
 
         # Goal position per env (world frame XY)
         self.goal = torch.zeros(num_envs, 2, device=device)
@@ -66,8 +69,11 @@ class PDNavController:
         heading_err = goal_heading - yaw
         heading_err = (heading_err + math.pi) % (2 * math.pi) - math.pi  # wrap
 
-        # Steer correction — proportional, clamped to [-1, 1]
-        steer_cmd = (self.heading_gain * heading_err / math.pi).clamp(-1.0, 1.0)  # (N,)
+        # Steer correction — proportional, clamped to [-1, 1] with deadband.
+        # Deadband suppresses jitter when heading error is sub-degree.
+        steer_raw = self.heading_gain * heading_err / math.pi
+        in_deadband = heading_err.abs() < self.heading_deadband
+        steer_cmd = torch.where(in_deadband, torch.zeros_like(steer_raw), steer_raw).clamp(-1.0, 1.0)
 
         # Drive speed — slow down near goal, stop at arrival
         arrived   = (dist.squeeze(-1) < self.arrival_radius)
