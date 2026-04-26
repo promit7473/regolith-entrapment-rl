@@ -261,7 +261,7 @@ def train():
         "ratio_clip":         0.2,
         "value_clip":         0.2,
         "clip_predicted_values": True,
-        "entropy_loss_scale": 0.03,  # 0.02 caused collapse in prior run; 0.03 maintains exploration
+        "entropy_loss_scale": 0.015, # v9: 0.03 → 0.015. With 10D actions, 0.03 produced an entropy bonus (~0.42/step) that dominated the actual reward signal (~0.1–0.3/step) early in training, slowing convergence. 0.015 keeps exploration alive without overwhelming the reward landscape. (Was raised 0.02 → 0.03 in v6 after observing collapse, but 0.02 collapse was rooted in the bistable reward landscape, not the entropy weight — that's been fixed by un-gating r_progress.)
         "value_loss_scale":   1.0,
         "state_preprocessor":             RunningStandardScaler,
         "state_preprocessor_kwargs":      {"size": num_obs, "device": device},

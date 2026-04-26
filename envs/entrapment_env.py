@@ -59,6 +59,7 @@ from robots import MARS_ROVER_CFG, ROVER_WHEEL_RADIUS
 from .mpm_kernels import (
     compute_body_forces, subtract_body_force, reset_particle_range,
     clamp_escaped_particles, clamp_sand_forces_during_settle, decrement_settle_counter,
+    set_env_friction,
 )
 from paths import RLROVER_ASSETS
 
@@ -125,7 +126,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     action_space      = 10
     state_space       = 0
 
-    episode_length_s = 40.0  # v8: 30 → 40. With effort_limit 22 Nm + pen_action_mag the policy can't bulldoze; real recovery (Bi & Ding 2026: ~12–15 s per rocking attempt) needs headroom for multiple attempts before the timeout clips a converging recovery.
+    episode_length_s = 40.0  # v8: 30 → 40. With effort_limit 22 Nm + pen_grind (v9) the policy can't bulldoze; real recovery (Bi & Ding 2026: ~12–15 s per rocking attempt) needs headroom for multiple attempts before the timeout clips a converging recovery.
     decimation       = 2     # policy at 25 Hz
     skip_mpm         = False  # set True for viewer-only mode (no sand physics)
 
@@ -144,13 +145,19 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # emergent from saturated torque, not from any hop reward. This term makes the
     # hop-and-grab strategy explicitly costly so the policy must find a smoother gait.
     pen_hop              = 0.5
-    # Action-magnitude penalty (v8): -‖action‖₂² × dt. Direct pressure away from
-    # max-magnitude commands. v7's effort_limit drop (80 → 40) fixed bouncing but
-    # the policy just relearned bang-bang at the new cap (raw_mean_torque_ratio=1.000).
-    # Pairs with v8's effort_limit 40 → 22: cap forces smaller commands; this term
-    # pushes the policy to use less than the full cap, restoring true torque headroom
-    # and dynamic range needed for the torque-anomaly obs feature to be informative.
-    pen_action_mag       = 0.05
+    # Slip-aware grind penalty (v9): replaces the v8 `pen_action_mag` term, which
+    # was theatre — it penalised commanded action magnitude in [-1,1] units, but
+    # realised motor torque saturates at effort_limit_sim regardless of command
+    # magnitude (because v_error in sand is always huge). The policy could keep
+    # commanding max velocity AND realise the same torque, so the penalty just
+    # marked max-command as costly without forcing reduced realised torque.
+    # Replacement: penalise drive command magnitude ONLY when wheels are slipping
+    # (mean_slip > slip_grind_thresh). Targets the specific failure mode — wheels
+    # spinning uselessly at high slip — and rewards "ease off the throttle when
+    # stuck" instead of "use less action everywhere".
+    pen_grind            = 0.30
+    slip_grind_thresh    = 0.70   # mean |slip| above which grinding penalty fires
+    pen_reverse          = 1.0    # weight on world-frame negative-progress penalty (was hardcoded inline)
 
     # Domain randomization ranges (inspired by Bi & Ding 2026, Table 9)
     dr_motor_gain_range  = (0.8, 1.2)   # multiplicative gain on drive velocity targets
@@ -465,6 +472,7 @@ class EntrapmentEnv(DirectRLEnv):
             )
             body_keys = builder.body_key if hasattr(builder, 'body_key') else []
             n_wheels = 0
+            n_chassis = 0
             for b in range(n_bodies):
                 name = body_keys[b] if b < len(body_keys) else ''
                 if 'Drive' in name:
@@ -477,8 +485,32 @@ class EntrapmentEnv(DirectRLEnv):
                         cfg=cfg,
                     )
                     n_wheels += 1
+                elif name == 'Body':
+                    # Chassis sand collider — fills the missing body-soil interaction.
+                    # Without this, sand particles passed through the chassis bottom
+                    # and only the 6 wheels felt sand resistance. Real granular
+                    # entrapment includes belly-pan / hull drag (Bi & Ding 2026).
+                    # Box dimensions cover the AAU rover chassis underbody:
+                    #   X (length) = 0.50 m, Y (width) = 0.40 m, Z (height) = 0.10 m
+                    # Offset Z = -0.05 m so the box bottom is ~10 cm above the wheel
+                    # axles (CHASSIS_TO_WHEEL_Z = 0.167 m), well clear of the wheels
+                    # and aligned with where the chassis underside actually sits.
+                    chassis_xform = wp.transform(
+                        wp.vec3(0.0, 0.0, -0.05),
+                        wp.quat_identity(),
+                    )
+                    builder.add_shape_box(
+                        body=b,
+                        xform=chassis_xform,
+                        hx=0.25,   # half-extent X
+                        hy=0.20,   # half-extent Y
+                        hz=0.05,   # half-extent Z
+                        cfg=cfg,
+                    )
+                    n_chassis += 1
             print(f"[Newton Init] Disabled mesh collision on {n_shapes} shapes, "
-                  f"added {n_wheels} wheel proxy cylinders (r={WHEEL_RADIUS}m, hw={WHEEL_HALF_WIDTH}m).")
+                  f"added {n_wheels} wheel proxy cylinders (r={WHEEL_RADIUS}m, hw={WHEEL_HALF_WIDTH}m), "
+                  f"added {n_chassis} chassis sand box (hx=0.25, hy=0.20, hz=0.05, off_z=-0.05m).")
 
             # Fix passive joint effort_limit=0 — MuJoCo Warp rejects actfrcrange=[0,0].
             # Rocker/Differential joints in the USD have effort_limit=0 (free joints).
@@ -647,7 +679,15 @@ class EntrapmentEnv(DirectRLEnv):
 
         _p(f"[MPM] Finalizing sand model ({len(sand_builder.particle_q)} particles)...")
         self.sand_model = sand_builder.finalize(device=device)
-        self.sand_model.particle_mu = 0.9     # raised from 0.7 — higher inter-particle friction
+        # Per-particle friction array (size = total particles across all envs).
+        # MUST be a wp.array BEFORE solver construction, because the solver copies
+        # `model.particle_mu` into its internal `material_parameters.friction` array
+        # exactly once at init and never re-reads `model.particle_mu` afterwards.
+        # Setting `model.particle_mu = scalar` after init is a silent no-op.
+        # Per-env friction DR is implemented by writing slices of the solver's
+        # `material_parameters.friction` array directly (see _set_env_friction).
+        total_particles = len(sand_builder.particle_q)
+        self.sand_model.particle_mu = wp.full(total_particles, 0.9, dtype=float, device=device)
         # particle_ke = bulk stiffness. Lowered 1e15 → 1e8 to match physical sand
         # bulk modulus (~30–100 MPa). The Newton reference's 1e15 is for a ball-drop
         # demo and treats sand as near-incompressible — wheel impulses then bounce
@@ -738,6 +778,16 @@ class EntrapmentEnv(DirectRLEnv):
 
             @classmethod          # type: ignore[misc]
             def _patched_step(cls):
+                # PRE-XPBD: inject sand forces from the most recent collected impulses
+                # BEFORE the rigid solver step. Was previously called from
+                # _pre_physics_step (once per policy step); with decimation=2 that
+                # meant only the LAST physics substep's impulses were ever injected
+                # — the first substep's impulses were silently overwritten.
+                # Moved here so each physics substep gets its own freshly-collected
+                # sand force applied → 2× contact resolution restored.
+                for env_ref in NewtonManager._mpm_envs:
+                    if env_ref._mpm_ready:
+                        env_ref._inject_sand_forces()
                 original_step_fn(cls)
                 # MPM post-processing
                 for env_ref in NewtonManager._mpm_envs:
@@ -1008,7 +1058,10 @@ class EntrapmentEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         self.actions = actions.clone()
-        self._inject_sand_forces()
+        # NOTE: sand-force injection moved into NewtonManager._patched_step so it
+        # runs every physics substep (decimation=2 → 2 substeps per policy step).
+        # See big comment in _patched_step. Calling it here would re-inject the
+        # same impulse twice per step and double the per-substep coupling force.
 
     def _apply_action(self) -> None:
         # Zero actions for envs that have already crossed the escape threshold this
@@ -1184,7 +1237,7 @@ class EntrapmentEnv(DirectRLEnv):
         # Rocking stays as a small additive bonus (see p_rocking below).
         r_progress = self.cfg.rew_forward_progress * v_x_world * dt
         # Explicit reverse penalty so backward drift isn't a free local optimum.
-        p_reverse  = 1.0 * torch.clamp(-v_x_world, min=0.0) * dt
+        p_reverse  = self.cfg.pen_reverse * torch.clamp(-v_x_world, min=0.0) * dt
 
         # Escape bonus — distance projected onto per-episode escape heading from spawn.
         # Direction-agnostic: each episode has its own heading, covering all 360°.
@@ -1246,11 +1299,17 @@ class EntrapmentEnv(DirectRLEnv):
         ) * dt
         self.prev_action = self.actions.clone()
 
-        # Action-magnitude penalty (v8): pushes policy off the torque saturator.
-        # Squared L2 — quadratic so penalty grows fast as commands approach the cap,
-        # but is tiny for moderate-magnitude commands. Combined with effort_limit 22 Nm
-        # this restores torque-signal dynamic range.
-        p_action_mag = self.cfg.pen_action_mag * torch.sum(self.actions ** 2, dim=-1) * dt
+        # Grind penalty (v9): penalize commanding high drive velocity while wheels
+        # are slipping (i.e. torque is realized but produces no progress). Replaces
+        # `pen_action_mag` which punished commands unconditionally — that term cannot
+        # break torque saturation since saturation is set by v_error in sand, not by
+        # the magnitude of the velocity command. This term fires only when the policy
+        # is actually grinding (slip > thresh), giving the right pressure off the
+        # saturator without taxing legitimate high-thrust escape attempts.
+        mean_slip_abs = torch.mean(torch.abs(slip), dim=-1)
+        high_slip     = (mean_slip_abs > self.cfg.slip_grind_thresh).float()
+        drive_cmd_mag = torch.norm(self.actions[:, :6], dim=-1)
+        p_grind       = self.cfg.pen_grind * high_slip * drive_cmd_mag * dt
 
         # Abnormal action penalty (sustained high torque with low progress).
         # Suppressed when entrap_flag=1: backward rocking is intentional recovery,
@@ -1323,9 +1382,10 @@ class EntrapmentEnv(DirectRLEnv):
         self.extras["log"]["pen_abnormal"] = (-p_abnormal).mean()
         self.extras["log"]["pen_reverse"]  = p_reverse.mean()
         self.extras["log"]["pen_hop"]      = (-p_hop).mean()
-        self.extras["log"]["pen_action_mag"] = (-p_action_mag).mean()
+        self.extras["log"]["pen_grind"]    = (-p_grind).mean()
+        self.extras["log"]["grind_rate"]   = high_slip.mean()
 
-        return r_progress + r_escape - p_slip - p_tilt - p_smooth - p_abnormal - p_reverse - p_hop - p_action_mag + p_rocking
+        return r_progress + r_escape - p_slip - p_tilt - p_smooth - p_abnormal - p_reverse - p_hop - p_grind + p_rocking
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         self.root_pos  = wp.to_torch(self.robot.data.root_link_pos_w)
@@ -1340,7 +1400,11 @@ class EntrapmentEnv(DirectRLEnv):
         escaped = axial_progress_done > ESCAPE_DISTANCE
 
         flipped = grav_b[:, 2] > -0.34   # >70° tilt
-        sunk    = self.root_pos[:, 2] < -0.20  # chassis root below ground plane by >20cm
+        # Sunk: chassis root z below env_origin z by >20 cm. Subtracting env_origin
+        # makes this robust to per-env origin elevation (matters when LOAD_MARS_TERRAIN=1
+        # places envs on uneven terrain). At env_origin z = 0 the formula reduces to
+        # the previous absolute-z check, so flat-ground behaviour is unchanged.
+        sunk    = (self.root_pos[:, 2] - self.scene.env_origins[:, 2]) < -0.20
 
         # Lateral out-of-bounds: drift perpendicular to escape_dir > env_spacing/2 - margin.
         # Without this, a sideways-drifting rover never terminates and can collide with
@@ -1387,13 +1451,17 @@ class EntrapmentEnv(DirectRLEnv):
             env_ids = self.robot._ALL_INDICES
         super()._reset_idx(env_ids)
 
-        # Curriculum: one increment per env reset, normalised by total expected resets.
-        # Expected resets = timesteps / steps_per_episode = timesteps / (episode_length_s * policy_hz).
-        # Computed dynamically so it scales correctly with --num_envs and --timesteps.
+        # Curriculum: one increment per env reset, normalised by total expected resets
+        # ACROSS ALL ENVS (not per env). v9 fix: previously divided only by per-env
+        # resets (~200 over a 200k-step run), but with 64 envs running in parallel
+        # the agent sees 64× as many resets in the same wall-clock window. Curriculum
+        # was saturating to 1.0 within ~5% of training, leaving 95% at max difficulty.
+        # Correct denominator = total_timesteps × num_envs / steps_per_ep, since skrl
+        # `timesteps` counts policy steps per env (not aggregate env-steps).
         if hasattr(self, '_curriculum_progress'):
             policy_hz        = 1.0 / (self.cfg.decimation * self.cfg.sim.dt)
             steps_per_ep     = int(self.cfg.episode_length_s * policy_hz)
-            total_resets_est = max(1, self._total_timesteps // steps_per_ep)
+            total_resets_est = max(1, (self._total_timesteps * self.num_envs) // steps_per_ep)
             # Competence-gated curriculum: advance only when the policy demonstrates
             # genuine recovery — not just trivial bouncing out.
             # Gate conditions (both must hold):
@@ -1442,7 +1510,7 @@ class EntrapmentEnv(DirectRLEnv):
         self._spawn_pos[env_ids] = default_root_pose[:, :2].clone()
 
         # Place rover so wheels are partially buried in sand.
-        # Sand surface is at z = env_origin_z + SAND_DEPTH (0.15 m).
+        # Sand surface is at z = env_origin_z + SAND_DEPTH (0.60 m).
         # Wheel center (Drive joint) is CHASSIS_TO_WHEEL_Z (0.167 m) below chassis root.
         # Chassis z when wheel sits ON sand surface:
         #   z_chassis = env_z + SAND_DEPTH + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS
@@ -1524,14 +1592,27 @@ class EntrapmentEnv(DirectRLEnv):
             except Exception:
                 pass
 
-        # ── Domain randomisation: sand friction ─────────────────────────────
-        # Range narrowed 0.4–1.0 → 0.6–0.9: low end (0.4) was wet-sand-like →
-        # trivial escapes inflated the metric; high end (1.0) was near-impossible.
-        # 0.6–0.9 spans realistic dry-Mars-regolith friction without bimodal outcomes.
-        if self._mpm_ready:
-            self.sand_model.particle_mu = float(
-                sample_uniform(0.6, 0.9, (1,), self.device).item()
-            )
+        # ── Domain randomisation: sand friction (per-env) ───────────────────
+        # PRE-FIX (silent bug): assigned a SCALAR to self.sand_model.particle_mu,
+        # which (a) is global across all envs and (b) is a no-op after solver
+        # construction (the solver copies particle_mu once and never re-reads it).
+        # POST-FIX: write directly to mpm_solver.material_parameters.friction at
+        # the slice corresponding to each env's particles. One sample per env per
+        # reset → real per-episode friction DR with no cross-env contamination.
+        if self._mpm_ready and hasattr(self.mpm_solver, "material_parameters"):
+            mu_per_env = sample_uniform(
+                0.6, 0.9, (len(env_ids),), self.device,
+            ).cpu().numpy()
+            friction_arr = self.mpm_solver.material_parameters.friction
+            for k, ei in enumerate(env_ids):
+                start = int(self._particle_env_starts[ei])
+                count = int(self._particles_per_env)
+                wp.launch(
+                    set_env_friction,
+                    dim=count,
+                    inputs=[friction_arr, start, count, float(mu_per_env[k])],
+                    device=self.device,
+                )
 
         # ── Reset MPM sand patches ────────────────────────────────────────────
         if self._mpm_ready:

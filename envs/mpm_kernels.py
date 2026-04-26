@@ -139,6 +139,27 @@ def clamp_escaped_particles(
     particle_q[i] = wp.vec3(px, py, pz)
 
 
+# ── Per-env friction update (fixes silent global-DR bug) ──────────────────────
+
+@wp.kernel
+def set_env_friction(
+    friction: wp.array(dtype=float),
+    start:    int,
+    count:    int,
+    mu:       float,
+):
+    """Overwrite the friction value of one env's particle slice.
+
+    Used by the per-env DR-friction reset path. Without this, setting
+    `model.particle_mu = scalar` (a) is global across all envs and (b)
+    is a no-op after solver construction (the solver copies particle_mu
+    into `material_parameters.friction` once at init and never re-reads it).
+    """
+    i = wp.tid()
+    if i < count:
+        friction[start + i] = mu
+
+
 # ── Per-env particle reset ─────────────────────────────────────────────────────
 
 @wp.kernel

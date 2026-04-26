@@ -67,7 +67,7 @@ MARS_ROVER_CFG = ArticulationCfg(
         "wheel_drive": ImplicitActuatorCfg(
             joint_names_expr=[".*Drive_Continuous"],
             velocity_limit_sim=6.0,    # rad/s
-            effort_limit_sim=22.0,     # Nm — v8: 40 still saturated (raw_mean_torque_ratio=1.000) — policy learned bang-bang at 40 too. Free-driving steady-state τ ≈ 20 Nm, so 22 forces the policy off the saturator and gives genuine thrust dynamic range. Was 80 → 40 in v7 (fixed bouncing) → 22 in v8 (fixes saturation).
+            effort_limit_sim=40.0,     # Nm — v9: reverted 22 → 40. v8 misdiagnosed: raw_mean_torque_ratio=1.0 in sand is a v_error pinning property, not policy bang-bang. 22 starved legitimate escape thrust (mean_vx 0.46→0.147). pen_grind now penalizes slip-while-stuck; the cap just needs headroom for rocking impulses (2× free-driving steady-state ≈ 20 Nm).
             stiffness=0.0,
             damping=4000.0,            # unchanged — dynamics preserved; effort_limit raise alone fixes the signal
         ),
