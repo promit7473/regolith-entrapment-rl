@@ -6,7 +6,10 @@ from typing import Sequence
 from isaaclab.utils import configclass
 from isaaclab.sim._impl.newton_manager import NewtonManager
 
-from envs.entrapment_env import EntrapmentEnv, EntrapmentEnvCfg, SAND_DEPTH
+from envs.entrapment_env import (
+    EntrapmentEnv, EntrapmentEnvCfg,
+    SAND_DEPTH, CHASSIS_TO_WHEEL_Z, WHEEL_RADIUS,
+)
 
 
 MARS_SAND_COLOR    = wp.vec3(0.62, 0.30, 0.20)
@@ -147,11 +150,18 @@ class ValidationEnv(EntrapmentEnv):
         half_yaw = yaw * 0.5
 
 
-        cur_pose = wp.to_torch(self.robot.data.root_link_pose_w)[env_ids].clone()
+        # Reconstruct buried spawn pose explicitly. Reading root_link_pose_w
+        # right after super()._reset_idx returns the *previous* episode's
+        # terminal pose (sim hasn't stepped yet to flush write_root_pose_to_sim),
+        # so preserving its z would unbury the rover or place it on its side.
+        # Recompute z from sinkage curriculum the same way the parent does.
+        cur_pose = torch.zeros(n, 7, device=device)
         cur_pose[:, 0] = env_origins[:, 0] + self.cfg.val_spawn_x
         cur_pose[:, 1] = env_origins[:, 1] + self.cfg.val_spawn_y
-        cur_pose[:, 3] = 0.0
-        cur_pose[:, 4] = 0.0
+        cur_pose[:, 2] = (
+            env_origins[:, 2] + SAND_DEPTH + CHASSIS_TO_WHEEL_Z
+            + WHEEL_RADIUS - self._sinkage[env_ids]
+        )
         cur_pose[:, 5] = math.sin(half_yaw)
         cur_pose[:, 6] = math.cos(half_yaw)
 

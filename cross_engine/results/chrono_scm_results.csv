@@ -1,0 +1,2 @@
+seed,trial_id,sinkage_init,friction,escape_dir_x,escape_dir_y,escaped,time_to_escape,final_proj,entrapped_steps,failure_mode,terminal_x,terminal_y,terminal_z
+0,0,0.23280501935178907,0.680936014129161,0.9670438766479492,0.2546098530292511,False,-1,0.27605223183753713,184,stall_in_bed,-2.247708532278869,0.12597828585843654,-0.3981467945137965
