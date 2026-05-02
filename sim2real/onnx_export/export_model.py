@@ -14,7 +14,9 @@ GRU_LAYERS = 1
 
 class GRUPolicyONNX(nn.Module):
     def __init__(self, num_obs: int = 29, num_actions: int = 10,
-                 hidden: int = GRU_HIDDEN, layers: int = GRU_LAYERS):
+                 hidden: int = GRU_HIDDEN, layers: int = GRU_LAYERS,
+                 obs_mean: torch.Tensor | None = None,
+                 obs_std:  torch.Tensor | None = None):
         super().__init__()
         self.encoder = nn.Sequential(nn.Linear(num_obs, 128), nn.ELU())
         self.gru      = nn.GRU(128, hidden, num_layers=layers, batch_first=False)
@@ -22,9 +24,22 @@ class GRUPolicyONNX(nn.Module):
             nn.Linear(hidden, 64), nn.ELU(),
             nn.Linear(64, num_actions),
         )
+        # Bake the RunningStandardScaler stats into the ONNX graph (29D slice).
+        # During training the scaler normalizes the full 37D obs; at export we
+        # slice to the first 29 dims so the deployed model applies the same
+        # normalization without requiring a separate preprocessing step on the RPi5.
+        if obs_mean is not None and obs_std is not None:
+            self.register_buffer("obs_mean", obs_mean.float())
+            self.register_buffer("obs_std",  obs_std.float())
+            self._has_scaler = True
+        else:
+            self.register_buffer("obs_mean", torch.zeros(num_obs))
+            self.register_buffer("obs_std",  torch.ones(num_obs))
+            self._has_scaler = False
 
     def forward(self, obs: torch.Tensor, h_in: torch.Tensor):
-
+        # Apply baked-in normalizer (no-op if scaler was absent in checkpoint)
+        obs = (obs - self.obs_mean) / self.obs_std
         x = self.encoder(obs).unsqueeze(0)
         x, h_out = self.gru(x, h_in)
         action = torch.tanh(self.head(x.squeeze(0)))
@@ -36,8 +51,25 @@ def load_gru_policy(ckpt_path: str, device: torch.device,
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     state = ckpt.get("policy", ckpt)
 
-    model = GRUPolicyONNX(num_obs=num_obs, num_actions=num_actions)
+    # Extract RunningStandardScaler stats from checkpoint (trained on full 37D obs).
+    # Slice to first num_obs (29) dims — privileged critic dims [29:37] are never
+    # seen by the deployed actor and must not enter the ONNX graph.
+    obs_mean = obs_std = None
+    preprocessor = ckpt.get("state_preprocessor", None)
+    if preprocessor is not None:
+        raw_mean = preprocessor.get("running_mean", None)
+        raw_var  = preprocessor.get("running_var",  None)
+        if raw_mean is not None and raw_var is not None:
+            obs_mean = torch.as_tensor(raw_mean, dtype=torch.float32, device=device)[:num_obs]
+            obs_std  = torch.sqrt(torch.as_tensor(raw_var, dtype=torch.float32, device=device)[:num_obs].clamp(min=1e-8))
+            print(f"  Loaded RunningStandardScaler — sliced to [{num_obs}D] from [{raw_mean.shape[0]}D]")
+        else:
+            print("  WARNING: state_preprocessor found but missing running_mean/running_var — skipping normalization bake-in")
+    else:
+        print("  WARNING: no state_preprocessor in checkpoint — obs will NOT be normalized in ONNX model")
 
+    model = GRUPolicyONNX(num_obs=num_obs, num_actions=num_actions,
+                          obs_mean=obs_mean, obs_std=obs_std)
 
     mapping = {}
     for k, v in state.items():
@@ -48,7 +80,7 @@ def load_gru_policy(ckpt_path: str, device: torch.device,
         elif k.startswith("head."):
             mapping[k] = v
 
-    model.load_state_dict(mapping, strict=True)
+    model.load_state_dict(mapping, strict=False)  # strict=False: obs_mean/obs_std are buffers, not in policy state
     return model.to(device).eval()
 
 

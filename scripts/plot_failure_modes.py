@@ -69,8 +69,8 @@ def _remove_spines(ax):
 # ── Plot 1: escape rate vs sinkage (bar chart) ─────────────────────────────────
 
 def plot_escape_vs_sinkage(df: pd.DataFrame, out_dir: str):
-    bins   = np.arange(0.10, 0.35, 0.05)   # [0.10, 0.15, 0.20, 0.25, 0.30]
-    labels = [f"{b:.2f}–{b+0.05:.2f}" for b in bins]
+    bins   = np.arange(0.10, 0.35, 0.05)   # edges: [0.10, 0.15, 0.20, 0.25, 0.30] → 4 bins
+    labels = [f"{b:.2f}–{b+0.05:.2f}" for b in bins[:-1]]  # 4 labels for 4 bins (bins has 5 edges)
     df2    = df.copy()
     df2["sinkage_bin"] = pd.cut(df2["sinkage"], bins=bins, labels=labels, right=False)
 
@@ -138,7 +138,8 @@ def plot_ep_length_dist(df: pd.DataFrame, out_dir: str):
     escaped = df[df["escaped"] == 1]["episode_steps"]
     failed  = df[df["escaped"] == 0]["episode_steps"]
     max_steps = int(df["episode_steps"].max()) + 1
-    bins = np.linspace(0, max_steps, min(50, max_steps // 10 + 1))
+    n_bins = max(2, min(50, max_steps // 10 + 1))  # at least 2 edges to form a valid histogram
+    bins = np.linspace(0, max_steps, n_bins)
 
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.hist(failed.values,  bins=bins, alpha=0.7, color=COLOR_FAIL, label="Failed/Timeout", density=True)
@@ -158,9 +159,9 @@ def plot_ep_length_dist(df: pd.DataFrame, out_dir: str):
 # ── Plot 4: 2-D heatmap (sinkage × curriculum_level) ──────────────────────────
 
 def plot_heatmap(df: pd.DataFrame, out_dir: str):
-    sinkage_bins = np.arange(0.10, 0.35, 0.05)
-    curr_bins    = np.linspace(0.0, 1.0, 6)   # 5 curriculum bins
-    s_labels     = [f"{b:.2f}" for b in sinkage_bins]
+    sinkage_bins = np.arange(0.10, 0.35, 0.05)   # 5 edges → 4 bins
+    curr_bins    = np.linspace(0.0, 1.0, 6)       # 6 edges → 5 curriculum bins
+    s_labels     = [f"{b:.2f}" for b in sinkage_bins[:-1]]  # 4 labels for 4 sinkage bins
     c_labels     = [f"{b:.1f}" for b in curr_bins[:-1]]
 
     df2 = df.copy()

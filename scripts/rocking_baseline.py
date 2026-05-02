@@ -47,7 +47,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
 import envs  # noqa: F401 — registers MarsRover-RegolithEscape-v0
-from envs.entrapment_env import EntrapmentEnvCfg
+from envs.entrapment_env import EntrapmentEnvCfg, ESCAPE_DISTANCE
 
 # Sinkage levels to sweep — matches v9 curriculum range endpoints + mid-points.
 SINKAGE_LEVELS = [0.15, 0.20, 0.25, 0.28]
@@ -96,7 +96,7 @@ def run_level(env, sinkage: float, n_eps: int, device: str,
                     break
                 rel = root_pos[ei, :2] - spawn_pos[ei]
                 final_dist = float((rel * esc_dir[ei]).sum().item())
-                escaped = bool(terminated[ei].item()) and (final_dist > 2.5)
+                escaped = bool(terminated[ei].item()) and (final_dist > ESCAPE_DISTANCE)  # use same threshold as training env
                 ep_steps = int(unwrapped._episode_step[ei].item())
                 results.append({
                     "sinkage":       sinkage,

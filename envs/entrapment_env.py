@@ -1508,8 +1508,11 @@ class EntrapmentEnv(DirectRLEnv):
                         curriculum_lvl, final_dist, ep_steps,
                     ])
                     self._episode_counter += 1
-                with open(self._failure_csv_path, "a", newline="") as f:
-                    csv.writer(f).writerows(rows)
+                try:
+                    with open(self._failure_csv_path, "a", newline="") as f:
+                        csv.writer(f).writerows(rows)
+                except OSError:
+                    pass  # never crash training due to CSV I/O failure
 
         return terminated, time_out
 

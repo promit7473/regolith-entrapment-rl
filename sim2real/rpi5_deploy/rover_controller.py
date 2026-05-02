@@ -154,7 +154,7 @@ class RoverController:
     STATE_ENTRAPPED  = 2
 
     def __init__(self, policy_onnx: str, detector_onnx: str,
-                 num_obs: int = 12, num_actions: int = 4):
+                 num_obs: int = 29, num_actions: int = 10):  # 29D policy obs, 10D action for 6-wheel Mars rover
         import onnxruntime as ort
         self._policy   = ort.InferenceSession(policy_onnx,
                              providers=["CPUExecutionProvider"])
@@ -187,13 +187,29 @@ class RoverController:
 
     def _build_obs(self, wheel_vel: np.ndarray, imu_acc: np.ndarray,
                    slip: np.ndarray) -> np.ndarray:
+        # Policy expects 29D: wheel_vel(6)+slip(6)+steer_pos(4)+imu_acc(3)+grav_z(1)
+        #                      +drive_torque_delta(6)+entrap_flag(1)+slip_anomaly(1)+dist_norm(1)
+        # RPi5 only has 4 encoders (corner wheels FL/FR/RL/RR).
+        # Middle wheels (CL/CR) are driven identically to the nearest corner pair —
+        # replicate FL→CL and FR→CR to fill the 6-wheel slots.
+        wv4 = wheel_vel / MAX_WHEEL_VEL   # (4,) normalised
+        sl4 = slip                         # (4,) slip ratio
+        # Expand 4-wheel readings to 6: [FL, CL≈FL, FR, CR≈FR, RL, RR]
+        wv6 = np.array([wv4[0], wv4[0], wv4[1], wv4[1], wv4[2], wv4[3]], dtype=np.float32)
+        sl6 = np.array([sl4[0], sl4[0], sl4[1], sl4[1], sl4[2], sl4[3]], dtype=np.float32)
         grav_z = np.array([-1.0], dtype=np.float32)
+        # steer_pos(4), drive_torque_delta(6), entrap_flag(1), slip_anomaly(1), dist_norm(1) —
+        # unavailable on RPi5: set to zero (policy was trained with noise, can tolerate zeroed features)
+        steer_pos     = np.zeros(4, dtype=np.float32)
+        torque_delta  = np.zeros(6, dtype=np.float32)
+        entrap_flag   = np.zeros(1, dtype=np.float32)
+        slip_anomaly  = np.zeros(1, dtype=np.float32)
+        dist_norm     = np.zeros(1, dtype=np.float32)
         obs = np.concatenate([
-            wheel_vel / MAX_WHEEL_VEL,
-            slip,
-            imu_acc / GRAVITY,
-            grav_z,
+            wv6, sl6, steer_pos, imu_acc / GRAVITY, grav_z,
+            torque_delta, entrap_flag, slip_anomaly, dist_norm,
         ])
+        assert obs.shape[0] == 29, f"_build_obs produced {obs.shape[0]}D, expected 29D"
         return obs.astype(np.float32)
 
     def _build_detector_feat(self, wheel_vel: np.ndarray,
@@ -281,19 +297,22 @@ class RoverController:
 
 
                 obs = self._build_obs(wheel_vel, imu_acc, slip)
-                obs = self._update_normalise(obs)
+                # NOTE: obs normalisation is baked into the ONNX graph (RunningStandardScaler
+                # stats sliced to 29D are embedded at export time). Do NOT normalise here.
 
                 if self._state == self.STATE_ENTRAPPED:
                     action = self._run_policy(obs)
                     print(f"  [{step:5d}] ENTRAPPED → policy action: {np.round(action, 2)}")
                 elif self._state == self.STATE_SINKING:
-
                     sign   = 1 if (step // 10) % 2 == 0 else -1
-                    action = np.full(self._num_actions, sign, dtype=np.float32)
+                    # Only set drive commands (first 6 dims); steer stays 0 for pure rocking
+                    action = np.zeros(self._num_actions, dtype=np.float32)
+                    action[:6] = float(sign)
                     print(f"  [{step:5d}] SINKING   → rocking: {sign:+d}")
                 else:
-
-                    action = np.full(self._num_actions, 0.5, dtype=np.float32)
+                    # Normal forward drive: set only drive dims, steer stays 0
+                    action = np.zeros(self._num_actions, dtype=np.float32)
+                    action[:6] = 0.5
 
 
                 if self._num_actions == 10:
@@ -330,10 +349,10 @@ def main():
     parser.add_argument("--detector_onnx", type=str, required=True)
     parser.add_argument("--run_time",      type=float, default=300.0,
                         help="Total run time in seconds")
-    parser.add_argument("--num_obs",       type=int, default=12,
-                        help="Observation dimension (12 for 4-wheel, 29 for 6-wheel Mars rover)")
-    parser.add_argument("--num_actions",   type=int, default=4,
-                        help="Action dimension (4 for 4-wheel, 10 for 6-wheel Mars rover)")
+    parser.add_argument("--num_obs",       type=int, default=29,
+                        help="Observation dimension (29 for 6-wheel Mars rover)")
+    parser.add_argument("--num_actions",   type=int, default=10,
+                        help="Action dimension (10 for 6-wheel Mars rover: 6 drive + 4 steer)")
     args = parser.parse_args()
 
     if not os.path.isfile(args.policy_onnx):
