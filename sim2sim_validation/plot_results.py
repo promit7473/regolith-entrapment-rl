@@ -1,20 +1,3 @@
-"""
-Publication-quality plots for sim2sim validation.
-
-Reads the JSON written by run_validation.py (multi-experiment mode) and emits:
-  - rates.png             : recovery rate + goal-reach rate bar chart
-  - path_efficiency.png   : boxplot of path efficiency per experiment
-  - heading_error.png     : histogram of escape heading error (gps vs random)
-  - time_to_escape.png    : histogram of time-to-escape steps
-  - summary_table.md      : markdown table of headline numbers
-  - summary_table.csv     : CSV equivalent
-
-Usage (pure Python — no Isaac Sim needed):
-    python3 sim2sim_validation/plot_results.py                       # latest JSON
-    python3 sim2sim_validation/plot_results.py --json <path>
-    python3 sim2sim_validation/plot_results.py --out_dir figs/
-"""
-
 import argparse
 import csv
 import glob
@@ -27,7 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ── Publication style (matches scripts/plot_training.py) ─────────────────────
+
 plt.rcParams.update({
     "figure.facecolor":     "white",
     "axes.facecolor":       "white",
@@ -52,7 +35,7 @@ plt.rcParams.update({
     "savefig.dpi":          400,
     "savefig.bbox":         "tight",
     "savefig.pad_inches":   0.05,
-    "pdf.fonttype":         42,    # TrueType — editable in Illustrator
+    "pdf.fonttype":         42,
     "ps.fonttype":          42,
 })
 
@@ -72,39 +55,31 @@ COLORS = {
 def _draw_map_pin(ax, x, y, color, label=None,
                   head_r_data=0.25, tail_drop_data=0.55,
                   hole_frac=0.40, edge="white", lw=1.0):
-    """Draw a Google-Maps-style teardrop pin at data coords (x, y).
-
-    The pin's *tip* anchors at (x, y) — i.e. the point of the pin marks the
-    position. Pin is drawn as a filled path: cubic Béziers from the tip up
-    around a circular head and back, with a small contrasting circle in the
-    middle (the iconic 'hole').
-    """
     from matplotlib.patches import PathPatch, Circle
     from matplotlib.path import Path
 
     cx, cy_head = x, y + tail_drop_data
     r = head_r_data
-    # Tangent points where the head circle meets the tapering body.
-    # We put them at ±60° from straight-down on the circle so the body
-    # tapers into the head smoothly.
+
+
     import math
     theta = math.radians(60.0)
     lx = cx - r * math.sin(theta)
     rx = cx + r * math.sin(theta)
     ly = cy_head - r * math.cos(theta)
-    # Path: start at tip → cubic to right tangent → arc-as-cubics around
-    # the head → cubic back down to tip.
+
+
     verts = [
-        (x, y),                                          # tip
-        (rx, y + 0.25 * tail_drop_data),                 # ctl1
-        (rx + 0.4*r, ly - 0.1*r),                        # ctl2
-        (rx, ly),                                        # right tangent
-        # Arc over the head (split into 2 cubics for shape fidelity).
+        (x, y),
+        (rx, y + 0.25 * tail_drop_data),
+        (rx + 0.4*r, ly - 0.1*r),
+        (rx, ly),
+
         (rx + 0.55*r, ly + 0.2*r),  (cx + 0.55*r, cy_head + r), (cx, cy_head + r),
         (cx - 0.55*r, cy_head + r), (lx - 0.55*r, ly + 0.2*r),  (lx, ly),
-        (lx - 0.4*r, ly - 0.1*r),                        # ctl1 back
-        (lx, y + 0.25 * tail_drop_data),                 # ctl2 back
-        (x, y),                                          # tip close
+        (lx - 0.4*r, ly - 0.1*r),
+        (lx, y + 0.25 * tail_drop_data),
+        (x, y),
     ]
     codes = [
         Path.MOVETO,
@@ -117,7 +92,7 @@ def _draw_map_pin(ax, x, y, color, label=None,
                     edgecolor=edge, linewidth=lw, zorder=6,
                     label=label)
     ax.add_patch(pin)
-    # The 'hole'
+
     ax.add_patch(Circle((cx, cy_head), r * hole_frac,
                         facecolor="white", edgecolor=color,
                         linewidth=0.6, zorder=7))
@@ -263,31 +238,23 @@ def plot_time_to_escape(experiments: dict, out_path: str):
 
 def plot_trajectory(mode_name: str, summary: dict, out_path: str,
                     style: str = "color"):
-    """Per-trial trajectory figure: action timeline (top) + xy map (bottom).
-
-    style="color" (default): magma_r time gradient on cream paper background.
-    style="mono":            B&W publication style — Greys gradient, white
-                             paper, no color anywhere. Heatmap-like effect
-                             (dark = late steps, light = early) so the
-                             trajectory itself reads as a time-density map.
-    """
     MONO = (style == "mono")
-    # Refined Q1-journal palette: muted, low-saturation, ColorBrewer-derived
-    # tones that print well in CMYK and stay legible at half-page width.
-    P_BG       = "white"           if MONO else "#FBFAF6"   # ivory paper
+
+
+    P_BG       = "white"           if MONO else "#FBFAF6"
     P_TEXT     = "#000000"         if MONO else "#1C1C1E"
     P_TEXT2    = "#444444"         if MONO else "#5A5C60"
     P_GRID     = "#D8D8D8"         if MONO else "#E6E4DE"
-    P_SAND_F   = "#E8E8E8"         if MONO else "#E8D2A8"   # warmer sand
+    P_SAND_F   = "#E8E8E8"         if MONO else "#E8D2A8"
     P_SAND_E   = "#888888"         if MONO else "#8C6F3F"
     P_SAND_T   = "#5A5A5A"         if MONO else "#6E4F1F"
-    P_PATH_CM  = "Greys"           if MONO else "viridis"   # perceptually uniform, color-blind safe
+    P_PATH_CM  = "Greys"           if MONO else "viridis"
     P_HALO     = "white"
-    P_PIN_A    = "#222222"         if MONO else "#2A7F62"   # deep teal-green
-    P_PIN_B    = "#000000"         if MONO else "#B5341E"   # brick red
+    P_PIN_A    = "#222222"         if MONO else "#2A7F62"
+    P_PIN_B    = "#000000"         if MONO else "#B5341E"
     P_PIN_SH   = "#BBBBBB"         if MONO else "#A8A39A"
-    P_ENTRAP_F      = "#000000" if MONO else "#7A2E2A"      # dark wine
-    P_ENTRAP_F_FILL = "#666666" if MONO else "#D9A05B"      # ochre
+    P_ENTRAP_F      = "#000000" if MONO else "#7A2E2A"
+    P_ENTRAP_F_FILL = "#666666" if MONO else "#D9A05B"
     P_DRIVE_CM = ("Greys" if MONO else "cividis")
     P_OUTCOME_OK      = "#444444" if MONO else "#1F6E47"
     P_OUTCOME_PARTIAL = "#666666" if MONO else "#A37800"
@@ -299,17 +266,17 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
         return False
 
     t       = np.array(trace["t"])
-    pos     = np.array(trace["pos_xy"])     # (T, 2)
-    action  = np.array(trace["action"])     # (T, 10)
-    mode    = np.array(trace["mode"])       # (T,)
-    entrap  = np.array(trace["entrap_flag"])# (T,)
+    pos     = np.array(trace["pos_xy"])
+    action  = np.array(trace["action"])
+    mode    = np.array(trace["mode"])
+    entrap  = np.array(trace["entrap_flag"])
     spawn   = np.array(trace["spawn_xy"])
     goal    = np.array(trace["goal_xy"])
 
-    drive_cmd = action[:, :6]   # 6 drive wheels
-    steer_cmd = action[:, 6:]   # 4 steer joints
+    drive_cmd = action[:, :6]
+    steer_cmd = action[:, 6:]
 
-    # ── Outcome string for subtitle ──────────────────────────────────────────
+
     final_dist = float(np.linalg.norm(pos[-1] - goal))
     arrival_r  = 0.5
     if final_dist < arrival_r:
@@ -326,7 +293,7 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
         left=0.11, right=0.97, top=0.905, bottom=0.06,
     )
 
-    # ── Header: serif title + italic subtitle + outcome pill ─────────────────
+
     fig.text(
         0.11, 0.965,
         f"Rover trajectory — {PRETTY.get(mode_name, mode_name)}",
@@ -357,7 +324,7 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
         for s in ("left", "bottom"):
             ax.spines[s].set_color("#666666")
 
-    # ── Top: drive cmd timeline (6 wheels) ───────────────────────────────────
+
     ax1 = fig.add_subplot(gs[0])
     wheel_labels = ["FL", "FR", "ML", "MR", "RL", "RR"]
     wheel_colors = matplotlib.colormaps[P_DRIVE_CM](np.linspace(0.15, 0.85, 6))
@@ -373,7 +340,7 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
     ax1.tick_params(labelbottom=False)
     _despine(ax1)
 
-    # ── Middle: steer envelope + entrap flag ─────────────────────────────────
+
     ax2 = fig.add_subplot(gs[1], sharex=ax1)
     ax2.fill_between(t, steer_cmd.min(axis=1), steer_cmd.max(axis=1),
                      color=P_ENTRAP_F, alpha=0.18, label="Steer range")
@@ -387,21 +354,20 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
     ax2.legend(fontsize=7, loc="upper right", frameon=False, ncol=3)
     _despine(ax2)
 
-    # ── Bottom: top-down trajectory map ──────────────────────────────────────
+
     ax3 = fig.add_subplot(gs[2])
     ax3.set_facecolor(P_BG)
     sand_half = 1.75
     bed_cx, bed_cy = spawn[0], spawn[1]
 
-    # Sand bed: filled rect + hatched ring at the boundary
-    # Sand fill — softer alpha, no hatch (cleaner for print)
+
     ax3.add_patch(plt.Rectangle(
         (bed_cx - sand_half, bed_cy - sand_half),
         2 * sand_half, 2 * sand_half,
         facecolor=P_SAND_F, edgecolor="none", alpha=0.45, zorder=1,
         label="Regolith bed (3.5 m)",
     ))
-    # Double-line border (thin outer + thick inner) — journal map convention
+
     for off, lw, alpha in [(0.0, 1.2, 0.7), (-0.04, 0.5, 0.45)]:
         ax3.add_patch(plt.Rectangle(
             (bed_cx - sand_half + off, bed_cy - sand_half + off),
@@ -414,7 +380,7 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
              color=P_SAND_T, style="italic", alpha=0.85, zorder=1.2,
              family="serif")
 
-    # Time-colored path with subtle white halo for separation against sand
+
     from matplotlib.collections import LineCollection
     import matplotlib.patheffects as pe
     points   = pos.reshape(-1, 1, 2)
@@ -427,25 +393,25 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
     lc.set_array(t[:-1])
     ax3.add_collection(lc)
 
-    # Mode-event markers with leader-line callouts
+
     mode_changes = np.where(np.diff(mode) != 0)[0]
-    placed_labels = []   # (xy, dy_sign) to alternate label sides
+    placed_labels = []
     for i in mode_changes:
         m_to = mode[i + 1]
         x, y = pos[i+1]
-        if m_to == 1:   # NAVIGATE → ESCAPE
+        if m_to == 1:
             ax3.plot(x, y, marker="X", color=P_EVENT_TRIG, markersize=8,
                      markeredgecolor="white", markeredgewidth=0.9, zorder=5)
             label, lc_color = "Entrap → escape", P_EVENT_TRIG
             dy = 0.55
-        elif m_to == 0 and mode[i] == 1:   # ESCAPE → NAVIGATE
+        elif m_to == 0 and mode[i] == 1:
             ax3.plot(x, y, marker="o", color=P_EVENT_FREE, markersize=8,
                      markeredgecolor="white", markeredgewidth=0.9, zorder=5)
             label, lc_color = "Freed → nav", P_EVENT_FREE
             dy = -0.55
         else:
             continue
-        # Alternate vertical offset to reduce label collisions
+
         if any(abs(px - x) < 0.7 and (pdy > 0) == (dy > 0)
                for (px, py, pdy) in placed_labels):
             dy = -dy
@@ -460,14 +426,14 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
         )
         placed_labels.append((float(x), float(y), float(dy)))
 
-    # Spawn + goal: shadowed teardrop pins
+
     for sx, sy in [(spawn[0], spawn[1]), (goal[0], goal[1])]:
         _draw_map_pin(ax3, sx + 0.04, sy - 0.04, color=P_PIN_SH,
                       edge="none", lw=0.0)
     _draw_map_pin(ax3, spawn[0], spawn[1], color=P_PIN_A, label="Spawn (A)")
     _draw_map_pin(ax3, goal[0],  goal[1],  color=P_PIN_B, label="Goal (B)")
 
-    # ── Map auto-fit with margin ─────────────────────────────────────────────
+
     pin_top_pad = 0.95
     all_x = np.concatenate([
         pos[:, 0], [spawn[0], goal[0]],
@@ -491,7 +457,7 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
     ax3.set_axisbelow(True)
     _despine(ax3)
 
-    # ── North arrow (bottom-left) ────────────────────────────────────────────
+
     xlim, ylim = ax3.get_xlim(), ax3.get_ylim()
     nx = xlim[0] + 0.05 * (xlim[1] - xlim[0])
     ny = ylim[0] + 0.10 * (ylim[1] - ylim[0])
@@ -504,7 +470,7 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
         arrowprops=dict(facecolor="#444444", edgecolor="#444444",
                         width=2.0, headwidth=8, headlength=8),
     )
-    # ── Scale bar (bottom-right) ─────────────────────────────────────────────
+
     bar_len_m = 1.0
     bx0 = xlim[1] - 0.05 * (xlim[1] - xlim[0]) - bar_len_m
     by0 = ylim[0] + 0.05 * (ylim[1] - ylim[0])
@@ -520,7 +486,7 @@ def plot_trajectory(mode_name: str, summary: dict, out_path: str,
     leg.set_zorder(10)
     leg.get_frame().set_linewidth(0.6)
 
-    # Slim time colorbar below the map
+
     cbar = fig.colorbar(lc, ax=ax3, orientation="horizontal",
                         fraction=0.045, pad=0.11, aspect=42)
     cbar.set_label(r"episode time  /  s", fontsize=9.5, style="italic")
@@ -548,7 +514,7 @@ def write_summary_table(experiments: dict, md_path: str, csv_path: str):
     headers = [c[0] for c in cols]
     rows = [[fn(m, s) for _, fn in cols] for m, s in experiments.items()]
 
-    # Markdown
+
     with open(md_path, "w") as f:
         f.write("# Sim2Sim Validation Summary\n\n")
         f.write("| " + " | ".join(headers) + " |\n")
@@ -556,7 +522,7 @@ def write_summary_table(experiments: dict, md_path: str, csv_path: str):
         for row in rows:
             f.write("| " + " | ".join(str(v) for v in row) + " |\n")
 
-    # CSV
+
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(headers)

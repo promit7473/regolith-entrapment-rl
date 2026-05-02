@@ -1,27 +1,9 @@
-"""
-Verify that prescribed sinkage actually traps the rover.
-
-Runs N envs with ZERO drive/steer commands for `--hold_seconds` seconds after
-reset. If the rover drifts less than `--bury_tolerance` metres in that window,
-the env counts as "truly entrapped" — wheel burial + sand friction + gravity
-settling together are enough to immobilise it. Otherwise the prescribed sinkage
-is too shallow for the current µ / ke setting and needs to be increased before
-training begins.
-
-Reports:
-  - fraction of envs truly entrapped (target: > 90%)
-  - mean / max passive displacement across envs
-  - per-curriculum-tier breakdown (light vs deep sinkage)
-
-Usage:
-    ./launch.sh scripts/verify_entrapment.py --num_envs 16 --hold_seconds 3.0
-"""
 import argparse
 import math
 import os
 import sys
 
-# Python 3.11 conda-forge platform._sys_version parser bug — pre-seed cache.
+
 import platform as _platform
 _platform._sys_version_cache[sys.version] = (
     "CPython",
@@ -51,7 +33,7 @@ sys.argv = [sys.argv[0]] + hydra_args
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-# ── Post-launch imports ────────────────────────────────────────────────────────
+
 import torch
 import warp as wp
 import gymnasium as gym
@@ -59,7 +41,7 @@ import gymnasium as gym
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-import envs  # registers env
+import envs
 from envs.entrapment_env import EntrapmentEnvCfg, SPAWN_X_OFFSET
 
 
@@ -85,7 +67,7 @@ def main():
 
     for ep in range(args_cli.episodes):
         obs, _ = env.reset()
-        # Capture initial XY position (world-frame, relative to env origin).
+
         root_pos_0 = wp.to_torch(unwrapped.robot.data.root_link_pos_w).clone()
         pos_xy_0  = root_pos_0[:, :2] - unwrapped.scene.env_origins[:, :2]
         sinkages  = unwrapped._sinkage.clone()
@@ -115,7 +97,7 @@ def main():
     print(f"[Summary] mean displacement: {disp_all.mean().item():.3f} m")
     print(f"[Summary] max  displacement: {disp_all.max().item():.3f} m")
 
-    # Tiered breakdown: shallow vs deep sinkage
+
     median_sink = sink_all.median().item()
     shallow = sink_all <= median_sink
     deep    = ~shallow

@@ -1,46 +1,8 @@
-"""
-Episode Dashboard — publication-quality multi-panel figure.
-Inspired by Bi & Ding (2026) Fig. 18/19/23/25.
-
-Generates:
-  Panel 1 : Drive velocity  — 6 wheels, L/R differentiated
-  Panel 2 : Drive torque    — 6 wheels + zoom-inset on anomaly window
-  Panel 3 : Slip ratio      — 6 wheels + shaded min-max band
-  Panel 4 : Entrapment & anomaly flags (stacked binary)
-  Panel 5 : IMU acceleration (3-axis)
-  Panel 6 : Cumulative reward
-  Panel 7 : Rover XY trajectory on MPM sand surface height-map
-             with auto-annotated behaviour events
-
-Usage:
-    # --- Requires Isaac Sim + Newton ---
-
-    # Random actions (sanity / pipeline check):
-    ./launch.sh scripts/plot_episode.py --num_envs 1
-
-    # Trained checkpoint:
-    ./launch.sh scripts/plot_episode.py --num_envs 1 \\
-        --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
-
-    # Collect N episodes and overlay trajectories:
-    ./launch.sh scripts/plot_episode.py --num_envs 1 --episodes 3 \\
-        --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
-
-    # --- Offline: no Isaac Sim needed ---
-    # First save data once with eval.py:
-    ./launch.sh scripts/eval.py --episodes 3 --checkpoint <ckpt> \\
-        --save-data experiments/regolith_recovery/episode_data/run1.npz
-
-    # Then plot anywhere, any time (needs conda env for matplotlib, NOT Isaac Sim):
-    conda run -n env_isaaclab python3 scripts/plot_episode.py \\
-        --from-file experiments/regolith_recovery/episode_data/run1.npz
-"""
-
 import argparse
 import os
 import sys
 
-# ── Pre-parse: detect offline (--from-file) mode BEFORE loading the Isaac Sim stack ──
+
 _pre = argparse.ArgumentParser(add_help=False)
 _pre.add_argument("--from-file", type=str, default=None)
 _pre_ns, _ = _pre.parse_known_args()
@@ -76,7 +38,7 @@ else:
     args_cli, _ = parser.parse_known_args()
     simulation_app = None
 
-# ── Imports (numpy/matplotlib always; sim stack only in online mode) ───────────
+
 import numpy as np
 
 import matplotlib
@@ -100,7 +62,7 @@ if not _OFFLINE:
 PLOTS_DIR = os.path.join(REPO_ROOT, "experiments", "regolith_recovery", "plots")
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
-# ── Publication style ──────────────────────────────────────────────────────────
+
 plt.rcParams.update({
     "figure.facecolor":  "white",
     "axes.facecolor":    "white",
@@ -126,60 +88,43 @@ plt.rcParams.update({
     "savefig.facecolor": "white",
 })
 
-# Wheel colours — distinct, print-safe
+
 WHEEL_NAMES  = ["FL", "FR", "ML", "MR", "RL", "RR"]
 WHEEL_COLORS = ["#2166AC", "#D6604D", "#4DAC26", "#E08214", "#8073AC", "#1A9641"]
-LEFT_IDX     = [0, 2, 4]    # FL, ML, RL
-RIGHT_IDX    = [1, 3, 5]    # FR, MR, RR
+LEFT_IDX     = [0, 2, 4]
+RIGHT_IDX    = [1, 3, 5]
 
-# Regolith geometry (must match entrapment_env.py)
+
 SAND_HALF_X = 0.6
 SAND_HALF_Y = 0.6
-ESCAPE_DIST = 1.5   # m
+ESCAPE_DIST = 1.5
 
-# Mars sand colormap: light dusty beige → deep rust red
+
 MARS_CMAP = LinearSegmentedColormap.from_list(
     "mars_sand", ["#F4DDB4", "#C9945A", "#8B3A1E"]
 )
 
 
-# ── MPM heightmap snapshot ─────────────────────────────────────────────────────
-
 def _snap_heightmap(raw_env, env_idx=0, grid_res=60):
-    """
-    Bin MPM particle positions into a 2D surface height map (env-local coords).
-    Returns (heightmap [grid_res × grid_res], extent_tuple) or (None, None).
-    
-    DISABLED: CUDA memory issues when extracting particle positions during rendering.
-    TODO: Re-enable by:
-      1. Copying particle data to CPU before rendering
-      2. Using a separate CUDA stream for particle extraction
-      3. Reducing grid_res or particle count during extraction
-    
-    Workaround: Run eval.py with --save-data, then use offline plotting mode.
-    """
     return None, None
 
 
-# ── Behaviour event detection ──────────────────────────────────────────────────
-
 def _detect_events(t, pos_xy, entrap_flag, torque_anomaly, wheel_vel):
-    """Return list of (time, label, xy) for key trajectory events."""
     events = []
 
-    # Entrapment onset
+
     for i in range(1, len(entrap_flag)):
         if entrap_flag[i] > 0.5 and entrap_flag[i - 1] < 0.5:
             events.append((t[i], "Wheels\ntrapped", pos_xy[i].copy()))
             break
 
-    # Torque anomaly onset
+
     for i in range(1, len(torque_anomaly)):
         if torque_anomaly[i] > 0.5 and torque_anomaly[i - 1] < 0.5:
             events.append((t[i], "Torque\nanomaly", pos_xy[i].copy()))
             break
 
-    # First rocking reversal (sign flip while trapped)
+
     mean_vel = wheel_vel.mean(axis=-1)
     for i in range(1, len(mean_vel)):
         if (mean_vel[i] * mean_vel[i - 1] < -0.3
@@ -188,7 +133,7 @@ def _detect_events(t, pos_xy, entrap_flag, torque_anomaly, wheel_vel):
             events.append((t[i], "Rocking\nreversal", pos_xy[i].copy()))
             break
 
-    # Escape
+
     dist = np.linalg.norm(pos_xy, axis=-1)
     for i in range(len(dist)):
         if dist[i] > ESCAPE_DIST:
@@ -197,8 +142,6 @@ def _detect_events(t, pos_xy, entrap_flag, torque_anomaly, wheel_vel):
 
     return events
 
-
-# ── Agent loader ───────────────────────────────────────────────────────────────
 
 def load_agent(device, num_obs, num_act, num_envs, ckpt_path):
     from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
@@ -219,10 +162,7 @@ def load_agent(device, num_obs, num_act, num_envs, ckpt_path):
     return agent
 
 
-# ── Data collector ─────────────────────────────────────────────────────────────
-
 def collect_episode(env, agent, max_steps):
-    """Run one episode, collect per-step data + MPM heightmap snapshots."""
     obs, _  = env.reset()
     raw_env = env.unwrapped
 
@@ -230,10 +170,10 @@ def collect_episode(env, agent, max_steps):
     TORQUE_LIMIT_APPROX = 3.0
     DT = float(raw_env.cfg.sim.dt) * float(raw_env.cfg.decimation)
 
-    # env-local origin offset so trajectory is centred at (0, 0)
+
     env_origin_xy = raw_env.scene.env_origins[0].cpu().numpy()[:2]
 
-    # Initial sand surface snapshot (before wheel interaction)
+
     hmap_init, hmap_extent = _snap_heightmap(raw_env)
 
     records = {k: [] for k in [
@@ -255,17 +195,17 @@ def collect_episode(env, agent, max_steps):
 
         obs, reward, terminated, truncated, info = env.step(action)
 
-        ob = obs[0].cpu().numpy()   # (29,)
+        ob = obs[0].cpu().numpy()
         wheel_vel_norm = ob[0:6]
         slip           = ob[6:12]
         imu_acc        = ob[16:19]
         drive_torque_n = ob[20:26]
         entrap_flag    = ob[26]
         torque_anomaly = ob[27]
-        # ob[28] = dist_norm (not needed here; pos_xy computed from sim state below)
+
 
         pos_w  = raw_env.root_pos[0].cpu().numpy()
-        pos_xy = pos_w[:2] - env_origin_xy   # local coords
+        pos_xy = pos_w[:2] - env_origin_xy
 
         records["t"].append(step * DT)
         records["wheel_vel"].append(wheel_vel_norm * DRIVE_VEL_LIMIT)
@@ -286,15 +226,13 @@ def collect_episode(env, agent, max_steps):
 
     out = {k: np.array(v) for k, v in records.items()}
 
-    # Final sand surface snapshot (shows wheel tracks / deformation)
+
     hmap_final, _ = _snap_heightmap(raw_env)
     out["heightmap_initial"] = hmap_init
     out["heightmap_final"]   = hmap_final
     out["heightmap_extent"]  = hmap_extent
     return out
 
-
-# ── Plotting helpers ───────────────────────────────────────────────────────────
 
 def annotate_anomaly_spans(ax, t, flag, color="#FFD7D7", label="Entrap"):
     in_span, t0 = False, 0.0
@@ -309,7 +247,6 @@ def annotate_anomaly_spans(ax, t, flag, color="#FFD7D7", label="Entrap"):
 
 
 def add_torque_inset(ax, t, torque, torque_anomaly):
-    """Zoom-inset on anomaly window — paper Fig.23/25 style."""
     anomaly_t = t[torque_anomaly > 0.5]
     if len(anomaly_t) < 3:
         return
@@ -342,8 +279,6 @@ def add_torque_inset(ax, t, torque, torque_anomaly):
         pass
 
 
-# ── Main figure ────────────────────────────────────────────────────────────────
-
 def make_episode_figure(episodes_data, out_path, mode="random"):
     ep = episodes_data[0]
     t  = ep["t"]
@@ -360,16 +295,16 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
                   height_ratios=[1, 1, 1, 1.5])
 
     axes = [
-        fig.add_subplot(gs[0, 0]),   # Drive velocity
-        fig.add_subplot(gs[0, 1]),   # Drive torque + inset
-        fig.add_subplot(gs[1, 0]),   # Slip ratio
-        fig.add_subplot(gs[1, 1]),   # Entrap / anomaly flags
-        fig.add_subplot(gs[2, 0]),   # IMU acceleration
-        fig.add_subplot(gs[2, 1]),   # Cumulative reward
-        fig.add_subplot(gs[3, :]),   # Trajectory map (full width)
+        fig.add_subplot(gs[0, 0]),
+        fig.add_subplot(gs[0, 1]),
+        fig.add_subplot(gs[1, 0]),
+        fig.add_subplot(gs[1, 1]),
+        fig.add_subplot(gs[2, 0]),
+        fig.add_subplot(gs[2, 1]),
+        fig.add_subplot(gs[3, :]),
     ]
 
-    # ── Panel 1 : Drive Velocity ──────────────────────────────────────────────
+
     ax = axes[0]
     ax.set_title("Drive Velocity")
     ax.set_ylabel("rad / s")
@@ -382,7 +317,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
     ax.legend(ncols=3, loc="upper right", handlelength=1.5)
     ax.spines[["top", "right"]].set_visible(False)
 
-    # ── Panel 2 : Drive Torque  +  zoom inset ────────────────────────────────
+
     ax = axes[1]
     ax.set_title("Drive Torque")
     ax.set_ylabel("Torque / N·m")
@@ -397,7 +332,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
     ax.spines[["top", "right"]].set_visible(False)
     add_torque_inset(ax, t, ep["drive_torque"], ep["torque_anomaly"])
 
-    # ── Panel 3 : Slip Ratio ──────────────────────────────────────────────────
+
     ax = axes[2]
     ax.set_title("Slip Ratio")
     ax.set_ylabel("Slip")
@@ -413,7 +348,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
     ax.legend(loc="upper right")
     ax.spines[["top", "right"]].set_visible(False)
 
-    # ── Panel 4 : Entrapment & Anomaly Flags ─────────────────────────────────
+
     ax = axes[3]
     ax.set_title("Entrapment & Anomaly Status")
     ax.set_xlabel("t / s")
@@ -430,7 +365,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
     ax.legend(loc="upper right")
     ax.spines[["top", "right"]].set_visible(False)
 
-    # ── Panel 5 : IMU Acceleration ────────────────────────────────────────────
+
     ax = axes[4]
     ax.set_title("IMU Acceleration (normalised by g)")
     ax.set_ylabel("acc / g")
@@ -443,7 +378,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
     ax.legend(loc="upper right")
     ax.spines[["top", "right"]].set_visible(False)
 
-    # ── Panel 6 : Cumulative Reward ───────────────────────────────────────────
+
     ax = axes[5]
     ax.set_title("Cumulative Reward")
     ax.set_ylabel("Cumulative reward")
@@ -455,7 +390,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
     ax.axhline(0, color="#888", linewidth=0.7, linestyle="--")
     ax.spines[["top", "right"]].set_visible(False)
 
-    # ── Panel 7 : Trajectory Map ──────────────────────────────────────────────
+
     ax = axes[6]
     ax.set_title("Rover Trajectory  (colour = elapsed time)", pad=8)
     ax.set_xlabel("X / m  (env-local)")
@@ -463,14 +398,14 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
     ax.set_aspect("equal", adjustable="datalim")
     ax.spines[["top", "right"]].set_visible(False)
 
-    # Background: MPM sand surface height-map (shows real physics deformation)
+
     hmap  = ep.get("heightmap_final")
     hext  = ep.get("heightmap_extent")
     hmap0 = ep.get("heightmap_initial")
 
     if hmap is not None and hext is not None:
         im = ax.imshow(
-            hmap.T,                # transpose: imshow is row=y, col=x
+            hmap.T,
             origin="lower",
             extent=hext,
             cmap=MARS_CMAP,
@@ -483,7 +418,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
         cbar_h.set_label("Surface z / m", fontsize=7)
         cbar_h.ax.tick_params(labelsize=6)
 
-        # Deformation contour: wheel tracks (most sunk regions)
+
         if hmap0 is not None:
             deform = hmap - hmap0
             xc = np.linspace(hext[0], hext[1], hmap.shape[0])
@@ -497,28 +432,28 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
             except Exception:
                 pass
     else:
-        # Fallback: plain sand rectangle
+
         ax.add_patch(mpatches.Rectangle(
             (-SAND_HALF_X, -SAND_HALF_Y), 2 * SAND_HALF_X, 2 * SAND_HALF_Y,
             facecolor="#C8A882", edgecolor="#9E7B4E", linewidth=1.0,
             alpha=0.35, label="Sand bed (1.2×1.2 m)", zorder=0,
         ))
 
-    # Sand bed boundary
+
     ax.add_patch(mpatches.Rectangle(
         (-SAND_HALF_X, -SAND_HALF_Y), 2 * SAND_HALF_X, 2 * SAND_HALF_Y,
         facecolor="none", edgecolor="#9E7B4E", linewidth=1.2,
         label="Sand bed (1.2×1.2 m)", zorder=2,
     ))
 
-    # Escape distance circle
+
     ax.add_patch(plt.Circle(
         (0, 0), ESCAPE_DIST, fill=False,
         edgecolor="#D6604D", linewidth=1.2,
         linestyle="--", label=f"Escape threshold ({ESCAPE_DIST} m)", zorder=2,
     ))
 
-    # Trajectories (colour = elapsed time, plasma)
+
     cmap_traj = matplotlib.colormaps["plasma"]
     for ei, ep_i in enumerate(episodes_data):
         xy   = ep_i["pos_xy"]
@@ -542,7 +477,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
                        c="#D6604D", s=14, zorder=3, alpha=0.45,
                        label="Trapped" if ei == 0 else "_")
 
-    # Time colourbar
+
     sm = plt.cm.ScalarMappable(cmap=cmap_traj,
                                norm=Normalize(vmin=0, vmax=ep["t"][-1]))
     sm.set_array([])
@@ -550,11 +485,11 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
     cbar_t.set_label("t / s", fontsize=8)
     cbar_t.ax.tick_params(labelsize=7)
 
-    # Origin cross
+
     ax.axhline(0, color="#AAAAAA", linewidth=0.5, linestyle=":", zorder=1)
     ax.axvline(0, color="#AAAAAA", linewidth=0.5, linestyle=":", zorder=1)
 
-    # ── Behaviour event annotations ───────────────────────────────────────────
+
     events = _detect_events(ep["t"], ep["pos_xy"],
                             ep["entrap_flag"], ep["torque_anomaly"],
                             ep["wheel_vel"])
@@ -581,7 +516,7 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
             zorder=6,
         )
 
-    # Auto-scale with margin
+
     all_xy = np.concatenate([e["pos_xy"] for e in episodes_data], axis=0)
     margin = 0.35
     ax.set_xlim(min(all_xy[:, 0].min() - margin, -SAND_HALF_X - 0.1),
@@ -590,18 +525,17 @@ def make_episode_figure(episodes_data, out_path, mode="random"):
                 max(all_xy[:, 1].max() + margin,  SAND_HALF_Y + 0.1))
     ax.legend(loc="upper left", fontsize=7.5, ncols=2)
 
-    # ── Save dashboard ────────────────────────────────────────────────────────
+
     out_path = os.path.join(PLOTS_DIR, "episode_dashboard.png")
     fig.savefig(out_path, dpi=200, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"  [saved] {out_path}")
 
-    # ── Bonus: standalone sand deformation figure ─────────────────────────────
+
     _save_deformation_map(ep, episodes_data)
 
 
 def _save_deformation_map(ep, episodes_data):
-    """Three-panel publication figure: initial / final / deformation."""
     hmap0 = ep.get("heightmap_initial")
     hmapf = ep.get("heightmap_final")
     hext  = ep.get("heightmap_extent")
@@ -641,14 +575,11 @@ def _save_deformation_map(ep, episodes_data):
     print(f"  [saved] {out}")
 
 
-# ── Offline loader ─────────────────────────────────────────────────────────────
-
 _EP_KEYS = ["t", "wheel_vel", "drive_torque", "slip",
             "entrap_flag", "torque_anomaly", "imu_acc",
             "pos_xy", "reward", "action"]
 
 def _load_from_npz(path):
-    """Load episodes_data list from a .npz saved by eval.py --save-data."""
     data    = np.load(path, allow_pickle=True)
     n_eps   = int(data["n_episodes"][0])
     mode    = str(data["mode"][0])
@@ -665,10 +596,8 @@ def _load_from_npz(path):
     return episodes, mode
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
-
 def main():
-    # ── Offline mode: plot from saved .npz without any simulation ────────────
+
     if getattr(args_cli, "from_file", None):
         episodes_data, mode = _load_from_npz(args_cli.from_file)
         print(f"\n{'='*55}")
@@ -686,7 +615,7 @@ def main():
         make_episode_figure(episodes_data, PLOTS_DIR, mode=mode)
         print(f"\nDone. Plots in: {PLOTS_DIR}\n")
         return
-    # ─────────────────────────────────────────────────────────────────────────
+
 
     env_cfg = EntrapmentEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs

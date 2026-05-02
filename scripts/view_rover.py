@@ -1,30 +1,20 @@
-"""
-Standalone Newton viewer for the Mars Rover (6-wheel) + MPM sand.
-No Isaac Lab, no SimulationApp — just Newton + ViewerGL.
-
-Usage:
-    ./view.sh                          # rover + sand (interactive)
-    ./view.sh --no-sand                # rover only
-    ./view.sh --num-frames 500         # 500 frames then exit
-"""
-
 import sys
 import os
 import argparse
 import numpy as np
 
-# Load path configuration
+
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _REPO_ROOT)
 from paths import PXR_EXT, NEWTON_DIR
 
-# pxr MUST be imported before warp — import order matters to avoid segfault
+
 _PXR_EXT_STR = str(PXR_EXT)
 if _PXR_EXT_STR not in sys.path:
     sys.path.insert(0, _PXR_EXT_STR)
-from pxr import Usd, UsdGeom, UsdPhysics, Sdf  # noqa: F401 — import before warp
+from pxr import Usd, UsdGeom, UsdPhysics, Sdf
 
-# Newton must be importable
+
 sys.path.insert(0, str(NEWTON_DIR))
 
 import mujoco
@@ -63,7 +53,7 @@ def main():
     device = wp.get_device()
     print(f"Device: {device}")
 
-    # ── Build model ──────────────────────────────────────────────────────
+
     builder = newton.ModelBuilder(up_axis=newton.Axis.Z)
     newton.solvers.SolverMuJoCo.register_custom_attributes(builder)
 
@@ -75,7 +65,7 @@ def main():
     builder.default_shape_cfg.kf = 1.0e3
     builder.default_shape_cfg.mu = 0.75
 
-    # Load Mars rover from USD
+
     print(f"Loading rover: {ROVER_USD}")
     builder.add_usd(
         ROVER_USD,
@@ -94,15 +84,12 @@ def main():
     n_usd_shapes = builder.shape_count
     print(f"Rover loaded: {n_bodies} bodies, {n_joints} joints, {n_usd_shapes} USD shapes")
 
-    # Disable collision on ALL USD mesh shapes — 329 mesh shapes flood the
-    # contact buffer (nconmax), causing uneven support → rover tears apart.
-    # Keep VISIBLE flag so the rover still renders.
+
     for s in range(n_usd_shapes):
         builder.shape_flags[s] = builder.shape_flags[s] & ~newton.ShapeFlags.COLLIDE_SHAPES
     print(f"Disabled COLLIDE_SHAPES on {n_usd_shapes} USD mesh shapes")
 
-    # Add proxy collision spheres ONLY on wheel bodies (6 Drive joints).
-    # These are the ONLY shapes that collide with the ground — simple and stable.
+
     proxy_cfg = newton.ModelBuilder.ShapeConfig(
         ke=2.0e3, kd=1.0e2, kf=1.0e3, mu=0.75, density=0.0,
         has_shape_collision=True,
@@ -117,20 +104,19 @@ def main():
             n_wheels += 1
     print(f"Added {n_wheels} proxy collision spheres on wheel bodies")
 
-    # Joint stiffness/damping for all DOFs
+
     for i in range(builder.joint_dof_count):
         builder.joint_target_ke[i] = 150
         builder.joint_target_kd[i] = 5
 
-    # Fix: MuJoCo requires actfrcrange[0] < actfrcrange[1].
-    # Passive joints in the USD have effort_limit=0 → set small value.
+
     for i in range(len(builder.joint_effort_limit)):
         if builder.joint_effort_limit[i] <= 0.0:
             builder.joint_effort_limit[i] = 1.0
 
     builder.add_ground_plane()
 
-    # ── Sand particles ───────────────────────────────────────────────────
+
     if not args.no_sand:
         print("Adding sand particles...")
         lo = np.array([-0.6, -0.6, 0.0])
@@ -157,21 +143,21 @@ def main():
         )
         print(f"Sand: {len(builder.particle_q)} particles, voxel={args.voxel_size}m")
 
-    # ── Finalize ─────────────────────────────────────────────────────────
+
     print("Finalizing model...")
     model = builder.finalize()
     print(f"Final model: {model.body_count} bodies, {model.shape_count} shapes, "
           f"{model.particle_count} particles")
 
-    model.set_gravity(wp.vec3(0.0, 0.0, -3.72))  # Mars gravity (3.72 m/s²)
+    model.set_gravity(wp.vec3(0.0, 0.0, -3.72))
 
-    # ── Solver ───────────────────────────────────────────────────────────
+
     fps = 50
     frame_dt = 1.0 / fps
     substeps = 4
     sim_dt = frame_dt / substeps
 
-    # MuJoCo solver — stable for articulated robots
+
     solver = newton.solvers.SolverMuJoCo(
         model,
         cone=mujoco.mjtCone.mjCONE_ELLIPTIC,
@@ -182,10 +168,10 @@ def main():
         njmax=200,
     )
 
-    # Collision pipeline
+
     collision_pipeline = newton.examples.create_collision_pipeline(model)
 
-    # MPM solver (if sand)
+
     mpm_solver = None
     if not args.no_sand and model.particle_count > 0:
         from newton.solvers import SolverImplicitMPM
@@ -206,7 +192,7 @@ def main():
         model.particle_mu = 0.7
         model.particle_ke = 5.0e4
 
-    # ── State ────────────────────────────────────────────────────────────
+
     state_0 = model.state()
     state_1 = model.state()
 
@@ -216,13 +202,13 @@ def main():
 
     control = model.control()
 
-    # Forward kinematics
+
     newton.eval_fk(model, state_0.joint_q, state_0.joint_qd, state_0)
 
-    # Initial collision
+
     contacts = model.collide(state_0, collision_pipeline=collision_pipeline)
 
-    # Print body positions
+
     body_q = state_0.body_q.numpy()
     print("Body positions after FK:")
     for i in range(min(model.body_count, 5)):
@@ -230,7 +216,7 @@ def main():
         name = builder.body_key[i] if hasattr(builder, 'body_key') else f'body_{i}'
         print(f"  {name}: ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f})")
 
-    # ── Viewer ───────────────────────────────────────────────────────────
+
     print("Opening ViewerGL...")
     viewer = ViewerGL(width=1440, height=900, vsync=False)
     viewer.set_model(model)
@@ -243,7 +229,7 @@ def main():
         yaw=135.0,
     )
 
-    # ── Simulation loop ──────────────────────────────────────────────────
+
     sim_time = 0.0
     frame = 0
 

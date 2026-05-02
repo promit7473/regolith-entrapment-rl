@@ -1,52 +1,3 @@
-"""
-Phase 3 — Onboard rover controller for Raspberry Pi 5.
-
-Runs a 10 Hz control loop:
-  1. Read wheel encoders → wheel velocities
-  2. Read MPU6050 IMU → linear acceleration
-  3. Build observation vector (dimension configurable)
-  4. Run sinkage detector (ONNX) → state classification
-  5. If entrapped: run recovery policy (ONNX, GRU) → wheel commands
-  6. Command motors via GPIO PWM
-
-Hardware assumptions:
-  - 4× DC motors with quadrature encoders (GPIO pins defined below)
-  - MPU6050 IMU via I2C (bus 1, addr 0x68)
-  - L298N dual H-bridge ×2 for motor drive
-  - Python: RPi.GPIO, smbus2, onnxruntime, numpy (all pip-installable)
-
-IMPORTANT - Robot Configuration:
-  This controller is designed for a 4-wheel DIFFERENTIAL DRIVE rover with 4 motors.
-  The training environment (Mars_Rover.usd) is a 6-wheel rocker-bogie with 10 actions
-  (6 drive + 4 steer). You MUST retrain the policy with appropriate observation/action
-  dimensions for YOUR specific hardware:
-
-  For 4-wheel differential drive:
-    --num_obs 12  --num_actions 4
-
-  For 6-wheel Mars rover (simulation):
-    --num_obs 29  --num_actions 10
-
-GRU hidden state:
-  The recovery policy is a Recurrent PPO (GRU) model. The ONNX model takes two inputs:
-    obs   : (1, num_obs)         — current observation
-    h_in  : (1, 1, gru_hidden)   — GRU hidden state carried across steps
-  And returns:
-    action : (1, num_actions)
-    h_out  : (1, 1, gru_hidden)  — updated hidden state for next step
-  The controller keeps h_out between steps and resets to zeros at startup.
-
-Usage (on RPi5):
-    python rover_controller.py \
-        --policy_onnx  recovery_policy.onnx \
-        --detector_onnx sinkage_detector.onnx \
-        --run_time 300 \
-        --num_obs 12 --num_actions 4
-
-Simulator stub: if GPIO is not available (dev machine), the script
-runs with a software stub so logic can be tested offline.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -56,22 +7,21 @@ import os
 import sys
 import numpy as np
 
-# ── Hardware constants ─────────────────────────────────────────────────────
-GRU_HIDDEN         = 256     # must match exported ONNX model
-GRU_LAYERS         = 1
-WHEEL_RADIUS       = 0.098   # m
-ENCODER_PPR        = 1440    # pulses per revolution (encoder spec)
-MAX_WHEEL_VEL      = 10.0    # rad/s (matches training env)
-CTRL_HZ            = 10      # Hz
-CTRL_DT            = 1.0 / CTRL_HZ
-SEQ_LEN            = 50      # steps in detector window
-ENTRAPPED_HOLD     = 5       # consecutive "entrapped" predictions before engaging policy
 
-# GPIO pin assignments (BCM numbering)
-# Motor 1 = front-left, 2 = front-right, 3 = rear-left, 4 = rear-right
+GRU_HIDDEN         = 256
+GRU_LAYERS         = 1
+WHEEL_RADIUS       = 0.098
+ENCODER_PPR        = 1440
+MAX_WHEEL_VEL      = 10.0
+CTRL_HZ            = 10
+CTRL_DT            = 1.0 / CTRL_HZ
+SEQ_LEN            = 50
+ENTRAPPED_HOLD     = 5
+
+
 MOTOR_IN1  = [5,  6,  13, 19]
 MOTOR_IN2  = [11, 12, 16, 20]
-MOTOR_ENA  = [18,  8, 25, 24]    # PWM-capable pins
+MOTOR_ENA  = [18,  8, 25, 24]
 ENC_A      = [17, 27,  22, 10]
 ENC_B      = [4,   3,  23,  9]
 
@@ -79,8 +29,6 @@ IMU_BUS    = 1
 IMU_ADDR   = 0x68
 GRAVITY    = 9.81
 
-
-# ── GPIO + IMU abstraction (stub if hardware unavailable) ──────────────────
 
 class _GPIOStub:
     BCM = OUT = IN = 0
@@ -115,7 +63,6 @@ except ImportError:
 
 
 class EncoderReader:
-    """Quadrature encoder reader using GPIO interrupts."""
 
     def __init__(self):
         self._counts = [0] * 4
@@ -124,7 +71,7 @@ class EncoderReader:
         for i in range(4):
             GPIO.setup(ENC_A[i], GPIO.IN, pull_up_down=GPIO.PUD_UP)
             GPIO.setup(ENC_B[i], GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            # Closure captures index
+
             def make_cb(idx):
                 def cb(ch):
                     b = GPIO.input(ENC_B[idx])
@@ -133,7 +80,6 @@ class EncoderReader:
             GPIO.add_event_detect(ENC_A[i], GPIO.RISING, callback=make_cb(i))
 
     def get_velocities_rad_s(self, dt: float) -> np.ndarray:
-        """Return wheel angular velocities in rad/s and reset counters."""
         counts = list(self._counts)
         self._counts = [0] * 4
         vel = [(c / ENCODER_PPR) * (2 * np.pi) / dt for c in counts]
@@ -141,7 +87,6 @@ class EncoderReader:
 
 
 class MPU6050:
-    """Minimal MPU6050 driver over I2C."""
     PWR_MGMT_1 = 0x6B
     ACCEL_XOUT_H = 0x3B
 
@@ -150,10 +95,9 @@ class MPU6050:
             self._bus = None
             return
         self._bus = smbus2.SMBus(IMU_BUS)
-        self._bus.write_byte_data(IMU_ADDR, self.PWR_MGMT_1, 0)  # wake up
+        self._bus.write_byte_data(IMU_ADDR, self.PWR_MGMT_1, 0)
 
     def read_accel_ms2(self) -> np.ndarray:
-        """Return [ax, ay, az] in m/s²."""
         if self._bus is None:
             return np.zeros(3, dtype=np.float32)
         raw = []
@@ -164,12 +108,11 @@ class MPU6050:
             if val > 32767:
                 val -= 65536
             raw.append(val)
-        scale = GRAVITY / 16384.0   # ±2g range
+        scale = GRAVITY / 16384.0
         return np.array(raw, dtype=np.float32) * scale
 
 
 class MotorDriver:
-    """PWM motor driver via L298N."""
 
     def __init__(self):
         self._pwm = []
@@ -179,15 +122,11 @@ class MotorDriver:
             GPIO.setup(MOTOR_IN1[i], GPIO.OUT)
             GPIO.setup(MOTOR_IN2[i], GPIO.OUT)
             GPIO.setup(MOTOR_ENA[i], GPIO.OUT)
-            p = GPIO.PWM(MOTOR_ENA[i], 1000)   # 1 kHz PWM
+            p = GPIO.PWM(MOTOR_ENA[i], 1000)
             p.start(0)
             self._pwm.append(p)
 
     def set_wheel_velocities(self, vels_normalised: np.ndarray):
-        """
-        vels_normalised: array of 4 values in [-1, 1].
-        Positive = forward rotation.
-        """
         if not _gpio_available:
             return
         for i, v in enumerate(vels_normalised):
@@ -208,16 +147,7 @@ class MotorDriver:
             p.stop()
 
 
-# ── Main controller ────────────────────────────────────────────────────────
-
 class RoverController:
-    """
-    10 Hz closed-loop controller integrating sinkage detection and recovery policy.
-    
-    NOTE: Observation and action dimensions must match your trained policy.
-    Default is 12D obs / 4D actions for 4-wheel differential drive hardware.
-    For 6-wheel Mars rover simulation, use 29D obs / 10D actions.
-    """
 
     STATE_NORMAL     = 0
     STATE_SINKING    = 1
@@ -230,7 +160,7 @@ class RoverController:
                              providers=["CPUExecutionProvider"])
         self._detector = ort.InferenceSession(detector_onnx,
                              providers=["CPUExecutionProvider"])
-        
+
         self._num_obs = num_obs
         self._num_actions = num_actions
 
@@ -238,7 +168,7 @@ class RoverController:
         self._imu    = MPU6050()
         self._motors = MotorDriver()
 
-        # Rolling sequence buffer for detector: (SEQ_LEN, 11)
+
         self._seq_buf = collections.deque(
             [np.zeros(11, dtype=np.float32)] * SEQ_LEN, maxlen=SEQ_LEN
         )
@@ -246,50 +176,35 @@ class RoverController:
         self._entrapped_count = 0
         self._state           = self.STATE_NORMAL
 
-        # GRU hidden state: (GRU_LAYERS, 1, GRU_HIDDEN) — reset to zeros at start
+
         self._gru_hidden = np.zeros((GRU_LAYERS, 1, GRU_HIDDEN), dtype=np.float32)
 
-        # Running mean/std for observation normalisation (initialised online)
+
         self._obs_mean = np.zeros(num_obs, dtype=np.float32)
         self._obs_m2   = np.ones(num_obs, dtype=np.float32)
         self._obs_n    = 0
 
-    # ── Observation builder ───────────────────────────────────────────────
 
     def _build_obs(self, wheel_vel: np.ndarray, imu_acc: np.ndarray,
                    slip: np.ndarray) -> np.ndarray:
-        """
-        Build observation vector for policy inference.
-        
-        Default (12D for 4-wheel differential drive):
-            wheel_vel (4D) + slip (4D) + imu_acc (3D) + grav_z (1D) = 12D
-        
-        For 6-wheel Mars rover (29D):
-            Must match training environment:
-            wheel_vel (6) + slip (6) + steer_pos (4) + imu_acc (3) +
-            grav_z (1) + drive_torque (6) + entrap_flag (1) +
-            torque_anomaly (1) + dist_norm (1) = 29D
-        """
-        grav_z = np.array([-1.0], dtype=np.float32)   # assume upright by default
+        grav_z = np.array([-1.0], dtype=np.float32)
         obs = np.concatenate([
-            wheel_vel / MAX_WHEEL_VEL,   # 4D normalised
-            slip,                        # 4D slip ratio
-            imu_acc / GRAVITY,           # 3D normalised acceleration
-            grav_z,                      # 1D tilt proxy
+            wheel_vel / MAX_WHEEL_VEL,
+            slip,
+            imu_acc / GRAVITY,
+            grav_z,
         ])
         return obs.astype(np.float32)
 
     def _build_detector_feat(self, wheel_vel: np.ndarray,
                               wheel_torque: np.ndarray,
                               imu_acc: np.ndarray) -> np.ndarray:
-        """Build 11D feature vector for detector."""
         return np.concatenate([
             wheel_vel / MAX_WHEEL_VEL,
             wheel_torque / 20.0,
             imu_acc / GRAVITY,
         ]).astype(np.float32)
 
-    # ── Online obs normalisation ─────────────────────────────────────────
 
     def _update_normalise(self, obs: np.ndarray) -> np.ndarray:
         self._obs_n += 1
@@ -301,22 +216,20 @@ class RoverController:
             return (obs - self._obs_mean) / std
         return obs
 
-    # ── Inference ────────────────────────────────────────────────────────
 
     def _run_detector(self) -> int:
-        seq = np.stack(list(self._seq_buf), axis=0)[np.newaxis]   # (1, 50, 11)
-        logits = self._detector.run(None, {"sequence": seq})[0]   # (1, 3)
+        seq = np.stack(list(self._seq_buf), axis=0)[np.newaxis]
+        logits = self._detector.run(None, {"sequence": seq})[0]
         return int(np.argmax(logits, axis=-1)[0])
 
     def _run_policy(self, obs: np.ndarray) -> np.ndarray:
-        obs_in = obs[np.newaxis].astype(np.float32)                # (1, num_obs)
+        obs_in = obs[np.newaxis].astype(np.float32)
         action, h_out = self._policy.run(
             None, {"obs": obs_in, "h_in": self._gru_hidden}
         )
-        self._gru_hidden = h_out                                   # carry state forward
-        return np.clip(action[0], -1.0, 1.0)                       # (num_actions,)
+        self._gru_hidden = h_out
+        return np.clip(action[0], -1.0, 1.0)
 
-    # ── Main loop ────────────────────────────────────────────────────────
 
     def run(self, run_time_s: float = 300.0):
         GPIO.setmode(GPIO.BCM)
@@ -331,23 +244,23 @@ class RoverController:
             while (time.time() - t_start) < run_time_s:
                 t0 = time.time()
 
-                # ── Sense ──────────────────────────────────────────────
+
                 wheel_vel    = self._enc.get_velocities_rad_s(CTRL_DT)
                 imu_acc      = self._imu.read_accel_ms2()
-                wheel_torque = np.zeros(4, dtype=np.float32)  # no torque sensor; use zeros
+                wheel_torque = np.zeros(4, dtype=np.float32)
 
-                # Slip ratio
-                body_vel = np.mean(wheel_vel) * WHEEL_RADIUS     # rough approximation
+
+                body_vel = np.mean(wheel_vel) * WHEEL_RADIUS
                 eps      = 0.01
                 denom    = np.maximum(np.abs(wheel_vel * WHEEL_RADIUS),
                                       max(abs(body_vel), eps))
                 slip     = np.clip((wheel_vel * WHEEL_RADIUS - body_vel) / denom, -1, 1)
 
-                # ── Detector ───────────────────────────────────────────
+
                 det_feat = self._build_detector_feat(wheel_vel, wheel_torque, imu_acc)
                 self._seq_buf.append(det_feat)
 
-                if step % 5 == 0:    # run detector at 2 Hz (every 5 ctrl steps)
+                if step % 5 == 0:
                     pred = self._run_detector()
                     if pred == self.STATE_ENTRAPPED:
                         self._entrapped_count += 1
@@ -360,13 +273,13 @@ class RoverController:
                         self._state = self.STATE_SINKING
                     else:
                         if self._state == self.STATE_ENTRAPPED:
-                            # Reset GRU hidden state when escape is detected
+
                             self._gru_hidden = np.zeros(
                                 (GRU_LAYERS, 1, GRU_HIDDEN), dtype=np.float32
                             )
                         self._state = self.STATE_NORMAL
 
-                # ── Act ────────────────────────────────────────────────
+
                 obs = self._build_obs(wheel_vel, imu_acc, slip)
                 obs = self._update_normalise(obs)
 
@@ -374,30 +287,26 @@ class RoverController:
                     action = self._run_policy(obs)
                     print(f"  [{step:5d}] ENTRAPPED → policy action: {np.round(action, 2)}")
                 elif self._state == self.STATE_SINKING:
-                    # Rocking maneuver as fallback
+
                     sign   = 1 if (step // 10) % 2 == 0 else -1
                     action = np.full(self._num_actions, sign, dtype=np.float32)
                     print(f"  [{step:5d}] SINKING   → rocking: {sign:+d}")
                 else:
-                    # Normal: forward drive
+
                     action = np.full(self._num_actions, 0.5, dtype=np.float32)
 
-                # Map actions to 4 motors (handle both 4D and 10D action spaces)
-                # For 4D: action = [FL, FR, RL, RR] motor commands
-                # For 10D: action = [drive_FL, drive_ML, drive_RL, drive_FR, drive_MR, drive_RR,
-                #                     steer_FL, steer_RL, steer_FR, steer_RR]
+
                 if self._num_actions == 10:
-                    # Extract drive commands for 4 motors (FL, FR, RL, RR)
-                    # Note: Mars rover has 6 wheels, but hardware has 4 motors
-                    # Map: FL(0), FR(3), RL(2), RR(5) → average or select relevant
+
+
                     motor_action = np.array([
-                        action[0],   # FL drive
-                        action[3],   # FR drive  
-                        action[2],   # RL drive
-                        action[5],   # RR drive
+                        action[0],
+                        action[3],
+                        action[2],
+                        action[5],
                     ], dtype=np.float32)
                 else:
-                    motor_action = action[:4]  # Use first 4 for 4D action space
+                    motor_action = action[:4]
 
                 self._motors.set_wheel_velocities(motor_action)
 
@@ -414,8 +323,6 @@ class RoverController:
             print(f"[RoverController] Stopped after {step} steps "
                   f"({step * CTRL_DT:.1f} s).")
 
-
-# ── Entry point ────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="RPi5 Rover Controller")

@@ -1,29 +1,3 @@
-"""
-Mars Rover — Regolith Escape — Evaluation / Live Preview
-
-Runs the trained policy (or random actions) with Newton ViewerGL for
-live 3D visualization, and prints episode metrics.
-
-Usage:
-    # Random actions (sanity check)
-    ./launch.sh scripts/eval.py --num_envs 1
-
-    # Trained checkpoint
-    ./launch.sh scripts/eval.py --num_envs 4 --checkpoint experiments/.../best_agent.pt
-
-    # Headless evaluation (no viewer, just metrics)
-    ./launch.sh scripts/eval.py --num_envs 64 --checkpoint <path> --headless --episodes 50
-
-    # Record video (uses Isaac Lab rgb_array + gym.wrappers.RecordVideo)
-    ./launch.sh scripts/eval.py --num_envs 1 --checkpoint <path> --video --episodes 3
-
-    # Save episode data for offline plotting (no need to re-run sim to plot)
-    ./launch.sh scripts/eval.py --num_envs 1 --checkpoint <path> --episodes 5 \\
-        --save-data experiments/regolith_recovery/episode_data/run1.npz
-    # Then plot anywhere without Isaac Sim:
-    python3 scripts/plot_episode.py --from-file experiments/regolith_recovery/episode_data/run1.npz
-"""
-
 import argparse
 import math
 import os
@@ -50,10 +24,8 @@ parser.add_argument("--video-interval", type=int, default=1,
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, hydra_args = parser.parse_known_args()
-# Force SimulationApp creation without heavy RTX rendering stack.
-# LAUNCH_OV_APP=1 avoids "standalone mode" (no SimulationApp) without loading
-# viewport/replicator extensions. Newton ViewerGL handles visualisation.
-# --video additionally sets enable_cameras so Isaac Lab activates rgb_array rendering.
+
+
 os.environ["LAUNCH_OV_APP"] = "1"
 if args_cli.video:
     args_cli.enable_cameras = True
@@ -62,7 +34,7 @@ sys.argv = [sys.argv[0]] + hydra_args
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-# ── Post-launch imports ────────────────────────────────────────────────────────
+
 import torch
 import gymnasium as gym
 
@@ -71,12 +43,11 @@ from isaaclab_rl.skrl import SkrlVecEnvWrapper
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-import envs  # registers MarsRover-RegolithEscape-v0
+import envs
 from envs.entrapment_env import EntrapmentEnvCfg
 
 
 def load_agent(device, num_obs, num_act, num_envs, checkpoint_path):
-    """Load a trained Recurrent PPO (GRU) agent from checkpoint."""
     from skrl.agents.torch.ppo import PPO_RNN
     from skrl.agents.torch.ppo.ppo_rnn import PPO_DEFAULT_CONFIG as PPO_RNN_DEFAULT_CONFIG
     from skrl.memories.torch import RandomMemory
@@ -100,7 +71,6 @@ def load_agent(device, num_obs, num_act, num_envs, checkpoint_path):
 
 
 def random_actions(num_envs, num_act, device):
-    """Gentle forward drive with slight random steering."""
     a = torch.zeros(num_envs, num_act, device=device)
     a[:, :6] = 0.4 + 0.1 * torch.randn(num_envs, 6, device=device)
     a[:, 6:] = 0.05 * torch.randn(num_envs, 4, device=device)
@@ -112,9 +82,9 @@ def main():
     env_cfg.scene.num_envs = args_cli.num_envs
     if getattr(args_cli, 'no_mpm', False):
         env_cfg.skip_mpm = True
-    # For viewer mode (non-headless with MPM), limit VRAM usage
+
     if not args_cli.headless and not getattr(args_cli, 'no_mpm', False):
-        # Override to limit memory: restrict max_nodes for collision impulse buffer
+
         print("[Eval] Viewer mode: consider --no-mpm if you get VRAM OOM")
 
     render_mode = "rgb_array" if args_cli.video else None
@@ -138,7 +108,7 @@ def main():
     device  = env.device
     num_act = env_cfg.action_space
 
-    # Load trained policy if checkpoint given
+
     agent = None
     if args_cli.checkpoint:
         agent = load_agent(device, env_cfg.observation_space, num_act,
@@ -161,7 +131,7 @@ def main():
     ep_rewards = []
     ep_reward = torch.zeros(env.num_envs, device=device)
 
-    # ── Episode data collection (for --save-data) ────────────────────────────
+
     import numpy as np
     _SAVE_PATH = getattr(args_cli, "save_data", None)
     _EP_KEYS   = ["t", "wheel_vel", "drive_torque", "slip",
@@ -196,16 +166,16 @@ def main():
         _cur_ep   = {k: [] for k in _EP_KEYS}
         _ep_step  = 0
         _env_origin = env.unwrapped.scene.env_origins[0].cpu().numpy()[:2]
-    # ─────────────────────────────────────────────────────────────────────────
+
 
     try:
         while True:
-            # Check viewer
+
             _viewer = getattr(env.unwrapped, "_viewer", None)
             if _viewer is not None and not _viewer.is_running():
                 break
 
-            # Act
+
             if agent is not None:
                 with torch.no_grad():
                     actions, _, _ = agent.act({"states": obs}, timestep=step, timesteps=0)
@@ -232,7 +202,7 @@ def main():
                     _end_episode()
                 obs, _ = env.reset()
 
-            # Periodic log
+
             if step % 250 == 0:
                 log = info.get("log", {})
                 vx  = float(log.get("mean_vx", torch.tensor(0.0)))
@@ -240,16 +210,16 @@ def main():
                 print(f"  step={step:6d} | episodes={ep_count} | "
                       f"v_x={vx:.3f} | escape={esc:.0%}")
 
-            # Episode limit
+
             if args_cli.episodes > 0 and ep_count >= args_cli.episodes:
                 break
 
     except KeyboardInterrupt:
         print("\n[Eval] Stopped.")
 
-    # ── Save episode data ─────────────────────────────────────────────────────
+
     if _SAVE_PATH:
-        if _cur_ep["t"]:                    # flush any in-progress episode
+        if _cur_ep["t"]:
             _end_episode()
         if saved_episodes:
             out_dir = os.path.dirname(os.path.abspath(_SAVE_PATH))
@@ -266,9 +236,8 @@ def main():
             print(f"\n[Eval] Episode data saved → {_SAVE_PATH}")
             print(f"       Plot offline with:")
             print(f"       python3 scripts/plot_episode.py --from-file {_SAVE_PATH}")
-    # ─────────────────────────────────────────────────────────────────────────
 
-    # Summary
+
     if ep_rewards:
         import statistics
         print(f"\n{'='*55}")

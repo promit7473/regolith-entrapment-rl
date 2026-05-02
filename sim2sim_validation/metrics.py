@@ -1,19 +1,3 @@
-"""
-Trial metrics for sim2sim A→B validation.
-
-Tracked per trial:
-  - reached_goal      : bool   — rover arrived within arrival_radius of B
-  - escaped           : bool   — escape primitive fired AND succeeded
-  - time_to_escape    : int    — policy steps from entrap_flag trigger → escaped
-  - time_to_goal      : int    — total steps from episode start → reached B
-  - path_length       : float  — total distance travelled (m)
-  - straight_line_dist: float  — straight-line A→B distance (m)
-  - path_efficiency   : float  — straight_line / path_length (1.0 = perfect)
-  - false_trigger_rate: float  — entrap_flag fired but rover wasn't actually stuck
-
-Paper table: report mean ± std over N trials for each metric.
-"""
-
 import math
 import numpy as np
 import torch
@@ -26,33 +10,26 @@ class TrialResult:
     trial_id:          int
     reached_goal:      bool
     escaped:           bool
-    time_to_escape:    int     # steps; -1 if never escaped
-    time_to_goal:      int     # steps; -1 if never reached
+    time_to_escape:    int
+    time_to_goal:      int
     path_length:       float
     straight_line_dist: float
-    path_efficiency:   float   # straight_line / path_length
-    escape_heading_error: float  # degrees — angle between escape dir and true dir-to-B
+    path_efficiency:   float
+    escape_heading_error: float
 
 
 class MetricsTracker:
-    """Accumulates per-step data and computes trial-level metrics.
-
-    `attribute_escape` toggles whether the `escaped` field is filled from the
-    ModeSwitcher's `newly_escaped` signal. Set False for the `no_recovery`
-    baseline so we don't claim a recovery when the PD controller happens to
-    drag the rover past the 3 m projected-distance threshold on its own.
-    """
 
     def __init__(self, num_envs: int, device: str, goal_xy: torch.Tensor,
                  attribute_escape: bool = True):
         self.num_envs        = num_envs
         self.device          = device
-        self.goal_xy         = goal_xy.to(device)   # (N, 2) or (2,) broadcast
+        self.goal_xy         = goal_xy.to(device)
         self.attribute_escape = attribute_escape
 
         self.results: List[TrialResult] = []
 
-        # Per-env step accumulation
+
         self._reset_accumulators()
 
     def _reset_accumulators(self):
@@ -70,36 +47,33 @@ class MetricsTracker:
         self._trial_id      = 0
 
     def begin_trial(self, env_ids: torch.Tensor, start_pos: torch.Tensor):
-        """Call at the start of each trial (episode reset)."""
         self._step[env_ids]         = 0
         self._path_length[env_ids]  = 0.0
         self._prev_pos[env_ids]     = start_pos[env_ids].clone()
         self._start_pos[env_ids]    = start_pos[env_ids].clone()
         self._escape_step[env_ids]  = -1.0
         self._trigger_step[env_ids] = -1.0
-        self._trigger_pos[env_ids]  = start_pos[env_ids].clone()  # default if never triggered
+        self._trigger_pos[env_ids]  = start_pos[env_ids].clone()
         self._goal_step[env_ids]    = -1.0
         self._escaped_flag[env_ids] = False
         self._reached_flag[env_ids] = False
 
     def step(
         self,
-        pos_xy:           torch.Tensor,   # (N, 2)
-        newly_triggered:  torch.Tensor,   # (N,) bool — entrap detected this step
-        newly_escaped:    torch.Tensor,   # (N,) bool — escape completed this step
-        arrived:          torch.Tensor,   # (N,) bool — nav controller reached goal
-        escape_dir:       torch.Tensor,   # (N, 2) escape direction used
+        pos_xy:           torch.Tensor,
+        newly_triggered:  torch.Tensor,
+        newly_escaped:    torch.Tensor,
+        arrived:          torch.Tensor,
+        escape_dir:       torch.Tensor,
     ):
-        """Update accumulators each policy step."""
         self._step += 1
 
-        # Accumulate path length
+
         delta = torch.norm(pos_xy - self._prev_pos, dim=-1)
         self._path_length += delta
         self._prev_pos = pos_xy.clone()
 
-        # Record entrap-trigger step + position (first trigger only, for time-to-escape
-        # and heading-error reference). Skip in no_recovery (escape never fires).
+
         if self.attribute_escape:
             first_trig = newly_triggered & (self._trigger_step < 0)
             self._trigger_step = torch.where(first_trig, self._step, self._trigger_step)
@@ -110,13 +84,12 @@ class MetricsTracker:
             self._escaped_flag |= newly_escaped
             self._escape_dir[new_esc] = escape_dir[new_esc].clone()
 
-        # Record goal step
+
         new_arr = arrived & ~self._reached_flag
         self._goal_step = torch.where(new_arr, self._step, self._goal_step)
         self._reached_flag |= arrived
 
     def end_trial(self, env_ids: torch.Tensor):
-        """Call when trial ends. Returns list of TrialResult."""
         results = []
         for i in env_ids.tolist():
             sl = torch.norm(self.goal_xy[i] - self._start_pos[i]).item() \
@@ -126,16 +99,14 @@ class MetricsTracker:
             pl = max(self._path_length[i].item(), 1e-6)
             eff = sl / pl
 
-            # Escape heading error vs true direction to B from the entrapment point
-            # (where the escape primitive actually started — not the trial spawn).
+
             goal = self.goal_xy[i] if self.goal_xy.dim() == 2 else self.goal_xy
             true_dir = goal - self._trigger_pos[i]
             true_dir = true_dir / (torch.norm(true_dir) + 1e-6)
             dot = (self._escape_dir[i] * true_dir).sum().clamp(-1.0, 1.0)
             heading_err_deg = math.degrees(math.acos(dot.item()))
 
-            # time_to_escape = steps from entrap-trigger → escape success.
-            # -1 if either never triggered or never escaped.
+
             esc_step = int(self._escape_step[i].item())
             trig_step = int(self._trigger_step[i].item())
             t_to_esc = (esc_step - trig_step) if (esc_step > 0 and trig_step >= 0) else -1
@@ -157,7 +128,6 @@ class MetricsTracker:
         return results
 
     def summary(self) -> dict:
-        """Compute aggregate statistics across all completed trials."""
         if not self.results:
             return {}
 

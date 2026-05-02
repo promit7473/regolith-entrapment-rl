@@ -1,18 +1,3 @@
-"""
-Extra training metric plots not covered by plot_training.py.
-
-Generates:
-  1. Curriculum & Milestones   — curriculum_progress + milestone hit rates
-  2. Environment Metrics       — mean_dist, mean_vx, mean_abs_slip
-  3. Detection Flags           — entrap_flag_rate, slip_anomaly_rate
-  4. Reward Breakdown          — instantaneous reward mean/min/max bands
-  5. Training Overview         — 2×3 combined figure for paper/report
-
-Usage (no Isaac Sim needed):
-    python3 scripts/plot_extra_metrics.py
-    python3 scripts/plot_extra_metrics.py --exp ppo_gru_regolith
-"""
-
 import argparse
 import os
 import sys
@@ -24,7 +9,7 @@ import matplotlib.ticker as ticker
 import numpy as np
 from tensorboard.backend.event_processing import event_accumulator
 
-# ── Publication style ─────────────────────────────────────────────────────────
+
 plt.rcParams.update({
     "figure.facecolor":     "white",
     "axes.facecolor":       "white",
@@ -82,18 +67,7 @@ def shade_band(ax, steps, values_raw, color, alpha=0.12):
     ax.fill_between(s, mu - sig, mu + sig, color=color, alpha=alpha, linewidth=0)
 
 
-def _find_latest_event_file(dirpath):
-    """Return the path to the newest tfevents file in dirpath (by mtime)."""
-    import glob
-    candidates = glob.glob(os.path.join(dirpath, "events.out.tfevents.*"))
-    if not candidates:
-        return dirpath
-    return max(candidates, key=os.path.getmtime)
-
-
 def load_scalars(path):
-    if os.path.isdir(path):
-        path = _find_latest_event_file(path)
     ea = event_accumulator.EventAccumulator(
         path, size_guidance={event_accumulator.SCALARS: 0})
     ea.Reload()
@@ -127,13 +101,11 @@ def _plot_tag(ax, data, tag, color, label=None, w=40):
     return True
 
 
-# ── Figure: Curriculum & Milestones ──────────────────────────────────────────
-
 def plot_curriculum_milestones(data, out_path):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
     fig.suptitle("Curriculum Progress & Escape Milestones", fontweight="bold", fontsize=12, y=1.01)
 
-    # Curriculum progress
+
     ax1.set_title("Curriculum Progress", pad=6)
     ax1.set_xlabel("Training Step")
     ax1.set_ylabel("Curriculum Level")
@@ -142,7 +114,7 @@ def plot_curriculum_milestones(data, out_path):
     _plot_tag(ax1, data, "Info / curriculum_progress", "#2166AC", "Curriculum", w=20)
     ax1.set_ylim(-0.05, 1.1)
 
-    # Milestones + distance
+
     ax2.set_title("Escape Progress Along Heading & Mean Distance", pad=6)
     ax2.set_xlabel("Training Step")
     ax2.set_ylabel("Fraction of Envs Past Threshold")
@@ -170,8 +142,6 @@ def plot_curriculum_milestones(data, out_path):
     print(f"  [saved] {out_path}")
 
 
-# ── Figure: Environment Metrics ──────────────────────────────────────────────
-
 def plot_env_metrics(data, out_path):
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
     fig.suptitle("Environment Metrics Over Training", fontweight="bold", fontsize=12, y=1.01)
@@ -196,8 +166,6 @@ def plot_env_metrics(data, out_path):
     print(f"  [saved] {out_path}")
 
 
-# ── Figure: Detection Flags ─────────────────────────────────────────────────
-
 def plot_detection_flags(data, out_path):
     fig, ax = plt.subplots(figsize=(9, 4.5))
     ax.set_title("Entrapment & Torque Anomaly Detection Rates", pad=8)
@@ -218,15 +186,7 @@ def plot_detection_flags(data, out_path):
     print(f"  [saved] {out_path}")
 
 
-# ── Figure: Reward Breakdown (mean/min/max band) ────────────────────────────
-
 def plot_reward_breakdown(data, out_path):
-    """Per-component reward breakdown: shows which term drives the total.
-
-    Reads the Info / rew_* and Info / pen_* scalars logged from _get_rewards.
-    Penalties are logged with their sign already flipped (stored negative) so
-    everything stacks naturally around zero on a single linear axis.
-    """
     components = [
         ("Info / rew_progress", "r_progress",  "#1B7837"),
         ("Info / rew_escape",   "r_escape",    "#4DAC26"),
@@ -238,7 +198,7 @@ def plot_reward_breakdown(data, out_path):
     ]
 
     if not any(tag in data for tag, _, _ in components):
-        return   # old run without per-component logging — skip silently
+        return
 
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.set_title("Reward Breakdown — Per-Component Contribution", pad=8)
@@ -258,8 +218,6 @@ def plot_reward_breakdown(data, out_path):
         ax.plot(sm_steps, sm, color=color, linewidth=2.0, label=label, zorder=3)
         plotted += 1
 
-    # Total episode reward is already plotted in reward_convergence.png; omit
-    # it here so the per-component curves aren't squashed by a much larger scale.
 
     if plotted == 0:
         plt.close(fig)
@@ -272,14 +230,12 @@ def plot_reward_breakdown(data, out_path):
     print(f"  [saved] {out_path}")
 
 
-# ── Figure: Training Overview (2×3 combined) ────────────────────────────────
-
 def plot_training_overview(data, out_path):
     fig, axes = plt.subplots(2, 3, figsize=(18, 11))
     fig.suptitle("Training Overview — PPO GRU Regolith Escape (200k steps)",
                  fontweight="bold", fontsize=14, y=1.01)
 
-    # Row 1: Reward, Losses (policy+value), Entropy
+
     ax = axes[0, 0]
     ax.set_title("Episode Reward")
     ax.set_xlabel("Step"); ax.set_ylabel("Reward")
@@ -318,7 +274,7 @@ def plot_training_overview(data, out_path):
         ax2.plot(sm_s, sm, color="#8073AC", linewidth=2.2, linestyle="--", label="Std Dev")
     ax.legend(loc="upper left"); ax2.legend(loc="upper right")
 
-    # Row 2: Distance, Milestones, Detection flags
+
     ax = axes[1, 0]
     ax.set_title("Mean Distance from Origin")
     ax.set_xlabel("Step"); ax.set_ylabel("Distance / m")
@@ -358,8 +314,6 @@ def plot_training_overview(data, out_path):
     print(f"  [saved] {out_path}")
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp", type=str, default=None)
@@ -368,7 +322,7 @@ def main():
     if args.exp:
         exp_name = args.exp
     else:
-        # Auto-detect latest
+
         dirs = sorted([d for d in os.listdir(EXP_BASE)
                        if os.path.isdir(os.path.join(EXP_BASE, d)) and d != "plots"
                        and d != "episode_data"])

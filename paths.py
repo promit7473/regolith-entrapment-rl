@@ -1,18 +1,3 @@
-"""
-Centralized path configuration with environment variable overrides.
-
-Set these environment variables to customize paths for your system:
-    ISAAC_SIM_PATH     — Isaac Sim installation (default: ~/isaac-sim)
-    ISAACLAB_SRC_PATH  — Isaac Lab source directory (default: ~/IsaacLab/source)
-    NEWTON_PATH        — Newton installation (default: ~/newton)
-    CONDA_ENV_PATH     — Conda environment path (default: ~/miniconda3/envs/env_isaaclab)
-    RLROVER_ASSETS     — RLRoverLab assets directory (default: ~/RLRoverLab/rover_envs/assets)
-    PXR_EXT_PATH       — PXR extension path (default: auto-detected)
-
-Usage:
-    from paths import ISAAC_SIM, ISAACLAB_SRC, NEWTON_DIR, CONDA_ENV, RLROVER_ASSETS
-"""
-
 import os
 from pathlib import Path
 
@@ -43,7 +28,7 @@ RLROVER_ASSETS = Path(os.environ.get(
     HOME / "RLRoverLab" / "rover_envs" / "assets"
 ))
 
-# Auto-detect PXR extension if not set
+
 _pxr_default = HOME / ".local" / "share" / "ov" / "data" / "exts" / "v2"
 _pxr_candidates = list(_pxr_default.glob("omni.usd.libs-*")) if _pxr_default.exists() else []
 PXR_EXT = Path(os.environ.get(

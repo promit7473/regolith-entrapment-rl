@@ -1,28 +1,3 @@
-"""
-Phase 3 — Export trained Recurrent PPO (GRU) policy + sinkage detector to ONNX.
-
-Usage:
-    python sim2real/onnx_export/export_model.py \
-        --policy_ckpt experiments/regolith_recovery/ppo_gru_regolith/checkpoints/best_agent.pt \
-        --detector_ckpt detection/models/saved/best_detector.pt \
-        --out_dir sim2real/onnx_export/output \
-        --num_obs 29 --num_actions 10
-
-Outputs:
-    recovery_policy.onnx   — inputs: (obs[1,29], h_in[1,1,256])
-                             outputs: (action[1,10], h_out[1,1,256])
-    sinkage_detector.onnx  — (1, 50, 11) sequence → 3-class logits
-
-ONNX policy inputs/outputs:
-    obs     : float32 (1, num_obs)       — current observation
-    h_in    : float32 (1, 1, gru_hidden) — GRU hidden state (num_layers, batch, hidden)
-    action  : float32 (1, num_actions)   — tanh-clamped drive+steer commands
-    h_out   : float32 (1, 1, gru_hidden) — updated GRU hidden state
-
-On the RPi5, keep h_out from each step and pass it as h_in to the next.
-Reset h_in to zeros at episode start (power-on or after escape).
-"""
-
 import argparse
 import os
 import sys
@@ -37,14 +12,7 @@ GRU_HIDDEN = 256
 GRU_LAYERS = 1
 
 
-# ── Policy wrapper matching GRUPolicyNet in train.py ──────────────────────────
-
 class GRUPolicyONNX(nn.Module):
-    """
-    Stateful GRU policy for ONNX export.
-    Inputs : obs (1, num_obs), h_in (num_layers, 1, hidden)
-    Outputs: action (1, num_actions), h_out (num_layers, 1, hidden)
-    """
     def __init__(self, num_obs: int = 29, num_actions: int = 10,
                  hidden: int = GRU_HIDDEN, layers: int = GRU_LAYERS):
         super().__init__()
@@ -56,22 +24,21 @@ class GRUPolicyONNX(nn.Module):
         )
 
     def forward(self, obs: torch.Tensor, h_in: torch.Tensor):
-        # obs: (1, num_obs)  →  (seq=1, batch=1, num_obs)
-        x = self.encoder(obs).unsqueeze(0)          # (1, 1, 128)
-        x, h_out = self.gru(x, h_in)               # x: (1, 1, hidden), h_out: (layers, 1, hidden)
-        action = torch.tanh(self.head(x.squeeze(0)))  # (1, num_actions)
+
+        x = self.encoder(obs).unsqueeze(0)
+        x, h_out = self.gru(x, h_in)
+        action = torch.tanh(self.head(x.squeeze(0)))
         return action, h_out
 
 
 def load_gru_policy(ckpt_path: str, device: torch.device,
                     num_obs: int = 29, num_actions: int = 10) -> nn.Module:
-    """Load skrl PPO_RNN checkpoint into a bare GRUPolicyONNX."""
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     state = ckpt.get("policy", ckpt)
 
     model = GRUPolicyONNX(num_obs=num_obs, num_actions=num_actions)
 
-    # Map skrl-saved keys to ONNX module keys
+
     mapping = {}
     for k, v in state.items():
         if k.startswith("encoder."):
@@ -80,7 +47,7 @@ def load_gru_policy(ckpt_path: str, device: torch.device,
             mapping[k] = v
         elif k.startswith("head."):
             mapping[k] = v
-    # log_std is not used in ONNX (we take the mean action)
+
     model.load_state_dict(mapping, strict=True)
     return model.to(device).eval()
 
@@ -113,7 +80,7 @@ def export_detector(ckpt_path: str, out_path: str, device: torch.device):
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device).eval()
 
-    dummy = torch.zeros(1, 50, 11)  # (batch, seq_len, features)
+    dummy = torch.zeros(1, 50, 11)
     torch.onnx.export(
         model, dummy, out_path,
         input_names=["sequence"],
@@ -137,18 +104,18 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
-    device = torch.device("cpu")   # ONNX export always on CPU
+    device = torch.device("cpu")
 
     print("\nExporting models to ONNX ...")
 
-    # Policy (GRU)
+
     policy = load_gru_policy(args.policy_ckpt, device,
                               num_obs=args.num_obs, num_actions=args.num_actions)
     export_policy(policy,
                   os.path.join(args.out_dir, "recovery_policy.onnx"),
                   num_obs=args.num_obs)
 
-    # Detector (optional)
+
     if args.detector_ckpt and os.path.isfile(args.detector_ckpt):
         export_detector(args.detector_ckpt,
                         os.path.join(args.out_dir, "sinkage_detector.onnx"),
@@ -156,7 +123,7 @@ def main():
     else:
         print("  Skipping detector export (no checkpoint provided).")
 
-    # Verify with onnxruntime
+
     try:
         import numpy as np
         import onnxruntime as ort

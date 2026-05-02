@@ -1,18 +1,3 @@
-"""
-Phase 1 — Train the CNN-GRU sinkage detector.
-
-Usage:
-    python detection/scripts/train_detector.py \
-        --data_dir detection/data \
-        --out_dir  detection/models/saved \
-        --epochs 50 --batch_size 256
-
-Loads all .npz files from data_dir, trains SinkageDetector, saves best checkpoint.
-
-Note: Data collection scripts are in detection/scripts/. Generate training data
-using eval.py --save-data or a custom data collection script.
-"""
-
 import argparse
 import glob
 import os
@@ -69,14 +54,14 @@ def train():
     print(f"\nLoading dataset from {args.data_dir} ...")
     X, y = load_dataset(args.data_dir)
 
-    # Class weights to handle imbalance
+
     counts = torch.bincount(y, minlength=3).float()
     weights = (counts.sum() / (3 * counts)).to(device)
     print(f"  Samples — normal: {int(counts[0])}  sinking: {int(counts[1])}  "
           f"entrapped: {int(counts[2])}")
     print(f"  Class weights: {weights.tolist()}")
 
-    # Train/val split
+
     dataset = TensorDataset(X, y)
     n_val   = int(len(dataset) * args.val_split)
     n_train = len(dataset) - n_val
@@ -98,7 +83,7 @@ def train():
     print(f"\nTraining for {args.epochs} epochs on {device} ...\n")
 
     for epoch in range(1, args.epochs + 1):
-        # ── Train ────────────────────────────────────────────────────────
+
         model.train()
         total_loss, correct, total = 0.0, 0, 0
         for xb, yb in train_loader:
@@ -115,7 +100,7 @@ def train():
         train_acc  = correct / total
         train_loss = total_loss / total
 
-        # ── Validate ─────────────────────────────────────────────────────
+
         model.eval()
         all_pred, all_true = [], []
         with torch.no_grad():
@@ -149,7 +134,7 @@ def train():
             }, ckpt)
             print(f"  → Saved best model (f1={macro_f1:.3f})")
 
-    # ── Final report ──────────────────────────────────────────────────────
+
     print(f"\n{'='*55}")
     print(f"  Best val macro F1: {best_f1:.3f}")
     if ckpt:

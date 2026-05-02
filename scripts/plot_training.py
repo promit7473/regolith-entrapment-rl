@@ -1,13 +1,3 @@
-"""
-Publication-quality training convergence plots.
-Style inspired by Bi & Ding (2026), Computers & Electronics in Agriculture.
-
-Usage (no Isaac Sim needed — pure Python):
-    python3 scripts/plot_training.py
-    python3 scripts/plot_training.py --exp ppo_regolith
-    python3 scripts/plot_training.py --exp ppo_regolith run_b --compare
-"""
-
 import argparse
 import os
 import sys
@@ -19,7 +9,7 @@ import matplotlib.ticker as ticker
 import numpy as np
 from tensorboard.backend.event_processing import event_accumulator
 
-# ── Publication style ─────────────────────────────────────────────────────────
+
 plt.rcParams.update({
     "figure.facecolor":     "white",
     "axes.facecolor":       "white",
@@ -49,9 +39,9 @@ plt.rcParams.update({
     "savefig.facecolor":    "white",
 })
 
-# Method color palette (matches paper style — distinct, print-safe)
+
 PALETTE = {
-    "ppo_regolith":  "#2166AC",   # deep blue
+    "ppo_regolith":  "#2166AC",
     "default_0":     "#2166AC",
     "default_1":     "#D6604D",
     "default_2":     "#4DAC26",
@@ -65,36 +55,23 @@ PLOTS_DIR = os.path.join(EXP_BASE, "plots")
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
 def get_color(name, idx):
     return PALETTE.get(name, PALETTE.get(f"default_{idx % 5}", "#2166AC"))
 
 
 def smooth(y, w=20, x=None):
-    """Return (smoothed_y, aligned_x). If x is None, uses integer indices."""
     if x is None:
         x = np.arange(len(y), dtype=np.float32)
     if len(y) < w:
         return y, x
     k = np.ones(w) / w
     s = np.convolve(y, k, mode="valid")
-    return s, x[len(x) - len(s):]   # smoothed values, aligned steps
-
-
-def _find_latest_event_file(dirpath):
-    """Return the path to the newest tfevents file in dirpath (by mtime)."""
-    import glob
-    candidates = glob.glob(os.path.join(dirpath, "events.out.tfevents.*"))
-    candidates = [f for f in candidates if os.path.isfile(f)]
-    if not candidates:
-        return dirpath
-    return max(candidates, key=os.path.getmtime)
+    return s, x[len(x) - len(s):]
 
 
 def load_scalars(path):
-    if os.path.isdir(path):
-        path = _find_latest_event_file(path)
+    # Pass the directory directly so EventAccumulator merges ALL event files.
+    # (Picking only the latest file loses history when a run produces many files.)
     ea = event_accumulator.EventAccumulator(
         path, size_guidance={event_accumulator.SCALARS: 0})
     ea.Reload()
@@ -113,7 +90,6 @@ def load_scalars(path):
 
 
 def shade_band(ax, steps, values_raw, color, alpha=0.12):
-    """Light confidence band using rolling std of raw data."""
     w = max(5, len(values_raw) // 30)
     if len(values_raw) < w * 2:
         return
@@ -125,10 +101,7 @@ def shade_band(ax, steps, values_raw, color, alpha=0.12):
     ax.fill_between(s, mu - sig, mu + sig, color=color, alpha=alpha, linewidth=0)
 
 
-# ── Figure 1 — Reward Convergence (paper Fig. 20 style) ───────────────────────
-
 def _ema(values, alpha):
-    """Exponential moving average. alpha small = heavier smoothing."""
     values = np.asarray(values, dtype=np.float32)
     out = np.empty_like(values)
     out[0] = values[0]
@@ -159,28 +132,27 @@ def plot_reward_convergence(exp_names, all_data, out_path):
         steps  = data[tag]["step"]
         values = data[tag]["value"]
 
-        # Min/max shaded envelope around local mean (visual variance band)
+
         shade_band(ax, steps, values, color, alpha=0.08)
 
-        # (1) Raw per-rollout reward — light, honest
+
         ax.plot(steps, values, color=color, linewidth=0.5, alpha=0.22,
                 label=f"{name} (raw)", zorder=2)
 
-        # (2) Light moving average (w=30) — the existing trend line
+
         sm, sm_steps = smooth(values, w=30, x=steps)
         ax.plot(sm_steps, sm, color=color, linewidth=1.6, alpha=0.75,
                 label=f"{name} (MA w=30)", zorder=3)
 
-        # (3) Isotonic regression — monotone non-decreasing envelope, then
-        # wide SavGol to round the step-function into a smooth rise-and-flat.
+
         from scipy.signal import savgol_filter
         try:
             from sklearn.isotonic import IsotonicRegression
         except ImportError:
             IsotonicRegression = None
 
-        ISO_COLOR   = "#C0392B"     # crimson red
-        ISO_SG_W    = 351           # wider post-smoothing for softer S-curve
+        ISO_COLOR   = "#C0392B"
+        ISO_SG_W    = 351
         ISO_SG_POLY = 2
 
         if IsotonicRegression is not None and len(values) > ISO_SG_W:
@@ -191,8 +163,8 @@ def plot_reward_convergence(exp_names, all_data, out_path):
             w = ISO_SG_W if ISO_SG_W % 2 == 1 else ISO_SG_W + 1
             w = min(w, len(fit) - (1 - len(fit) % 2))
             if w >= ISO_SG_POLY + 2:
-                # Edge-pad with true endpoint values so SavGol can't pull
-                # the start/end away from the true min/max.
+
+
                 pad = w // 2
                 padded = np.concatenate([
                     np.full(pad, fit[0]), fit, np.full(pad, fit[-1])
@@ -200,19 +172,19 @@ def plot_reward_convergence(exp_names, all_data, out_path):
                 padded = savgol_filter(padded, window_length=w,
                                        polyorder=ISO_SG_POLY)
                 fit = padded[pad:-pad]
-                # Hard-anchor endpoints to true isotonic values
+
                 fit[0]  = float(iso.fit_transform(x_arr, y_arr)[0])
                 fit[-1] = float(y_arr[-max(1, len(y_arr)//20):].mean())
             steps_arr = np.asarray(steps)
-            # Soft fill under the converged curve for visual weight
+
             ax.fill_between(steps_arr, fit.min(), fit, color=ISO_COLOR,
                             alpha=0.08, zorder=3.5)
-            # Main converged-learning curve
+
             ax.plot(steps_arr, fit, color=ISO_COLOR, linewidth=2.2,
                     solid_capstyle="round",
                     label=f"{name} (isotonic regression)", zorder=5)
 
-            # Sparse error bars: local std of raw values around sampled points
+
             n_bars = 12
             idxs = np.linspace(0, len(steps_arr) - 1, n_bars, dtype=int)
             half = max(5, len(y_arr) // (n_bars * 2))
@@ -220,13 +192,13 @@ def plot_reward_convergence(exp_names, all_data, out_path):
                 y_arr[max(0, j - half):min(len(y_arr), j + half)].std()
                 for j in idxs
             ])
-            ERR_COLOR = "#7B1E1E"   # deep burgundy — complements crimson
+            ERR_COLOR = "#7B1E1E"
             ax.errorbar(steps_arr[idxs], fit[idxs], yerr=errs,
                         fmt="none", ecolor=ERR_COLOR, elinewidth=1.2,
                         capsize=3, capthick=1.2, alpha=0.85, zorder=5.5,
                         label=f"{name} (±1σ local)")
 
-            # Annotate start and plateau
+
             start_x, start_y = steps_arr[0], float(fit[0])
             end_x,   end_y   = steps_arr[-1], float(fit[-1])
             ax.scatter([start_x, end_x], [start_y, end_y],
@@ -258,8 +230,6 @@ def plot_reward_convergence(exp_names, all_data, out_path):
     plt.close(fig)
     print(f"  [saved] {out_path}")
 
-
-# ── Figure 2 — Loss Curves ─────────────────────────────────────────────────────
 
 def plot_losses(exp_names, all_data, out_path):
     tags   = ["Loss / Policy loss", "Loss / Value loss", "Loss / Entropy loss"]
@@ -296,8 +266,6 @@ def plot_losses(exp_names, all_data, out_path):
     plt.close(fig)
     print(f"  [saved] {out_path}")
 
-
-# ── Figure 3 — Policy Metrics ──────────────────────────────────────────────────
 
 def plot_policy_metrics(exp_names, all_data, out_path):
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -336,14 +304,11 @@ def plot_policy_metrics(exp_names, all_data, out_path):
     print(f"  [saved] {out_path}")
 
 
-# ── Figure 4 — Instantaneous Reward (dual-axis style, like paper Fig. 12) ──────
-
 def plot_instant_reward(exp_names, all_data, out_path):
-    """Reward mean vs std dev on dual y-axis, paper Fig.12 style."""
     tag_r = "Reward / Instantaneous reward (mean)"
     tag_s = "Policy / Standard deviation"
 
-    # Only plot for the best / latest run
+
     target = exp_names[-1]
     data   = all_data[-1]
     if tag_r not in data:
@@ -389,17 +354,7 @@ def plot_instant_reward(exp_names, all_data, out_path):
     print(f"  [saved] {out_path}")
 
 
-# ── Figure 5 — Escape rate convergence (paper Fig. 21 style) ─────────────────
-
 def plot_escape_rate(exp_names, all_data, out_path):
-    """
-    Escape progress: milestone hit rates + mean X displacement.
-
-    NOTE: The per-step 'escape_rate' metric was broken in runs before the fix
-    (envs reset before the metric was logged, so it always read 0). We now plot
-    milestone rates and mean_x_disp which correctly show escape progress.
-    Post-fix runs will also show the cumulative escape_rate on the right axis.
-    """
     fig, ax = plt.subplots(figsize=(9, 4.5))
     ax.set_title("Escape Progress — Milestones & Displacement", pad=8)
     ax.set_xlabel("Training Step")
@@ -413,7 +368,7 @@ def plot_escape_rate(exp_names, all_data, out_path):
     plotted = 0
     for i, (name, data) in enumerate(zip(exp_names, all_data)):
         color = get_color(name, i)
-        # Milestone rates
+
         for tag, lbl, c in [
             ("Info / milestone_0_3m", "0.3 m", "#4DAC26"),
             ("Info / milestone_0_6m", "0.6 m", "#E08214"),
@@ -427,7 +382,7 @@ def plot_escape_rate(exp_names, all_data, out_path):
                         label=lbl, zorder=3)
                 plotted += 1
 
-        # Escape rate (cumulative — fixed metric, will be 0 for old runs)
+
         _ESCAPE_TAGS = [
             "Info / escape_rate", "Episode / escape_rate (mean)",
             "Episode/escape_rate", "escape_rate",
@@ -447,7 +402,7 @@ def plot_escape_rate(exp_names, all_data, out_path):
         plt.close(fig)
         return
 
-    # Secondary axis: mean distance from origin (shows escape progress)
+
     ax2 = ax.twinx()
     ax2.set_ylabel("Mean Distance from Origin / m", color="#2166AC")
     ax2.tick_params(axis="y", labelcolor="#2166AC")
@@ -473,8 +428,6 @@ def plot_escape_rate(exp_names, all_data, out_path):
     print(f"  [saved] {out_path}")
 
 
-# ── Figure 6 — Summary stats table image ──────────────────────────────────────
-
 def plot_summary_table(exp_names, all_data, out_path):
     rows = []
     col_labels = ["Run", "Steps", "Reward (last 10%)", "Min Reward", "Policy Std Dev"]
@@ -485,7 +438,7 @@ def plot_summary_table(exp_names, all_data, out_path):
         steps   = int(data[tag_r]["step"][-1])  if tag_r in data and len(data[tag_r]["step"]) else 0
         if tag_r in data and len(data[tag_r]['value']):
             v = data[tag_r]['value']
-            tail = max(1, len(v) // 10)  # mean of last 10% of run
+            tail = max(1, len(v) // 10)
             r_mean = f"{float(np.mean(v[-tail:])):.2f}"
         else:
             r_mean = "—"
@@ -516,8 +469,6 @@ def plot_summary_table(exp_names, all_data, out_path):
     plt.close(fig)
     print(f"  [saved] {out_path}")
 
-
-# ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()
@@ -553,14 +504,14 @@ def main():
             max_step = max(data[t]["step"].max() for t in data if len(data[t]["step"]) > 0)
             print(f"    tags={len(data)}  max_step={int(max_step):,}")
 
-    # Per-run plots
+
     for name, data in zip(exp_names, all_data):
         if not data:
             continue
         pfx = os.path.join(PLOTS_DIR, name)
         plot_instant_reward([name], [data], f"{pfx}_reward_dual_axis.png")
 
-    # Combined / comparison plots
+
     plot_reward_convergence(exp_names, all_data,
                             os.path.join(PLOTS_DIR, "reward_convergence.png"))
     plot_escape_rate(exp_names, all_data,

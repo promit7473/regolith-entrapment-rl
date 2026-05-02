@@ -1,36 +1,17 @@
-"""
-Simple proportional waypoint-following navigation controller.
-
-Drives the rover toward a goal point in world frame using:
-  - Proportional heading correction via steering joints (with deadband)
-  - Constant forward drive velocity (zero on arrival)
-
-This is intentionally simple — the paper contribution is the recovery
-primitive, not the navigation. A deterministic controller isolates
-the recovery contribution cleanly for reviewers.
-"""
-
 import math
 import torch
 
 
 class PDNavController:
-    """
-    Proportional waypoint follower for the AAU Mars rover.
-    (Class name kept for backward compatibility; controller is P, not PD.)
-
-    Inputs:  current world-frame pose (x, y, yaw), goal (x, y)
-    Outputs: action tensor [drive_cmd(6), steer_cmd(4)] in [-1, 1]
-    """
 
     def __init__(
         self,
         num_envs:        int,
         device:          str,
-        drive_speed:     float = 0.6,   # fraction of max drive vel (1.0 = 6 rad/s)
-        heading_gain:    float = 1.2,   # P-gain on heading error → steer angle
-        arrival_radius:  float = 0.5,   # m — stop when within this distance of goal
-        heading_deadband: float = 0.035, # rad (~2°); below this, no steer (kills jitter)
+        drive_speed:     float = 0.6,
+        heading_gain:    float = 1.2,
+        arrival_radius:  float = 0.5,
+        heading_deadband: float = 0.035,
     ):
         self.num_envs        = num_envs
         self.device          = device
@@ -39,64 +20,53 @@ class PDNavController:
         self.arrival_radius  = arrival_radius
         self.heading_deadband = heading_deadband
 
-        # Goal position per env (world frame XY)
+
         self.goal = torch.zeros(num_envs, 2, device=device)
 
     def set_goal(self, goal_xy: torch.Tensor):
-        """Set goal position for all envs. goal_xy: (num_envs, 2) world frame."""
         self.goal = goal_xy.to(self.device)
 
     def set_goal_single(self, goal_xy: torch.Tensor):
-        """Broadcast a single (2,) goal to all envs."""
         self.goal = goal_xy.to(self.device).unsqueeze(0).expand(self.num_envs, -1).clone()
 
     def step(
         self,
-        pos_xy:  torch.Tensor,   # (num_envs, 2) world-frame XY
-        yaw:     torch.Tensor,   # (num_envs,)   world-frame yaw in radians
+        pos_xy:  torch.Tensor,
+        yaw:     torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Compute action tensor from current pose toward goal.
-        Returns: (num_envs, 10) action in [-1, 1].
-        """
-        rel = self.goal - pos_xy                            # (N, 2)
-        dist = torch.norm(rel, dim=-1, keepdim=True)        # (N, 1)
+        rel = self.goal - pos_xy
+        dist = torch.norm(rel, dim=-1, keepdim=True)
 
-        # Heading to goal in world frame
-        goal_heading = torch.atan2(rel[:, 1], rel[:, 0])   # (N,)
 
-        # Heading error (wrapped to [-π, π])
+        goal_heading = torch.atan2(rel[:, 1], rel[:, 0])
+
+
         heading_err = goal_heading - yaw
-        heading_err = (heading_err + math.pi) % (2 * math.pi) - math.pi  # wrap
+        heading_err = (heading_err + math.pi) % (2 * math.pi) - math.pi
 
-        # Steer correction — proportional, clamped to [-1, 1] with deadband.
-        # Deadband suppresses jitter when heading error is sub-degree.
+
         steer_raw = self.heading_gain * heading_err / math.pi
         in_deadband = heading_err.abs() < self.heading_deadband
         steer_cmd = torch.where(in_deadband, torch.zeros_like(steer_raw), steer_raw).clamp(-1.0, 1.0)
 
-        # Drive speed — slow down near goal, stop at arrival
+
         arrived   = (dist.squeeze(-1) < self.arrival_radius)
         speed     = torch.where(arrived, torch.zeros_like(dist.squeeze(-1)),
                                 torch.full_like(dist.squeeze(-1), self.drive_speed))
 
-        # Build action tensor: 6 drive wheels all same speed, 4 steers all same angle
+
         action = torch.zeros(self.num_envs, 10, device=self.device)
-        action[:, :6] = speed.unsqueeze(-1).expand(-1, 6)           # drive
-        action[:, 6:] = steer_cmd.unsqueeze(-1).expand(-1, 4)       # steer
+        action[:, :6] = speed.unsqueeze(-1).expand(-1, 6)
+        action[:, 6:] = steer_cmd.unsqueeze(-1).expand(-1, 4)
 
         return action, arrived
 
     def extract_yaw(self, root_pose: torch.Tensor) -> torch.Tensor:
-        """
-        Extract yaw from Newton root pose tensor [x,y,z, qx,qy,qz,qw].
-        Returns: (num_envs,) yaw in radians.
-        """
         qx = root_pose[:, 3]
         qy = root_pose[:, 4]
         qz = root_pose[:, 5]
         qw = root_pose[:, 6]
-        # yaw = atan2(2*(qw*qz + qx*qy), 1 - 2*(qy^2 + qz^2))
+
         yaw = torch.atan2(
             2.0 * (qw * qz + qx * qy),
             1.0 - 2.0 * (qy * qy + qz * qz),

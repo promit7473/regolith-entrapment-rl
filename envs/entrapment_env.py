@@ -487,14 +487,9 @@ class EntrapmentEnv(DirectRLEnv):
                     n_wheels += 1
                 elif name == 'Body':
                     # Chassis sand collider — fills the missing body-soil interaction.
-                    # Without this, sand particles passed through the chassis bottom
-                    # and only the 6 wheels felt sand resistance. Real granular
-                    # entrapment includes belly-pan / hull drag (Bi & Ding 2026).
-                    # Box dimensions cover the AAU rover chassis underbody:
-                    #   X (length) = 0.50 m, Y (width) = 0.40 m, Z (height) = 0.10 m
-                    # Offset Z = -0.05 m so the box bottom is ~10 cm above the wheel
-                    # axles (CHASSIS_TO_WHEEL_Z = 0.167 m), well clear of the wheels
-                    # and aligned with where the chassis underside actually sits.
+                    # Without this, sand particles pass through the chassis bottom and
+                    # only the 6 wheels feel sand resistance. Real granular entrapment
+                    # includes belly-pan / hull drag (Bi & Ding 2026).
                     chassis_xform = wp.transform(
                         wp.vec3(0.0, 0.0, -0.05),
                         wp.quat_identity(),
@@ -502,15 +497,13 @@ class EntrapmentEnv(DirectRLEnv):
                     builder.add_shape_box(
                         body=b,
                         xform=chassis_xform,
-                        hx=0.25,   # half-extent X
-                        hy=0.20,   # half-extent Y
-                        hz=0.05,   # half-extent Z
+                        hx=0.25, hy=0.20, hz=0.05,
                         cfg=cfg,
                     )
                     n_chassis += 1
             print(f"[Newton Init] Disabled mesh collision on {n_shapes} shapes, "
                   f"added {n_wheels} wheel proxy cylinders (r={WHEEL_RADIUS}m, hw={WHEEL_HALF_WIDTH}m), "
-                  f"added {n_chassis} chassis sand box (hx=0.25, hy=0.20, hz=0.05, off_z=-0.05m).")
+                  f"added {n_chassis} chassis sand box.")
 
             # Fix passive joint effort_limit=0 — MuJoCo Warp rejects actfrcrange=[0,0].
             # Rocker/Differential joints in the USD have effort_limit=0 (free joints).
@@ -695,7 +688,7 @@ class EntrapmentEnv(DirectRLEnv):
         # the bed compresses realistically under wheel load. Implicit MPM solver is
         # unconditionally stable at any ke; previous CFL blow-up came from missing
         # subtract_body_force (double-counted velocities), not from ke itself.
-        self.sand_model.particle_ke = 1.0e8
+        self.sand_model.particle_ke = 2.0e5
         _p("[MPM] Sand model finalized.")
 
         mpm_opt = SolverImplicitMPM.Options()
@@ -924,6 +917,11 @@ class EntrapmentEnv(DirectRLEnv):
             self.sand_state, self.sand_state,
             contacts=None, control=None, dt=mpm_dt,
         )
+
+        # Evict particles that ended up inside collider geometry (wheels, chassis)
+        # after this substep. Without this, buried particles have no SDF normal →
+        # no contact impulse → rover floats with no real wheel-sand coupling.
+        self.mpm_solver.project_outside(self.sand_state, self.sand_state, dt=mpm_dt)
 
         # Clamp any escaped particle back into its env's sand box.
         # Without this, even one particle drifting away causes the sparse VDB
@@ -1488,7 +1486,9 @@ class EntrapmentEnv(DirectRLEnv):
                     backoff_gate = self.cfg.curriculum_backoff_scale
             step_norm = len(env_ids) / float(total_resets_est)
             self._curriculum_progress += (competence_gate * curriculum_speed - backoff_gate * curriculum_speed) * step_norm
-            self._curriculum_progress = torch.clamp(self._curriculum_progress, min=0.0, max=1.0)
+            # Lower bound 0.2: backoff never resets to trivial difficulty, preventing
+            # catastrophic forgetting when the policy regresses at max curriculum level.
+            self._curriculum_progress = torch.clamp(self._curriculum_progress, min=0.2, max=1.0)
 
         # ── Robot pose ───────────────────────────────────────────────────────
         default_root_pose = wp.to_torch(
