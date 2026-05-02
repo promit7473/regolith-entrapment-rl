@@ -34,6 +34,7 @@ Action (10D):
 
 from __future__ import annotations
 
+import csv
 import os
 from collections.abc import Sequence
 
@@ -161,7 +162,21 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
 
     # Domain randomization ranges (inspired by Bi & Ding 2026, Table 9)
     dr_motor_gain_range  = (0.8, 1.2)   # multiplicative gain on drive velocity targets
-    dr_obs_noise_std     = 0.02         # additive Gaussian noise on observations
+
+    # Per-sensor observation noise (RPi5 deployment realism).
+    # Structured noise: different sensors have different noise characteristics.
+    # These values match real sensor datasheets for the deployment hardware.
+    # Replaces the old flat dr_obs_noise_std = 0.02 across all 29 dims.
+    dr_noise_wheel_vel    = 0.05   # rad/s — encoder quantization + bearing noise (0.8% of 6 rad/s range)
+    dr_noise_slip         = 0.03   # slip ratio — derived from wheel velocity noise
+    dr_noise_steer_pos    = 0.01   # rad — potentiometer / encoder noise
+    dr_noise_imu_acc      = 0.15   # m/s² — MEMS IMU white noise (MPU-6050 class: 0.1–0.2 m/s²)
+    dr_noise_grav_z       = 0.02   # gravity projection noise from IMU attitude error
+    dr_noise_drive_torque = 0.05   # normalised — current sensing noise (~5% of torque range)
+    dr_noise_dist_norm    = 0.02   # normalised distance — GPS/odometry drift
+
+    # Failure mode logging: write per-episode metadata to CSV for post-hoc analysis.
+    log_failure_modes     = True   # set False to disable I/O overhead during profiling
     dr_sinkage_range     = (0.15, 0.28) # m — full curriculum range. Deep spawn was previously capped at 0.22 due to MPM penetration-resolution launch on teleport; now stabilised by the settle_steps force clamp below, so deep burial is safe again.
 
     # Post-reset MPM settle window. Teleporting the chassis into the sand
@@ -358,6 +373,26 @@ class EntrapmentEnv(DirectRLEnv):
         self._escape_dir  = torch.zeros(self.num_envs, 2, device=self.device)
         self._escape_dir[:, 0] = 1.0   # default +X until first reset
         self._spawn_pos   = torch.zeros(self.num_envs, 2, device=self.device)
+
+        # Failure mode logging (Task 2): global episode counter and CSV path.
+        self._episode_counter = 0
+        if self.cfg.log_failure_modes:
+            exp_root = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "experiments", "regolith_recovery",
+            )
+            os.makedirs(exp_root, exist_ok=True)
+            self._failure_csv_path = os.path.join(exp_root, "failure_modes.csv")
+            # Write header if file doesn't exist yet
+            if not os.path.exists(self._failure_csv_path):
+                with open(self._failure_csv_path, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        "episode_id", "escaped", "sinkage", "friction",
+                        "curriculum_level", "final_dist", "episode_steps",
+                    ])
+        else:
+            self._failure_csv_path = None
 
     # ── Scene setup ─────────────────────────────────────────────────────────
 
@@ -1186,10 +1221,21 @@ class EntrapmentEnv(DirectRLEnv):
             dist_norm,
         ], dim=-1)
         obs = obs.nan_to_num(0.0).clamp(-5.0, 5.0)
-        # Domain randomization: additive observation noise (policy obs only — critic
-        # sees clean privileged signals, so noise is applied before concatenation).
-        if self.cfg.dr_obs_noise_std > 0.0:
-            obs = obs + self.cfg.dr_obs_noise_std * torch.randn_like(obs)
+        # Domain randomization: structured per-sensor additive observation noise.
+        # Applied to policy obs only (first 29 dims) — critic sees clean privileged
+        # signals, so noise is injected before the privileged block is concatenated.
+        # Binary flags (entrap_flag at dim 26, slip_anomaly at dim 27) are NOT noised
+        # — they are computed decisions, not raw sensor measurements.
+        obs[:, 0:6]   += self.cfg.dr_noise_wheel_vel    * torch.randn(self.num_envs, 6,  device=self.device)
+        obs[:, 6:12]  += self.cfg.dr_noise_slip         * torch.randn(self.num_envs, 6,  device=self.device)
+        obs[:, 12:16] += self.cfg.dr_noise_steer_pos    * torch.randn(self.num_envs, 4,  device=self.device)
+        obs[:, 16:19] += self.cfg.dr_noise_imu_acc      * torch.randn(self.num_envs, 3,  device=self.device)
+        obs[:, 19:20] += self.cfg.dr_noise_grav_z       * torch.randn(self.num_envs, 1,  device=self.device)
+        obs[:, 20:26] += self.cfg.dr_noise_drive_torque * torch.randn(self.num_envs, 6,  device=self.device)
+        # obs[:, 26:27] — entrap_flag: binary, no noise
+        # obs[:, 27:28] — slip_anomaly: binary, no noise
+        obs[:, 28:29] += self.cfg.dr_noise_dist_norm    * torch.randn(self.num_envs, 1,  device=self.device)
+        obs = obs.nan_to_num(0.0).clamp(-5.0, 5.0)
 
         if self.cfg.use_privileged_critic:
             # Oracle features for asymmetric critic. Not exposed to the policy at
@@ -1441,6 +1487,29 @@ class EntrapmentEnv(DirectRLEnv):
                 self._recent_escapes_idx = (self._recent_escapes_idx + 1) % buf_len
                 if self._recent_escapes_idx == 0:
                     self._recent_escapes_full = True
+
+            # Failure mode logging: append one row per terminated episode to CSV.
+            if self.cfg.log_failure_modes and self._failure_csv_path is not None:
+                curriculum_lvl = float(self._curriculum_progress.mean().item()) \
+                    if hasattr(self, '_curriculum_progress') else float('nan')
+                # Per-env friction is stored in MPM material array — approximate it
+                # from the last DR sample if accessible, else NaN.
+                rows = []
+                for ei in done_env_ids.tolist():
+                    esc_val   = int(escaped[ei].item())
+                    sinkage   = float(self._sinkage[ei].item())
+                    # Friction: not cached per-env on CPU — emit NaN (MPM array is on GPU).
+                    friction  = float('nan')
+                    rel_pos_ei = self.root_pos[ei, :2] - self._spawn_pos[ei]
+                    final_dist = float((rel_pos_ei * self._escape_dir[ei]).sum().item())
+                    ep_steps   = int(self._episode_step[ei].item())
+                    rows.append([
+                        self._episode_counter, esc_val, sinkage, friction,
+                        curriculum_lvl, final_dist, ep_steps,
+                    ])
+                    self._episode_counter += 1
+                with open(self._failure_csv_path, "a", newline="") as f:
+                    csv.writer(f).writerows(rows)
 
         return terminated, time_out
 

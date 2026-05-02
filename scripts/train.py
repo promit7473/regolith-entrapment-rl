@@ -30,7 +30,9 @@ parser = argparse.ArgumentParser(description="Mars Rover Regolith Escape Recover
 parser.add_argument("--num_envs",   type=int,   default=64)
 parser.add_argument("--seed",       type=int,   default=42)
 parser.add_argument("--checkpoint", type=str,   default=None)
-parser.add_argument("--timesteps",  type=int,   default=200_000)
+parser.add_argument("--timesteps",  type=int,   default=200_000,
+                    help="Training timesteps per env. 200k default (5070Ti/64 envs). "
+                         "4M recommended for RTX 4090 with 512 envs.")
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, hydra_args = parser.parse_known_args()
@@ -47,6 +49,7 @@ simulation_app = app_launcher.app
 # ── Post-init imports ──────────────────────────────────────────────────────────
 import math
 import gymnasium as gym
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -213,7 +216,12 @@ class GRUValueNet(DeterministicMixin, Model):
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def train():
+    # Seed all RNG sources for reproducibility.
+    # skrl's set_seed handles torch + numpy internally; we also call them
+    # directly so any code path that doesn't go through skrl is covered.
     set_seed(args_cli.seed)
+    torch.manual_seed(args_cli.seed)
+    np.random.seed(args_cli.seed)
 
     env_cfg = EntrapmentEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
