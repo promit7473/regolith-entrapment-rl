@@ -178,6 +178,12 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # Failure mode logging: write per-episode metadata to CSV for post-hoc analysis.
     log_failure_modes     = True   # set False to disable I/O overhead during profiling
     dr_sinkage_range     = (0.15, 0.28) # m — full curriculum range. Deep spawn was previously capped at 0.22 due to MPM penetration-resolution launch on teleport; now stabilised by the settle_steps force clamp below, so deep burial is safe again.
+    dr_friction_range    = (0.6, 0.9)   # μ_s sand friction DR per reset.
+    # OOD-eval overrides: when set, pin sinkage / friction to a single value and
+    # bypass the curriculum (used by scripts/run_ood_sweep.py to evaluate the
+    # trained policy across a sinkage × friction grid).
+    sinkage_override     = None         # float | None — m
+    friction_override    = None         # float | None — μ_s
 
     # Post-reset MPM settle window. Teleporting the chassis into the sand
     # volume creates an instantaneous SDF/particle overlap; MPM resolves it
@@ -1590,8 +1596,11 @@ class EntrapmentEnv(DirectRLEnv):
         #   z_chassis = env_z + SAND_DEPTH + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS - sinkage
         # Curriculum: start with shallow sinkage, increase as training progresses.
         progress = min(1.0, self._curriculum_progress.mean().item()) if hasattr(self, '_curriculum_progress') else 0.0
-        sinkage_min = self.cfg.dr_sinkage_range[0] + (self.cfg.dr_sinkage_range[1] - self.cfg.dr_sinkage_range[0]) * progress
-        sinkage_max = self.cfg.dr_sinkage_range[1]
+        if self.cfg.sinkage_override is not None:
+            sinkage_min = sinkage_max = float(self.cfg.sinkage_override)
+        else:
+            sinkage_min = self.cfg.dr_sinkage_range[0] + (self.cfg.dr_sinkage_range[1] - self.cfg.dr_sinkage_range[0]) * progress
+            sinkage_max = self.cfg.dr_sinkage_range[1]
         sinkage_depth = sample_uniform(
             sinkage_min, sinkage_max,
             (len(env_ids),), self.device,
@@ -1672,8 +1681,12 @@ class EntrapmentEnv(DirectRLEnv):
         # the slice corresponding to each env's particles. One sample per env per
         # reset → real per-episode friction DR with no cross-env contamination.
         if self._mpm_ready and hasattr(self.mpm_solver, "material_parameters"):
+            if self.cfg.friction_override is not None:
+                mu_lo = mu_hi = float(self.cfg.friction_override)
+            else:
+                mu_lo, mu_hi = self.cfg.dr_friction_range
             mu_per_env = sample_uniform(
-                0.6, 0.9, (len(env_ids),), self.device,
+                mu_lo, mu_hi, (len(env_ids),), self.device,
             ).cpu().numpy()
             friction_arr = self.mpm_solver.material_parameters.friction
             for k, ei in enumerate(env_ids):

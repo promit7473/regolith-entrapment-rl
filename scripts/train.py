@@ -226,6 +226,25 @@ def train():
     env_cfg = EntrapmentEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
 
+    ablation = os.environ.get("ABLATION", "").strip()
+    if ablation:
+        if ablation == "no_priv_critic":
+            env_cfg.use_privileged_critic = False
+            env_cfg.observation_space = env_cfg.policy_observation_space
+        elif ablation == "no_dr":
+            for k in ("dr_noise_wheel_vel", "dr_noise_slip", "dr_noise_steer_pos",
+                      "dr_noise_imu_acc", "dr_noise_grav_z",
+                      "dr_noise_drive_torque", "dr_noise_dist_norm"):
+                setattr(env_cfg, k, 0.0)
+            env_cfg.dr_friction_range = (0.75, 0.75)
+        elif ablation == "no_pen_grind":
+            env_cfg.pen_grind = 0.0
+        elif ablation == "no_pen_hop":
+            env_cfg.pen_hop = 0.0
+        else:
+            raise ValueError(f"Unknown ABLATION={ablation!r}")
+        print(f"[train] Ablation active: {ablation}")
+
     print(f"[train] Calling gym.make (Newton init starts here — first cold launch can take 10-15 min)…", flush=True)
     env = gym.make("MarsRover-RegolithEscape-v0", cfg=env_cfg)
     print(f"[train] gym.make returned. Wrapping env…", flush=True)
@@ -256,7 +275,8 @@ def train():
     }
     memory = RandomMemory(memory_size=ROLLOUTS, num_envs=num_envs, device=device)
 
-    exp_dir = os.path.join(REPO_ROOT, "experiments", "regolith_recovery")
+    _tag = ablation if ablation else f"seed_{args_cli.seed}"
+    exp_dir = os.path.join(REPO_ROOT, "experiments", "regolith_recovery", _tag)
     ppo_cfg = PPO_RNN_DEFAULT_CONFIG.copy()
     ppo_cfg.update({
         "rollouts":           ROLLOUTS,

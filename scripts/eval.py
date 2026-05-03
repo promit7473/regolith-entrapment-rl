@@ -21,6 +21,11 @@ parser.add_argument("--video-length", type=int, default=300,
                     help="Frames per video clip (default: 300 = ~12s at 25Hz)")
 parser.add_argument("--video-interval", type=int, default=1,
                     help="Record every N episodes (default: 1 = record all)")
+parser.add_argument("--num_trials", type=int, default=0,
+                    help="Headless eval: run N total trials and exit. Alias for --episodes "
+                         "but also enables success-rate aggregation when used with --out_json.")
+parser.add_argument("--out_json", type=str, default=None,
+                    help="If set, write {success_rate, num_trials, mean_reward} JSON here at exit.")
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, hydra_args = parser.parse_known_args()
@@ -80,6 +85,18 @@ def random_actions(num_envs, num_act, device):
 def main():
     env_cfg = EntrapmentEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
+
+    _ood_s = os.environ.get("OOD_SINKAGE")
+    _ood_f = os.environ.get("OOD_FRICTION")
+    if _ood_s is not None:
+        env_cfg.sinkage_override = float(_ood_s)
+        print(f"[Eval] OOD sinkage override: {env_cfg.sinkage_override} m")
+    if _ood_f is not None:
+        env_cfg.friction_override = float(_ood_f)
+        print(f"[Eval] OOD friction override: {env_cfg.friction_override}")
+
+    if args_cli.num_trials > 0 and args_cli.episodes == 0:
+        args_cli.episodes = args_cli.num_trials
     if getattr(args_cli, 'no_mpm', False):
         env_cfg.skip_mpm = True
 
@@ -129,6 +146,7 @@ def main():
     step = 0
     ep_count = 0
     ep_rewards = []
+    ep_successes = 0  # episodes that terminated (escape) rather than timed out
     ep_reward = torch.zeros(env.num_envs, device=device)
 
 
@@ -197,6 +215,8 @@ def main():
                     if done[i]:
                         ep_rewards.append(float(ep_reward[i]))
                         ep_count += 1
+                        if bool(_term[i]) and not bool(_trunc[i]):
+                            ep_successes += 1
                 ep_reward[done] = 0.0
                 if _SAVE_PATH and bool(done[0]):
                     _end_episode()
@@ -245,6 +265,24 @@ def main():
         print(f"  Mean reward: {statistics.mean(ep_rewards):.3f}")
         print(f"  Std reward:  {statistics.stdev(ep_rewards):.3f}" if len(ep_rewards) > 1 else "")
         print(f"{'='*55}\n")
+
+    if args_cli.out_json:
+        import json as _json
+        n = max(ep_count, 1)
+        payload = {
+            "num_trials": ep_count,
+            "successes": ep_successes,
+            "success_rate": ep_successes / n,
+            "mean_reward": (sum(ep_rewards) / n) if ep_rewards else 0.0,
+            "ood_sinkage": _ood_s,
+            "ood_friction": _ood_f,
+            "checkpoint": args_cli.checkpoint,
+        }
+        _outp = os.path.abspath(args_cli.out_json)
+        os.makedirs(os.path.dirname(_outp) or ".", exist_ok=True)
+        with open(_outp, "w") as f:
+            _json.dump(payload, f, indent=2)
+        print(f"[Eval] Wrote {_outp}: {payload}")
 
     env.close()
     if simulation_app is not None:
