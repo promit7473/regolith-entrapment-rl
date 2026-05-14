@@ -250,11 +250,19 @@ def plot_training_overview(data, out_path):
 
 
     ax = axes[0, 0]
-    ax.set_title("Episode Reward")
-    ax.set_xlabel("Step"); ax.set_ylabel("Reward")
+    ax.set_title("Escape Rate")
+    ax.set_xlabel("Step"); ax.set_ylabel("Escape Rate")
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(fmt_step))
+    ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+    ax.set_ylim(-0.03, 1.08)
     ax.spines[["top", "right"]].set_visible(False)
-    _plot_tag(ax, data, "Reward / Total reward (mean)", "#2166AC", "Mean")
+    _plot_tag(ax, data, "Info / escape_rate", "#9B2226", "Escape rate", w=80)
+    if "Info / escape_rate" in data and len(data["Info / escape_rate"]["step"]) > 0:
+        peak = float(data["Info / escape_rate"]["value"][-50:].mean())
+        step_end = float(data["Info / escape_rate"]["step"][-1])
+        ax.axhline(peak, color="#9B2226", linewidth=0.8, linestyle="--", alpha=0.5)
+        ax.text(step_end * 0.05, peak + 0.02,
+                f"{peak*100:.1f}%", fontsize=8, color="#9B2226")
 
     ax = axes[0, 1]
     ax.set_title("Policy & Value Loss")

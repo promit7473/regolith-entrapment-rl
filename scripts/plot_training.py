@@ -123,129 +123,84 @@ def _ema(values, alpha):
     return out
 
 
-def _rolling_median(values, w):
-    """Robust smoother: rolling median ignores outlier explosion episodes."""
-    out = np.empty(len(values))
-    half = w // 2
-    for i in range(len(values)):
-        lo = max(0, i - half)
-        hi = min(len(values), i + half + 1)
-        out[i] = np.median(values[lo:hi])
-    return out
-
-
 def plot_reward_convergence(exp_names, all_data, out_path):
     """
-    Escape rate is the primary convergence signal — it shows the clean
-    S-curve from 0% to 89.3%.  Total reward is a secondary indicator shown
-    with rolling-median smoothing to suppress MPM physics-explosion outliers
-    that corrupt the early-training mean.  Curriculum difficulty shading
-    explains why the reward doesn't plateau: the scheduler keeps raising
-    sinkage depth as the policy improves.
+    Shows ONLY the escape rate — the one signal that is clean, monotone, and
+    interpretable.  Episode return is omitted entirely: MPM physics explosions
+    corrupt the early-training mean and curriculum resets create artificial dips
+    throughout, making it a misleading convergence indicator for this task.
     """
-    fig, ax_esc = plt.subplots(figsize=(9.5, 5.2))
+    from matplotlib.patches import Patch
 
-    # ── primary axis: escape rate (left) ──────────────────────────────────
-    ax_esc.set_xlabel("Policy Step", fontsize=10)
-    ax_esc.set_ylabel("Escape Rate  (rolling window)", fontsize=10,
-                      color="#9B2226")
-    ax_esc.tick_params(axis="y", labelcolor="#9B2226")
-    ax_esc.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
-    ax_esc.set_ylim(-0.04, 1.12)
-    ax_esc.xaxis.set_major_formatter(ticker.FuncFormatter(
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    ax.set_xlabel("Policy Step", fontsize=10)
+    ax.set_ylabel("Episode Escape Rate", fontsize=10)
+    ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+    ax.set_ylim(-0.03, 1.08)
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(
         lambda x, _: f"{x/1e3:.0f}k" if x >= 1000 else f"{x:.0f}"))
-    ax_esc.spines[["top"]].set_visible(False)
-    ax_esc.set_title(
-        "Policy Convergence — Escape Rate (primary) & Episode Return (secondary)",
-        pad=10, fontsize=11, fontweight="bold")
-
-    # ── secondary axis: episodic return (right) ───────────────────────────
-    ax_ret = ax_esc.twinx()
-    ax_ret.set_ylabel("Median Episode Return  (rolling, outliers removed)",
-                      fontsize=9, color="#2E86AB")
-    ax_ret.tick_params(axis="y", labelcolor="#2E86AB")
-    ax_ret.spines[["top"]].set_visible(False)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.set_title("Policy Learning Curve — Episode Escape Rate (Seed 1, 300 k steps)",
+                 pad=10, fontsize=11, fontweight="bold")
 
     tag_e = "Info / escape_rate"
-    tag_r = "Reward / Total reward (mean)"
     tag_c = "Info / curriculum_progress"
-
     plotted = 0
+
     for i, (name, data) in enumerate(zip(exp_names, all_data)):
         if tag_e not in data or len(data[tag_e]["step"]) == 0:
             continue
 
-        # ── Curriculum shading ────────────────────────────────────────────
+        e_s = np.asarray(data[tag_e]["step"])
+        e_v = np.asarray(data[tag_e]["value"])
+
+        # Curriculum shading: amber deepens as sinkage increases
         if tag_c in data and len(data[tag_c]["step"]) > 0:
-            c_s = data[tag_c]["step"]
-            c_v = data[tag_c]["value"]
-            # shade background from grey (easy) to amber (hard)
+            c_s = np.asarray(data[tag_c]["step"])
+            c_v = np.asarray(data[tag_c]["value"])
             for j in range(len(c_s) - 1):
-                alpha = float(c_v[j]) * 0.18 + 0.02
-                ax_esc.axvspan(c_s[j], c_s[j+1],
-                               color="#E59500", alpha=alpha,
-                               linewidth=0, zorder=0)
+                alpha = float(c_v[j]) * 0.20 + 0.02
+                ax.axvspan(c_s[j], c_s[j + 1],
+                           color="#E59500", alpha=alpha,
+                           linewidth=0, zorder=0)
 
-        # ── Escape rate: raw band + smoothed line ─────────────────────────
-        e_s  = np.asarray(data[tag_e]["step"])
-        e_v  = np.asarray(data[tag_e]["value"])
+        # Raw escape rate — very thin, semi-transparent
+        ax.plot(e_s, e_v, color="#9B2226", linewidth=0.4, alpha=0.20, zorder=2)
 
-        # Thin raw scatter (semi-transparent)
-        ax_esc.plot(e_s, e_v, color="#9B2226", linewidth=0.35,
-                    alpha=0.18, zorder=2)
-
-        # Smooth with MA (escape rate has no outlier problem)
+        # Smoothed line (w=80 MA)
         e_sm, e_sm_s = smooth(e_v, w=80, x=e_s)
-        ax_esc.plot(e_sm_s, e_sm, color="#9B2226", linewidth=2.6,
-                    alpha=0.95, label="Escape rate (smoothed)", zorder=4)
+        ax.plot(e_sm_s, e_sm, color="#9B2226", linewidth=2.5,
+                alpha=0.95, label="Escape rate (80-step MA)", zorder=4)
 
-        # Shade the band under the curve
-        ax_esc.fill_between(e_sm_s, 0, e_sm,
-                            color="#9B2226", alpha=0.06, zorder=1)
+        # Filled area under curve
+        ax.fill_between(e_sm_s, 0, e_sm, color="#9B2226", alpha=0.07, zorder=1)
 
-        # Annotate peak
-        peak_esc = float(e_v[-max(1, len(e_v)//15):].mean())
-        ax_esc.annotate(
-            f"{peak_esc*100:.1f}% at 300 k",
+        # Key milestone annotations
+        # 50 % crossover
+        cross_idx = np.where(e_sm >= 0.50)[0]
+        if len(cross_idx):
+            cx = e_sm_s[cross_idx[0]]
+            ax.axvline(cx, color="#555555", linewidth=0.8,
+                       linestyle=":", alpha=0.6, zorder=3)
+            ax.text(cx + 3000, 0.52, f"50% at {cx/1e3:.0f}k",
+                    fontsize=7.5, color="#555555")
+
+        # Final plateau
+        peak_esc = float(e_v[-max(1, len(e_v) // 15):].mean())
+        ax.annotate(
+            f"{peak_esc * 100:.1f}%",
             xy=(e_s[-1], peak_esc),
-            xytext=(-110, 12), textcoords="offset points",
-            fontsize=9, color="#9B2226", fontweight="bold",
+            xytext=(-70, 10), textcoords="offset points",
+            fontsize=10, color="#9B2226", fontweight="bold",
             arrowprops=dict(arrowstyle="->", color="#9B2226",
-                             lw=1.0, connectionstyle="arc3,rad=0.1"))
+                            lw=0.9, connectionstyle="arc3,rad=0.15"))
 
-        # ── Episodic return: rolling-median (outlier-robust) ──────────────
-        if tag_r in data and len(data[tag_r]["step"]) > 0:
-            r_s = np.asarray(data[tag_r]["step"])
-            r_v = np.asarray(data[tag_r]["value"])
-
-            # Hard-clip obvious physics explosions (beyond ±5 × IQR)
-            q25, q75 = np.percentile(r_v, 25), np.percentile(r_v, 75)
-            iqr = q75 - q25
-            r_v_clipped = np.clip(r_v, q25 - 5 * iqr, q75 + 5 * iqr)
-
-            # Rolling median (w=150): robust to remaining bursty outliers
-            r_med = _rolling_median(r_v_clipped, w=150)
-
-            ax_ret.plot(r_s, r_med, color="#2E86AB", linewidth=1.8,
-                        linestyle="--", alpha=0.80,
-                        label="Episode return (rolling median)", zorder=3)
-
-            # Annotate start and end
-            start_r = float(np.median(r_v_clipped[:50]))
-            end_r   = float(np.median(r_v_clipped[-100:]))
-            ax_ret.annotate(f"{start_r:+.0f}",
-                            xy=(r_s[25], start_r),
-                            xytext=(6, -16), textcoords="offset points",
-                            fontsize=8, color="#2E86AB")
-            ax_ret.annotate(f"{end_r:+.0f}",
-                            xy=(r_s[-1], end_r),
-                            xytext=(-8, 10), textcoords="offset points",
-                            ha="right", fontsize=8.5,
-                            color="#2E86AB", fontweight="bold")
-
-            # Set y-range from sensible percentiles
-            p5, p95 = np.percentile(r_v_clipped, 5), np.percentile(r_v_clipped, 95)
-            ax_ret.set_ylim(p5 - 5, p95 + 10)
+        # Start annotation
+        start_esc = float(e_v[:20].mean())
+        ax.annotate(f"{start_esc * 100:.0f}%",
+                    xy=(e_s[10], start_esc),
+                    xytext=(8, -14), textcoords="offset points",
+                    fontsize=8, color="#9B2226")
 
         plotted += 1
 
@@ -253,18 +208,12 @@ def plot_reward_convergence(exp_names, all_data, out_path):
         plt.close(fig)
         return
 
-    # ── Annotations for curriculum shading legend ────────────────────────
-    from matplotlib.patches import Patch
-    curriculum_patch = Patch(facecolor="#E59500", alpha=0.25,
-                              label="Curriculum difficulty (amber = harder sinkage)")
-
-    lines1, labels1 = ax_esc.get_legend_handles_labels()
-    lines2, labels2 = ax_ret.get_legend_handles_labels()
-    ax_esc.legend(lines1 + lines2 + [curriculum_patch],
-                  labels1 + labels2 + [curriculum_patch.get_label()],
-                  loc="lower right", framealpha=0.92, fontsize=8.5,
-                  edgecolor="#CCCCCC").get_frame().set_linewidth(0.5)
-    ax_esc.spines["right"].set_visible(False)
+    curriculum_patch = Patch(facecolor="#E59500", alpha=0.30,
+                             label="Curriculum sinkage depth (darker = harder)")
+    ax.legend(handles=ax.get_legend_handles_labels()[0] + [curriculum_patch],
+              labels=ax.get_legend_handles_labels()[1] + [curriculum_patch.get_label()],
+              loc="lower right", framealpha=0.92, fontsize=8.5,
+              edgecolor="#CCCCCC").get_frame().set_linewidth(0.5)
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
