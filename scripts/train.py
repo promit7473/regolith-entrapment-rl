@@ -277,6 +277,18 @@ def train():
 
     _tag = ablation if ablation else f"seed_{args_cli.seed}"
     exp_dir = os.path.join(REPO_ROOT, "experiments", "regolith_recovery", _tag)
+
+    # W&B run identity — ablations get their own group, multi-seed runs share one group
+    # so the W&B UI can plot mean±std across seeds automatically.
+    if ablation:
+        _wb_group   = f"ablation_{ablation}"
+        _wb_name    = f"ablation_{ablation}_s{args_cli.seed}"
+        _wb_tags    = ["ablation", ablation, "gru", "rtx4090"]
+    else:
+        _wb_group   = f"multiseed_{args_cli.timesteps//1000}k"
+        _wb_name    = f"seed_{args_cli.seed}"
+        _wb_tags    = ["multiseed", "gru", "asymmetric-critic", "rtx4090", f"seed_{args_cli.seed}"]
+
     ppo_cfg = PPO_RNN_DEFAULT_CONFIG.copy()
     ppo_cfg.update({
         "rollouts":           ROLLOUTS,
@@ -289,7 +301,7 @@ def train():
         "ratio_clip":         0.2,
         "value_clip":         0.2,
         "clip_predicted_values": True,
-        "entropy_loss_scale": 0.015, # v9: 0.03 → 0.015. With 10D actions, 0.03 produced an entropy bonus (~0.42/step) that dominated the actual reward signal (~0.1–0.3/step) early in training, slowing convergence. 0.015 keeps exploration alive without overwhelming the reward landscape. (Was raised 0.02 → 0.03 in v6 after observing collapse, but 0.02 collapse was rooted in the bistable reward landscape, not the entropy weight — that's been fixed by un-gating r_progress.)
+        "entropy_loss_scale": 0.08,  # v9=0.015, v10=0.05. Seeds 0&2 still collapsed (std≈0.56) while seed 1 thrived (std=1.70). Raised to 0.08 to reliably sustain std≥0.8 through early curriculum.
         "value_loss_scale":   1.0,
         "state_preprocessor":             RunningStandardScaler,
         "state_preprocessor_kwargs":      {"size": num_obs, "device": device},
@@ -297,15 +309,28 @@ def train():
         "value_preprocessor_kwargs":      {"size": 1, "device": device},
         "experiment": {
             "directory":          exp_dir,
-            "experiment_name":    "ppo_gru_regolith",
+            "experiment_name":    _tag,
             "write_interval":     100,
             "checkpoint_interval": 2000,
             "wandb":              True,
             "wandb_kwargs": {
-                "project":  "regolith-entrapment-rl",
-                "name":     "ppo_gru_asymmetric_v1",
-                "tags":     ["asymmetric-critic", "gru", "5070ti"],
-                "sync_tensorboard": True,   # mirror TB scalars into W&B automatically
+                "project":          "regolith-entrapment-rl",
+                "group":            _wb_group,
+                "name":             _wb_name,
+                "tags":             _wb_tags,
+                "config": {
+                    "seed":         args_cli.seed,
+                    "num_envs":     args_cli.num_envs,
+                    "timesteps":    args_cli.timesteps,
+                    "ablation":     ablation or None,
+                    "gru_hidden":   GRU_HIDDEN,
+                    "gru_layers":   GRU_LAYERS,
+                    "seq_len":      SEQ_LEN,
+                    "policy_obs_dim": POLICY_OBS_DIM,
+                    "lr":           3e-4,
+                    "entropy_scale": 0.08,
+                },
+                "sync_tensorboard": True,
             },
         },
     })
@@ -314,6 +339,12 @@ def train():
         models=models, memory=memory, cfg=ppo_cfg,
         observation_space=obs_space, action_space=act_space, device=device,
     )
+
+    # Shrink reward tracking window to num_envs (default 100 is for large-env runs;
+    # at 16 envs early episodes are long and the window fills too slowly to plot).
+    import collections
+    agent._track_rewards   = collections.deque(maxlen=args_cli.num_envs)
+    agent._track_timesteps = collections.deque(maxlen=args_cli.num_envs)
 
     if args_cli.checkpoint:
         if not os.path.exists(args_cli.checkpoint):
@@ -326,7 +357,17 @@ def train():
     _raw_env = env.unwrapped
     _orig_post = agent.post_interaction
 
+    # Entropy floor: if policy std drops below threshold before step 150k, boost
+    # entropy coefficient temporarily until exploration recovers. Prevents the
+    # silent early collapse seen in seeds 0&2 (std≈0.56, grind_rate→99%).
+    _STD_FLOOR      = 0.7
+    _STD_FLOOR_STEP = 150_000
+    _ENT_BASE       = ppo_cfg["entropy_loss_scale"]          # 0.08
+    _ENT_BOOSTED    = _ENT_BASE * 2.0                         # 0.16
+    _ent_boosted    = False
+
     def _post_interaction_with_extras(timestep, timesteps):
+        nonlocal _ent_boosted
         _orig_post(timestep=timestep, timesteps=timesteps)
         try:
             log = _raw_env.extras.get("log", {})
@@ -335,6 +376,21 @@ def train():
                 agent.track_data(f"Info / {k}", val)
         except Exception:
             pass
+
+        # Adaptive entropy floor check (only during early training)
+        if timestep < _STD_FLOOR_STEP:
+            try:
+                current_std = float(agent.policy.log_std.exp().mean().item())
+                if current_std < _STD_FLOOR and not _ent_boosted:
+                    agent.cfg["entropy_loss_scale"] = _ENT_BOOSTED
+                    _ent_boosted = True
+                    agent.track_data("Info / entropy_boost_active", 1.0)
+                elif current_std >= _STD_FLOOR and _ent_boosted:
+                    agent.cfg["entropy_loss_scale"] = _ENT_BASE
+                    _ent_boosted = False
+                    agent.track_data("Info / entropy_boost_active", 0.0)
+            except Exception:
+                pass
 
     agent.post_interaction = _post_interaction_with_extras
 

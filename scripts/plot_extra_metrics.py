@@ -12,15 +12,17 @@ from tensorboard.backend.event_processing import event_accumulator
 
 plt.rcParams.update({
     "figure.facecolor":     "white",
-    "axes.facecolor":       "white",
+    "axes.facecolor":       "#FAFAFA",
     "axes.edgecolor":       "#444444",
-    "axes.linewidth":       0.8,
+    "axes.linewidth":       0.9,
     "axes.grid":            True,
-    "grid.color":           "#DDDDDD",
+    "grid.color":           "#E0E0E0",
     "grid.linestyle":       "--",
-    "grid.linewidth":       0.6,
-    "grid.alpha":           1.0,
-    "font.family":          "DejaVu Sans",
+    "grid.linewidth":       0.5,
+    "grid.alpha":           0.8,
+    "font.family":          "serif",
+    "font.serif":           ["DejaVu Serif", "Times New Roman", "STIXGeneral"],
+    "mathtext.fontset":     "stix",
     "font.size":            10,
     "axes.titlesize":       11,
     "axes.titleweight":     "bold",
@@ -31,12 +33,15 @@ plt.rcParams.update({
     "xtick.color":          "#444444",
     "ytick.color":          "#444444",
     "legend.fontsize":      8.5,
-    "legend.framealpha":    0.85,
-    "legend.edgecolor":     "#BBBBBB",
+    "legend.framealpha":    0.92,
+    "legend.edgecolor":     "#CCCCCC",
     "lines.linewidth":      2.0,
-    "savefig.dpi":          200,
+    "savefig.dpi":          400,
     "savefig.bbox":         "tight",
+    "savefig.pad_inches":   0.05,
     "savefig.facecolor":    "white",
+    "pdf.fonttype":         42,
+    "ps.fonttype":          42,
 })
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,7 +72,15 @@ def shade_band(ax, steps, values_raw, color, alpha=0.12):
     ax.fill_between(s, mu - sig, mu + sig, color=color, alpha=alpha, linewidth=0)
 
 
+def _find_event_dir(path):
+    for root, _dirs, files in os.walk(path):
+        if any(f.startswith("events.out.tfevents") for f in files):
+            return root
+    return path
+
+
 def load_scalars(path):
+    path = _find_event_dir(path)
     ea = event_accumulator.EventAccumulator(
         path, size_guidance={event_accumulator.SCALARS: 0})
     ea.Reload()
@@ -232,7 +245,7 @@ def plot_reward_breakdown(data, out_path):
 
 def plot_training_overview(data, out_path):
     fig, axes = plt.subplots(2, 3, figsize=(18, 11))
-    fig.suptitle("Training Overview — PPO GRU Regolith Escape (200k steps)",
+    fig.suptitle("Training Overview — PPO-GRU Regolith Escape (300 k steps)",
                  fontweight="bold", fontsize=14, y=1.01)
 
 

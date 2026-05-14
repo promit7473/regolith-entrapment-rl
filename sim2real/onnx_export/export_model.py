@@ -58,7 +58,7 @@ def load_gru_policy(ckpt_path: str, device: torch.device,
     preprocessor = ckpt.get("state_preprocessor", None)
     if preprocessor is not None:
         raw_mean = preprocessor.get("running_mean", None)
-        raw_var  = preprocessor.get("running_var",  None)
+        raw_var  = preprocessor.get("running_variance", preprocessor.get("running_var", None))
         if raw_mean is not None and raw_var is not None:
             obs_mean = torch.as_tensor(raw_mean, dtype=torch.float32, device=device)[:num_obs]
             obs_std  = torch.sqrt(torch.as_tensor(raw_var, dtype=torch.float32, device=device)[:num_obs].clamp(min=1e-8))

@@ -44,7 +44,7 @@ cd "$(dirname "$0")/.."
 ONNX="sim2real/onnx_export/output/recovery_policy.onnx"
 
 echo "=== [1/6] ONNX export ==="
-run "./launch.sh sim2real/onnx_export/export_model.py --checkpoint '$CKPT' --output '$ONNX'"
+run "./launch.sh sim2real/onnx_export/export_model.py --policy_ckpt '$CKPT' --out_dir '$(dirname $ONNX)'"
 
 echo "=== [2/6] Full validation grid (5 seeds × ${NTRIALS} × 3 conds) ==="
 run "./launch.sh scripts/run_full_validation.py --checkpoint '$CKPT' --num_trials $NTRIALS --seeds '$SEEDS'"
@@ -52,15 +52,11 @@ run "./launch.sh scripts/run_full_validation.py --checkpoint '$CKPT' --num_trial
 echo "=== [3/6] OOD sinkage × friction sweep ==="
 run "./launch.sh scripts/run_ood_sweep.py --checkpoint '$CKPT'"
 
-echo "=== [4/6] Cross-engine: Chrono SCM (Bekker-Wong) ==="
-run "conda run -n chrono_viz python cross_engine/chrono_validation.py --onnx '$ONNX' --num_trials 50 --seeds 0 1 2 --terrain scm"
+echo "=== [4/6] Cross-engine: Chrono ChSystemNSC + Bekker-Wong terrain ==="
+# Uses conda env chrono_viz (pychrono 10.0.0 core+robot; Bekker-Wong via custom ChLoad)
+run "conda run -n chrono_viz python cross_engine/chrono_validation.py --onnx '$ONNX' --num_trials 50 --seeds 0 1 2"
 
-if [[ $SKIP_CRM -eq 0 ]]; then
-  echo "=== [5/6] Cross-engine: Chrono CRM/SPH (continuum granular) ==="
-  run "conda run -n chrono_viz python cross_engine/chrono_validation.py --onnx '$ONNX' --num_trials 50 --seeds 0 1 2 --terrain crm"
-else
-  echo "=== [5/6] CRM tier SKIPPED ==="
-fi
+echo "=== [5/6] (CRM/SPH tier requires pychrono built with FSI — skipped) ==="
 
 echo "=== [6/6] Aggregate figures ==="
 run "python3 scripts/make_rliable_figure.py"

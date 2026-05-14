@@ -53,30 +53,39 @@ Writes `experiments/full_validation/seed_*.json` and `aggregate_report.json`
 
 Produces `sim2real/onnx_export/output/recovery_policy.onnx`.
 
-## 6. Cross-engine validation (Project Chrono — two tiers)
+## 6. Cross-engine validation (Project Chrono — Bekker-Wong terrain)
 
-Tier A — SCM Bekker–Wong (different rigid solver AND different terrain class):
+**Setup (one-time):**
+```bash
+conda create -n chrono_viz python=3.12 -c conda-forge -y
+conda install -n chrono_viz -c conda-forge pychrono=10.0.0 numpy onnxruntime -y
+```
+
+The conda-forge `pychrono 10.0.0` ships `core + robot` modules.
+The validation uses a custom Bekker-Wong `ChLoad` applied per wheel —
+no `pychrono.vehicle` (SCMTerrain) or `pychrono.fsi` (CRMTerrain) required.
+
+**Run:**
 ```bash
 conda run -n chrono_viz python cross_engine/chrono_validation.py \
     --onnx sim2real/onnx_export/output/recovery_policy.onnx \
-    --num_trials 50 --seeds 0 1 2 --terrain scm
+    --num_trials 50 --seeds 0 1 2 \
+    --output cross_engine/results/
 ```
 
-Tier B — Chrono CRM/SPH (same rigid solver as Tier A, but continuum granular
-SPH instead of SCM — isolates the terrain-physics gap from the rigid-solver gap;
-requires pychrono built with `-DENABLE_MODULE_FSI=ON`):
-```bash
-conda run -n chrono_viz python cross_engine/chrono_validation.py \
-    --onnx sim2real/onnx_export/output/recovery_policy.onnx \
-    --num_trials 50 --seeds 0 1 2 --terrain crm
-```
+Output: `cross_engine/results/chrono_bekker_{results.csv,summary.json}`
+
+**What makes this genuinely cross-engine:**
+- Rigid-body solver: Chrono `ChSystemNSC` (NSC complementarity + Bullet broadphase)
+  vs. training Newton (MPM implicit + MuJoCo contact).
+- Terrain physics: Bekker-Wong semi-empirical (`p(z) = (Kφ/b + Kc)·z^n`,
+  Janosi-Hanamoto shear) vs. MPM continuum elasto-plasticity — different
+  mathematical class, not a parameter perturbation.
+- Rover: Curiosity (899 kg, r=0.25 m) vs. AAU rover (~35 kg, r=0.10 m).
 
 ### Optional: one-shot orchestrator
-For unattended overnight runs only — step-by-step is still recommended for the
-paper run since intermediate JSONs should be inspected:
 ```bash
 bash scripts/run_all_validation.sh --checkpoint "$CKPT" --seeds "0 1 2 3 4" --num_trials 100
-# add --skip-crm if pychrono.fsi is not available
 ```
 
 ## 7. Paper figures

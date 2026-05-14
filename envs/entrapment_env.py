@@ -138,7 +138,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     rew_escape_bonus     = 20.0  # raised: escaping must be the highest-value action
     pen_slip             = 0.5   # halved: slip is unavoidable in sand, not a primary signal
     pen_tilt             = 0.3
-    pen_action_delta     = 0.12  # raised 0.05 → 0.12: smooths action profile without stacking too aggressively against escape reward when combined with new pen_hop
+    pen_action_delta     = 0.01  # reduced 0.12→0.01: rocking requires large rapid action changes (forward↔backward); 0.12 dominated the reward (-0.016/step vs rew_rocking +0.001/step), teaching the policy that zero actions beat rocking. 0.01 keeps smoothness signal without suppressing recovery behaviour.
     pen_abnormal         = 0.3   # reduced: anomaly flag is still imperfect
     rew_rocking          = 0.5   # additive bootstrap bonus during entrapment; primary escape signal is now r_progress + Δdist shaping in r_escape (un-gated 2026-04-24)
     # Vertical-hop penalty: -|v_z| × dt. Directly punishes chassis vertical motion
@@ -156,7 +156,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # (mean_slip > slip_grind_thresh). Targets the specific failure mode — wheels
     # spinning uselessly at high slip — and rewards "ease off the throttle when
     # stuck" instead of "use less action everywhere".
-    pen_grind            = 0.30
+    pen_grind            = 0.05   # reduced 0.30→0.05: 0.30 causes policy collapse in real 0.60m sand — cumulative grind penalty (-12/episode) dominates escape bonus (20), teaching the policy that zero drive command is optimal. 0.05 keeps the signal without making inaction the best strategy.
     slip_grind_thresh    = 0.70   # mean |slip| above which grinding penalty fires
     pen_reverse          = 1.0    # weight on world-frame negative-progress penalty (was hardcoded inline)
 
@@ -1600,7 +1600,7 @@ class EntrapmentEnv(DirectRLEnv):
             sinkage_min = sinkage_max = float(self.cfg.sinkage_override)
         else:
             sinkage_min = self.cfg.dr_sinkage_range[0] + (self.cfg.dr_sinkage_range[1] - self.cfg.dr_sinkage_range[0]) * progress
-            sinkage_max = self.cfg.dr_sinkage_range[1]
+            sinkage_max = self.cfg.dr_sinkage_range[0] + (self.cfg.dr_sinkage_range[1] - self.cfg.dr_sinkage_range[0]) * min(1.0, progress + 0.2)
         sinkage_depth = sample_uniform(
             sinkage_min, sinkage_max,
             (len(env_ids),), self.device,

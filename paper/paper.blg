@@ -1,0 +1,48 @@
+This is BibTeX, Version 0.99d (TeX Live 2024)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: paper.aux
+The style file: unsrt.bst
+Database file #1: references.bib
+Warning--can't use both volume and number fields in mittal2023orbit
+You've used 43 entries,
+            1791 wiz_defined-function locations,
+            673 strings with 10515 characters,
+and the built_in function-call counts, 10672 in all, are:
+= -- 902
+> -- 542
+< -- 14
++ -- 197
+- -- 154
+* -- 677
+:= -- 1633
+add.period$ -- 127
+call.type$ -- 43
+change.case$ -- 41
+chr.to.int$ -- 0
+cite$ -- 44
+duplicate$ -- 479
+empty$ -- 1053
+format.name$ -- 154
+if$ -- 2417
+int.to.chr$ -- 0
+int.to.str$ -- 43
+missing$ -- 37
+newline$ -- 215
+num.names$ -- 43
+pop$ -- 171
+preamble$ -- 1
+purify$ -- 0
+quote$ -- 0
+skip$ -- 273
+stack$ -- 0
+substring$ -- 648
+swap$ -- 149
+text.length$ -- 14
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 0
+warning$ -- 1
+while$ -- 97
+width$ -- 45
+write$ -- 458
+(There was 1 warning)

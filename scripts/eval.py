@@ -155,7 +155,7 @@ def main():
     _EP_KEYS   = ["t", "wheel_vel", "drive_torque", "slip",
                   "entrap_flag", "torque_anomaly", "imu_acc",
                   "pos_xy", "reward", "action"]
-    _VEL_LIM, _TRQ_LIM = 6.0, 3.0
+    _VEL_LIM, _TRQ_LIM = 6.0, 40.0
     _DT = float(env_cfg.sim.dt) * float(env_cfg.decimation)
     saved_episodes, _cur_ep = [], {k: [] for k in _EP_KEYS}
     _ep_step = 0

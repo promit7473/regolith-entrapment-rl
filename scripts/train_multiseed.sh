@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
 # Multi-seed training driver. Runs scripts/train.py for each seed serially
-# (Newton MPM saturates a single GPU at num_envs=64, so parallelism between
-# seeds is not feasible on a 5070Ti — run them back-to-back instead).
+# (Newton MPM saturates a single GPU, so parallelism between seeds is not
+# feasible — run them back-to-back instead).
 #
 # Each seed gets its own experiment subdirectory under
 # experiments/regolith_recovery/seed_{N}/ so the rliable bootstrap pipeline
 # can stratify across seeds without colliding W&B run names.
 #
 # Usage:
-#   bash scripts/train_multiseed.sh                 # 5 seeds × 200k steps
-#   bash scripts/train_multiseed.sh --timesteps 4000000 --num_envs 256
+#   bash scripts/train_multiseed.sh                 # 5 seeds × 1M steps
+#   bash scripts/train_multiseed.sh --timesteps 500000 --num_envs 16
 #   bash scripts/train_multiseed.sh --seeds "0 1 2"
 #
-# Estimated wall-clock on RTX 5070Ti at num_envs=64, timesteps=200000:
-#   ~4.5 h per seed × 5 seeds = ~23 h.
-# On RTX 4090 at num_envs=256, timesteps=4_000_000: ~8 h per seed.
+# Estimated wall-clock on RTX 4090 at num_envs=16, timesteps=1_000_000:
+#   ~15-20 h per seed × 5 seeds = ~75-100 h total.
 
 set -euo pipefail
 
@@ -23,7 +22,7 @@ cd "$REPO_DIR"
 
 SEEDS="0 1 2 3 4"
 TIMESTEPS=200000
-NUM_ENVS=64
+NUM_ENVS=16
 
 while [[ $# -gt 0 ]]; do
   case $1 in

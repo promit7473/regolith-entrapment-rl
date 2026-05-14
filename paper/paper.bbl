@@ -1,0 +1,249 @@
+\begin{thebibliography}{10}
+
+\bibitem{arvidson2011spirit}
+R.~E. Arvidson et~al.
+\newblock Opportunity and spirit mars exploration rover science investigations
+  of the martian surface.
+\newblock {\em Space Science Reviews}, 156:357--392, 2011.
+
+\bibitem{bi2026escape}
+Y.~Bi and N.~Ding.
+\newblock Escape and path point tracking of skid-steered mobile robot based on
+  deep reinforcement learning.
+\newblock {\em arXiv preprint}, 2026.
+
+\bibitem{jain2019}
+A.~Jain, M.~Bhatt, and S.~Shah.
+\newblock Autonomy for mars rovers: Past, present, and future.
+\newblock In {\em Computer}, volume~52, pages 14--22, 2019.
+
+\bibitem{inotsume2020}
+H.~Inotsume, T.~Kubota, and D.~Wettergreen.
+\newblock Robust prediction and avoidance of wheel slip for planetary rovers in
+  deformable terrain.
+\newblock {\em Journal of Field Robotics}, 37:1346--1364, 2020.
+
+\bibitem{ding2011}
+L.~Ding, H.~Gao, Z.~Deng, K.~Nagatani, and K.~Yoshida.
+\newblock Experimental study and analysis on driving wheels' performance for
+  planetary exploration rovers moving in deformable soil.
+\newblock {\em Journal of Terramechanics}, 48(1):27--45, 2011.
+
+\bibitem{bekker1960}
+M.~G. Bekker.
+\newblock {\em Off-the-Road Locomotion: Research and Development in
+  Terramechanics}.
+\newblock University of Michigan Press, Ann Arbor, MI, 1960.
+
+\bibitem{shibly2005}
+H.~Shibly, K.~Iagnemma, and S.~Dubowsky.
+\newblock An equivalent soil mechanics formulation for rigid wheels in
+  deformable terrain.
+\newblock {\em Journal of Terramechanics}, 42(1):1--13, 2005.
+
+\bibitem{iagnemma2004}
+K.~Iagnemma and S.~Dubowsky.
+\newblock {\em Mobile Robots in Rough Terrain: Estimation, Motion Planning, and
+  Control with Application to Planetary Rovers}.
+\newblock Springer Tracts in Advanced Robotics. Springer, Berlin, 2004.
+
+\bibitem{nagatani2011}
+K.~Nagatani et~al.
+\newblock Improvement of the traversability of wheeled mobile robots by
+  adaptation of internal force of the rocker-bogie mechanism.
+\newblock In {\em IEEE/RSJ IROS}, pages 3333--3338, 2011.
+
+\bibitem{mnih2015dqn}
+V.~Mnih et~al.
+\newblock Human-level control through deep reinforcement learning.
+\newblock {\em Nature}, 518(7540):529--533, 2015.
+
+\bibitem{lillicrap2016ddpg}
+T.~P. Lillicrap et~al.
+\newblock Continuous control with deep reinforcement learning.
+\newblock In {\em ICLR}, 2016.
+
+\bibitem{fankhauser2018}
+P.~Fankhauser, M.~Hutter, and R.~Siegwart.
+\newblock Robust robot autonomy through recovery behaviors for the {ANYmal}
+  quadrupedal robot.
+\newblock In {\em IEEE/RSJ International Conference on Intelligent Robots and
+  Systems (IROS)}, pages 6238--6245, 2018.
+
+\bibitem{hwangbo2019anymal}
+J.~Hwangbo, J.~Lee, A.~Dosovitskiy, D.~Bellicoso, V.~Tsounis, V.~Koltun, and
+  M.~Hutter.
+\newblock Learning agile and dynamic motor skills for legged robots.
+\newblock {\em Science Robotics}, 4(26):eaau5872, 2019.
+
+\bibitem{lee2020quadruped}
+J.~Lee, J.~Hwangbo, L.~Wellhausen, V.~Koltun, and M.~Hutter.
+\newblock Learning quadrupedal locomotion over challenging terrain.
+\newblock {\em Science Robotics}, 5(47):eabc5986, 2020.
+
+\bibitem{margolis2022rapid}
+G.~B. Margolis, G.~Yang, K.~Paigwar, T.~Chen, and P.~Agrawal.
+\newblock Rapid locomotion via reinforcement learning.
+\newblock In {\em Robotics: Science and Systems (RSS)}, 2022.
+
+\bibitem{kumar2021rma}
+A.~Kumar, Z.~Fu, D.~Pathak, and J.~Malik.
+\newblock {RMA}: Rapid motor adaptation for legged robots.
+\newblock In {\em Proceedings of Robotics: Science and Systems (RSS)}, 2021.
+
+\bibitem{pfeiffer2017drl}
+M.~Pfeiffer, M.~Schaeuble, J.~Nieto, R.~Siegwart, and C.~Cadena.
+\newblock From perception to decision: A data-driven approach to end-to-end
+  motion planning for autonomous ground robots.
+\newblock In {\em IEEE ICRA}, pages 1527--1533, 2017.
+
+\bibitem{kahn2021badgr}
+G.~Kahn, P.~Abbeel, and S.~Levine.
+\newblock {BADGR}: An autonomous self-supervised learning-based navigation
+  system.
+\newblock {\em IEEE Robotics and Automation Letters}, 6(2):501--508, 2021.
+
+\bibitem{aghamohammadi2021nebula}
+A.-A. Agha-mohammadi et~al.
+\newblock {NeBula}: Quest for robotic autonomy in challenging environments:
+  Team costar at the {DARPA} subterranean challenge.
+\newblock {\em Journal of Field Robotics}, 39(4):461--516, 2022.
+
+\bibitem{sulsky1994particle}
+D.~Sulsky, Z.~Chen, and H.~L. Schreyer.
+\newblock A particle method for history-dependent materials.
+\newblock {\em Computer Methods in Applied Mechanics and Engineering},
+  118(1--2):179--196, 1994.
+
+\bibitem{klar2016sand}
+A.~Klar, T.~F. Gast, A.~Pradhana, C.~Fu, C.~Schroeder, C.~Jiang, and J.~Teran.
+\newblock Drucker-prager elastoplasticity for sand animation.
+\newblock In {\em ACM Transactions on Graphics (TOG)}, volume~35, page 103,
+  2016.
+
+\bibitem{stomakhin2013snow}
+A.~Stomakhin, C.~Schroeder, L.~Chai, J.~Teran, and A.~Selle.
+\newblock A material point method for snow simulation.
+\newblock {\em ACM Transactions on Graphics (SIGGRAPH)}, 32(4):102:1--102:10,
+  2013.
+
+\bibitem{macklin2014pbd}
+M.~Macklin and M.~M{\"u}ller.
+\newblock Position based fluids.
+\newblock {\em ACM Transactions on Graphics (SIGGRAPH)}, 32(4):104:1--104:12,
+  2013.
+
+\bibitem{rlroverlab}
+R.~Magnusson et~al.
+\newblock {RLRoverLab}: A reinforcement learning framework for rover
+  navigation.
+\newblock \url{https://github.com/abmoRobotics/RLRoverLab}, 2023.
+
+\bibitem{mittal2023orbit}
+M.~Mittal, C.~Yu, Q.~Yu, J.~Liu, N.~Rudin, D.~Wiedemann, Z.~Liu, A.~Zonfrilli,
+  O.~Khatib, and M.~Hutter.
+\newblock {ORBIT}: A unified simulation framework for interactive robot
+  learning environments.
+\newblock In {\em IEEE Robotics and Automation Letters}, volume~8, pages
+  3740--3747, 2023.
+
+\bibitem{voellmy2020exomy}
+M.~Voellmy and M.~Ehrhardt.
+\newblock {ExoMy}: A low cost 3d printed rover, 2020.
+\newblock \url{https://github.com/esa-prl/ExoMy}.
+
+\bibitem{schulman2015gae}
+J.~Schulman, P.~Moritz, S.~Levine, M.~Jordan, and P.~Abbeel.
+\newblock High-dimensional continuous control using generalized advantage
+  estimation.
+\newblock {\em arXiv preprint arXiv:1506.02438}, 2015.
+
+\bibitem{schulman2017ppo}
+J.~Schulman, F.~Wolski, P.~Dhariwal, A.~Radford, and O.~Klimov.
+\newblock Proximal policy optimization algorithms.
+\newblock {\em arXiv preprint arXiv:1707.06347}, 2017.
+
+\bibitem{cho2014gru}
+K.~Cho, B.~van Merrienboer, C.~Gulcehre, D.~Bahdanau, F.~Bougares, H.~Schwenk,
+  and Y.~Bengio.
+\newblock Learning phrase representations using {RNN} encoder-decoder for
+  statistical machine translation.
+\newblock {\em arXiv preprint arXiv:1406.1078}, 2014.
+
+\bibitem{newton}
+{NVIDIA}.
+\newblock Newton physics engine.
+\newblock \url{https://github.com/NVIDIA-Newton/newton}, 2024.
+
+\bibitem{isaaclab}
+M.~Mittal, C.~Yu, Q.~Yu, J.~Liu, N.~Rudin, D.~Wiedemann, Z.~Liu, A.~Zonfrilli,
+  O.~Khatib, and M.~Hutter.
+\newblock {Isaac Lab}: Toward a unified framework for robot learning.
+\newblock In {\em IEEE Robotics and Automation Letters}, 2023.
+
+\bibitem{todorov2012mujoco}
+E.~Todorov, T.~Erez, and Y.~Tassa.
+\newblock {MuJoCo}: A physics engine for model-based control.
+\newblock In {\em IEEE/RSJ International Conference on Intelligent Robots and
+  Systems (IROS)}, pages 5026--5033, 2012.
+
+\bibitem{skrl}
+A.~Serrano-Mu{\~n}oz, N.~Arana-Arexolaleiba, D.~Chrysostomou, and S.~B{\o}gh.
+\newblock skrl: Modular and flexible library for reinforcement learning.
+\newblock arXiv preprint arXiv:2202.03825, 2023.
+
+\bibitem{senatore_iagnemma2014}
+Carmine Senatore and Karl Iagnemma.
+\newblock Analysis of stress distributions under lightweight wheeled vehicles.
+\newblock {\em Journal of Terramechanics}, 51:1--17, 2014.
+
+\bibitem{arvidson2010}
+Raymond~E. Arvidson et~al.
+\newblock Spirit mars rover mission to the columbia hills, gusev crater:
+  Mission overview and selected results from the cumberland ridge to home
+  plate.
+\newblock {\em Journal of Geophysical Research}, 115(E7), 2010.
+
+\bibitem{ono2018msl_mobility}
+Masahiro Ono et~al.
+\newblock Data-driven surface traversability analysis for mars 2020 landing
+  site selection.
+\newblock {\em 2018 IEEE Aerospace Conference}, pages 1--12, 2018.
+
+\bibitem{maxon_re_datasheet}
+{Maxon Motor AG}.
+\newblock Re-series brushed dc motor product datasheet, 2023.
+\newblock Torque-constant tolerance band cited from manufacturer specification.
+
+\bibitem{as5048a_datasheet}
+{ams AG}.
+\newblock As5048a 14-bit magnetic rotary encoder, datasheet v3.04, 2018.
+
+\bibitem{bmi270_datasheet}
+{Bosch Sensortec}.
+\newblock Bmi270 inertial measurement unit, datasheet v1.5, 2021.
+
+\bibitem{ublox_neom9n_datasheet}
+{u-blox AG}.
+\newblock Neo-m9n standard precision gnss module, datasheet ubx-19014285, 2021.
+
+\bibitem{andrychowicz2020learning}
+M.~Andrychowicz et~al.
+\newblock Learning dexterous in-hand manipulation.
+\newblock {\em The International Journal of Robotics Research}, 39(1):3--20,
+  2020.
+
+\bibitem{tasora2016chrono}
+Alessandro Tasora, Radu Serban, Hammad Mazhar, Arman Pazouki, Daniel Melanz,
+  Jonathan Fleischmann, Michael Taylor, Hiroyuki Sugiyama, and Dan Negrut.
+\newblock {Chrono: An open source multi-physics dynamics engine}.
+\newblock In {\em Lecture Notes in Computer Science (Springer)}, volume 9611,
+  pages 19--49, 2016.
+
+\bibitem{tobin2017domainrand}
+J.~Tobin, R.~Fong, A.~Ray, J.~Schneider, W.~Zaremba, and P.~Abbeel.
+\newblock Domain randomization for transferring deep neural networks from
+  simulation to the real world.
+\newblock In {\em IEEE/RSJ IROS}, pages 23--30, 2017.
+
+\end{thebibliography}

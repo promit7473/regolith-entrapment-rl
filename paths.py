@@ -5,7 +5,7 @@ HOME = Path.home()
 
 ISAAC_SIM = Path(os.environ.get(
     "ISAAC_SIM_PATH",
-    HOME / "isaac-sim"
+    HOME / "Downloads" / "isaac-sim-standalone-5.0.0-linux-x86_64"
 ))
 
 ISAACLAB_SRC = Path(os.environ.get(
@@ -20,7 +20,7 @@ NEWTON_DIR = Path(os.environ.get(
 
 CONDA_ENV = Path(os.environ.get(
     "CONDA_ENV_PATH",
-    HOME / "miniconda3" / "envs" / "env_isaaclab"
+    Path("/media/rmedu/18C6E68BC6E66888/conda-envs/env_isaaclab")
 ))
 
 RLROVER_ASSETS = Path(os.environ.get(

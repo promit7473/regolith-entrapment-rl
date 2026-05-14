@@ -5,10 +5,10 @@
 #
 # Note: Variable names match paths.py (e.g., ISAAC_SIM_PATH not ISAAC_SIM)
 
-: "${ISAAC_SIM_PATH:=$HOME/isaac-sim}"
+: "${ISAAC_SIM_PATH:=$HOME/Downloads/isaac-sim-standalone-5.0.0-linux-x86_64}"
 : "${ISAACLAB_SRC_PATH:=$HOME/IsaacLab/source}"
 : "${NEWTON_PATH:=$HOME/newton}"
-: "${CONDA_ENV_PATH:=$HOME/miniconda3/envs/env_isaaclab}"
+: "${CONDA_ENV_PATH:=/media/rmedu/18C6E68BC6E66888/conda-envs/env_isaaclab}"
 : "${RLROVER_ASSETS:=$HOME/RLRoverLab/rover_envs/assets}"
 
 # For bash scripts, also export shorter aliases (used by launch.sh)

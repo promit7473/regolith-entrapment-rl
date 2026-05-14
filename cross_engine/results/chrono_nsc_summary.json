@@ -1,0 +1,38 @@
+{
+  "engine": "Project Chrono",
+  "rigid_body_solver": "ChSystemNSC (NSC complementarity, Bullet broadphase)",
+  "terrain": "Rigid flat surface, friction \u03bc randomised per trial",
+  "friction_range": [
+    0.1,
+    0.35
+  ],
+  "terrain_rationale": "Bekker-Wong at 15-28 cm sinkage produces forces 10-20x Curiosity weight (899 kg); rigid low-\u03bc terrain creates the same observable entrapment signal (high wheel slip, near-zero progress) without initialization artifacts.",
+  "rover": "Curiosity FullRover (NASA MSL, pychrono.robot)",
+  "n_trials": 150,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "trials_per_seed": 50,
+  "recovery_rate": 0.47333333333333333,
+  "recovery_rate_ci_95": [
+    0.3933333333333333,
+    0.5533333333333333
+  ],
+  "time_to_escape_mean_steps": 128.59154929577466,
+  "time_to_escape_std_steps": 61.86709459296056,
+  "failure_modes": {
+    "ESCAPED": 71,
+    "lateral_OOB": 17,
+    "no_progress": 57,
+    "timeout_no_progress": 5
+  },
+  "onnx_policy": "/media/rmedu/18C6E68BC6E66888/regolith-entrapment-rl/sim2real/onnx_export/output/recovery_policy.onnx",
+  "fidelity_gap_notes": [
+    "Rigid body solver: Chrono NSC (complementarity) vs training Newton (MPM implicit) \u2014 different contact resolution method.",
+    "Terrain: rigid surface with variable friction vs training MPM continuum elasto-plasticity \u2014 different physics class, not a parameter perturbation.",
+    "Rover mass: Curiosity 899 kg vs AAU ~35 kg; wheel radius 0.25 m vs 0.10 m. Genuine morphological domain gap.",
+    "Per-wheel drive commands issued individually via per-wheel SpeedDriver motor function SetSetpoint; steer via per-wheel SteerMotorFunc."
+  ]
+}
