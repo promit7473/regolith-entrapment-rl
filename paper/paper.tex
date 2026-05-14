@@ -101,15 +101,19 @@ Wheel entrapment in granular regolith is one of the most critical failure modes
 for planetary rovers, as demonstrated by the permanent loss of NASA's Spirit rover
 in 2009. We present an autonomous entrapment recovery system for a 6-wheel
 rocker-bogie Mars rover trained entirely in simulation using deep reinforcement
-learning (DRL). Our primary contribution is the first coupling of Newton Material
+learning (DRL). Our primary contribution is, to our knowledge, the first
+publicly released coupling of Newton Material
 Point Method (MPM) granular physics with MuJoCo rigid-body dynamics inside Isaac
 Lab's DirectRLEnv for RL-based entrapment recovery, producing physically accurate
 wheel--soil interaction under Martian gravity ($3.72\,\text{m/s}^2$). A recurrent
 policy (PPO+GRU, hidden size 256) with an asymmetric actor--critic --- actor
 observes a 29-dimensional proprioceptive vector, critic additionally reads 8
 privileged simulator features --- is trained for 300\,000 policy steps across 16
-parallel environments on a single workstation with an NVIDIA RTX 5070\,Ti. After
-training, the policy attains an \textbf{86.9\,\% episode success rate}, with
+parallel environments on a single workstation with an NVIDIA RTX 4090. After
+training, the policy attains an \textbf{86.9\,\% episode success rate}
+(single seed; 3 additional seeds in progress) on a $3.0$\,m projected-escape
+threshold, of which $2.75$\,m is in-bed granular traversal and $0.25$\,m is
+post-bed slack, with
 episodic return rising monotonically from $-20.7$ to $+35.1$ (isotonic-regression
 envelope) while policy entropy remains above $0.5$\,nats throughout, confirming no
 premature convergence. Emergent behaviours include coordinated rocking and
@@ -125,9 +129,9 @@ Curiosity rover (899\,kg, 0.25\,m wheel radius) over a rigid flat surface with
 randomised low friction ($\mu\in[0.10,0.35]$), achieving a \textbf{47.3\%}
 recovery rate (95\% CI [39.3\%, 55.3\%]) across 150 zero-shot trials---without
 any fine-tuning or parameter adaptation. To our knowledge, this is the first
-DRL-based entrapment
-recovery system to employ full granular MPM coupling for a rocker-bogie platform
-under Mars gravity. Project repository:
+open-source PPO-GRU baseline that pairs full granular MPM with a rocker-bogie
+platform under Mars gravity for entrapment recovery; we release code, weights,
+and randomisation seeds to support reproduction. Project repository:
 \href{https://github.com/promit7473/regolith-entrapment-rl.git}{\textcolor{nvgreen}{\nolinkurl{https://github.com/promit7473/regolith-entrapment-rl.git}}}.
 \end{abstract}
 
@@ -535,7 +539,7 @@ over 2--5 seconds of wheel spinning in soft regolith.
 
 We model recovery as a discrete-time partially observable Markov decision
 process (POMDP), defined by the 7-tuple
-$\langle \mathcal{S}, \mathcal{A}, \mathcal{O}, T, O, R, \gamma \rangle$:
+$\langle \mathcal{S}, \mathcal{A}, \mathcal{O}, T, Z, R, \gamma \rangle$:
 \begin{itemize}\setlength{\itemsep}{1pt}
   \item $\mathcal{S}$: full simulator state, comprising rigid-body pose and
         twist of every link, joint positions and velocities, and the complete
@@ -554,7 +558,7 @@ $\langle \mathcal{S}, \mathcal{A}, \mathcal{O}, T, O, R, \gamma \rangle$:
         per-environment sand friction $\mu \sim \mathcal{U}(0.6, 0.9)$
         realised as a per-particle \texttt{wp.array}, motor gain
         multiplier, and additive observation noise).
-  \item $O(\mathbf{o}_t\!\mid\!\mathbf{s}_t)$: deterministic observation
+  \item $Z(\mathbf{o}_t\!\mid\!\mathbf{s}_t)$: deterministic observation
         function that selects and rescales 29 features from $\mathbf{s}_t$
         (additive Gaussian noise applied during training only).
   \item $R(\mathbf{s}_t,\mathbf{a}_t)$: 9-term shaped reward
@@ -1085,10 +1089,11 @@ episodes covers every GPS bearing.
       & $\|\boldsymbol{\omega}_{xy}\|_2\,\Delta t$ --- stabilises body attitude
         \\[2pt]
     $p_{\text{smooth}}$
-      & $-0.12$
+      & $-0.01$
       & $\|\mathbf{a}_t {-} \mathbf{a}_{t-1}\|_2\,\Delta t$ --- suppresses
-        high-frequency jitter (raised from $0.05$ once
-        $p_{\text{grind}}$ stopped relying on it as a saturation proxy) \\[2pt]
+        high-frequency jitter; reduced from $0.12$ because rocking requires
+        large rapid action reversals and $0.12$ taught the policy that zero
+        actions beat rocking \\[2pt]
     $p_{\text{abn}}$
       & $-0.3$
       & $(-v_x)^+\! f_\text{anom}(1{-}f_\text{ent})\,\Delta t$ --- penalises
@@ -1106,14 +1111,14 @@ episodes covers every GPS bearing.
         $k_e{=}10^{15}$ rigid-floor signal that previously drove a
         ``hop-and-grab'' degenerate strategy \\[2pt]
     $p_{\text{grind}}$
-      & $-0.30$
+      & $-0.05$
       & $\mathbf{1}[\bar{\sigma}{>}0.70]\,\|\mathbf{a}_t^{\text{drive}}\|_2\,\Delta t$
         --- slip-conditional command-magnitude penalty. Fires \emph{only}
-        when wheels are actually slipping, providing the missing pressure
-        against velocity-error pinning. Replaces an earlier
-        $p_{\text{action-mag}}$ term that taxed all commands unconditionally
-        and so could not break the saturation regime (the cap is
-        $v_\text{err}$-set, not command-set) \\
+        when wheels are actually slipping. Reduced from $0.30$ once we
+        observed that cumulative grind cost on a deep ($0.60$\,m) bed
+        ($\sim{-}12$ per episode) dominated the escape bonus ($+20$) and
+        collapsed the policy to a zero-drive optimum; $0.05$ keeps the
+        pressure-off-the-saturator signal without making inaction optimal \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -1496,11 +1501,11 @@ procedure with GAE advantage estimation~\cite{schulman2015gae}.
 
 \subsection{Training Setup}
 
-Training runs on a single workstation (NVIDIA RTX 5070\,Ti 16\,GB, Intel i7) for
+Training runs on a single workstation (NVIDIA RTX 4090 24\,GB, Intel i7) for
 300\,000 policy timesteps across 16 parallel environments
 (${\sim}235\,000$ MPM particles each). Policy frequency is 25\,Hz; physics runs
 at 50\,Hz (decimation~2, 4 MuJoCo substeps). Wall-clock time is approximately
-$26$\,hours on the deepened ($0.60$\,m) MPM bed; an earlier $0.30$\,m
+$39$\,hours on the deepened ($0.60$\,m) MPM bed; an earlier $0.30$\,m
 configuration completed in $5.5$\,hours but produced rigid-floor-bounce
 artefacts (Sec.~\ref{sec:reward}). The CPU--MPM substep dominates the step
 budget: MuJoCo advances rigid bodies on the CPU because the Warp-based GPU
@@ -1509,7 +1514,7 @@ solver in the current conda build.
 
 \begin{table}[!htbp]
   \centering
-  \caption{Compute and throughput, RTX 5070\,Ti single-workstation run.
+  \caption{Compute and throughput, RTX 4090 single-workstation run.
     Decimation~2 means each policy step drives two physics substeps; the
     two-way MPM--rigid-body coupling kernels run between every physics step.
     The MPM cost dominates: ${\sim}65\%$ of wall-clock is implicit-MPM solve.}
@@ -2246,21 +2251,32 @@ work; we validate this in a sim-to-sim A$\to$B navigation experiment
 
 \subsection{Limitations}
 
-Three limitations bound the current results.
+Four limitations bound the current results.
 
-\textbf{(i)~Milestone 3.0\,m is sand-bed limited.}
-The $3.5\times3.5\times 0.60$\,m MPM bed places the chassis ${\approx}1.5$\,m of
-projected-forward travel from the far edge along the spawned heading; beyond
-this the rear wheels clear the sand and MPM contact vanishes, so progress is
-no longer informative of granular escape capability. The 3.0\,m milestone is
-therefore deliberately retained as a ``clear of bed plus drift'' threshold
-rather than a sustained-traversal metric: the policy must escape \emph{and}
-maintain forward progress on the post-bed rigid surface. A future revision
-that scales the bed proportionally with the milestone schedule (e.g.\ $5{\times}5$\,m
-to give a $2.5$\,m sand-coupled milestone) would convert the 3.0\,m bonus into
-a fully sand-resolved measurement; this is computationally tractable since
-the implicit-MPM particle cost is $O(V)$ per environment and the per-env
-particle count would only grow by ${\approx}2.0{\times}$.
+\textbf{(0)~Single-seed training reported.}
+The 86.9\,\% episode success rate and all training-curve figures are computed
+from a single seed (\texttt{seed\_1}). Seeds 3, 4, and 5 are currently
+training on the same workstation and will be reported in the camera-ready
+revision with mean$\pm$std bands across all four seeds. We therefore present
+the present numbers as a \emph{single-run baseline} rather than a
+seed-averaged result.
+
+
+\textbf{(i)~Milestone 3.0\,m: granular vs.\ post-bed budget.}
+The escape threshold is decomposed as follows. The MPM bed is centred at the
+origin with half-width $1.75$\,m; the rover spawns $0.5$\,m behind the origin
+along the escape heading and has chassis half-length ${\approx}0.5$\,m. The
+rear wheels therefore leave granular contact when the projected distance from
+spawn reaches $1.75 + 0.5 + 0.5 = 2.75$\,m. Of the $3.0$\,m escape threshold,
+$2.75$\,m ($91.7\%$) is in-bed granular traversal and the remaining
+$0.25$\,m ($8.3\%$) is post-bed rigid-surface drift required to confirm that
+the policy has not stalled at the bed edge. Empirically, escaped episodes
+exit at a median \texttt{final\_dist} of $3.02$\,m (interquartile range
+$[3.01, 3.03]$\,m, $n{=}22{,}276$), confirming that the post-bed budget is
+used as a slack margin rather than a primary contribution. A future revision
+that scales the bed proportionally (e.g.\ $5{\times}5$\,m to give a fully
+sand-resolved $2.5$\,m milestone) would eliminate the slack at
+${\approx}2.0{\times}$ per-environment particle cost.
 
 \textbf{(ii)~Trivial-escape metric miscalibrated near convergence.}
 The trivial-escape fraction pins to~1 once the policy is fast enough to clear

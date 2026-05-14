@@ -1430,7 +1430,7 @@ class EntrapmentEnv(DirectRLEnv):
         self.extras["log"]["pen_tilt"]     = (-p_tilt).mean()
         self.extras["log"]["pen_smooth"]   = (-p_smooth).mean()
         self.extras["log"]["pen_abnormal"] = (-p_abnormal).mean()
-        self.extras["log"]["pen_reverse"]  = p_reverse.mean()
+        self.extras["log"]["pen_reverse"]  = (-p_reverse).mean()
         self.extras["log"]["pen_hop"]      = (-p_hop).mean()
         self.extras["log"]["pen_grind"]    = (-p_grind).mean()
         self.extras["log"]["grind_rate"]   = high_slip.mean()
