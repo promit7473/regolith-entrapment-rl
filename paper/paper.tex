@@ -2054,17 +2054,22 @@ the depth at which the 300\,k-step policy degrades.
 \begin{figure}[!htbp]
   \centering
   \includegraphics[width=\linewidth]{chrono_engine_comparison.png}
-  \caption{Zero-shot cross-engine transfer to Project Chrono ($n{=}1$ trial per
-    terrain model). The ONNX policy trained exclusively on Newton
-    MPM\,+\,MuJoCo is evaluated on two independent Chrono terrain models without
-    any fine-tuning. \textbf{CRM} (SPH continuum granular, Drucker-Prager
-    plasticity): rover escapes in 204 steps, reaching a final displacement of
-    3.0\,m, exactly at the escape boundary. \textbf{SCM}
-    (Bekker-Wong terramechanics): rover stalls at 0.28\,m after 184 steps,
-    indicating that the policy's torque-saturation heuristic does not generalise
-    to the fundamentally different force-displacement model of classical
-    terramechanics. The result suggests robust transfer to SPH-class solvers while
-    motivating future adaptation for Bekker-Wong terrains.}
+  \caption{Zero-shot cross-engine transfer of the ONNX-exported PPO-GRU actor
+    from the Newton MPM\,+\,MuJoCo training domain to three independent Project
+    Chrono terrain models, evaluated without any fine-tuning, parameter
+    adaptation, or replay buffer. \textbf{CRM} (SPH continuum granular,
+    Drucker-Prager plasticity, $n{=}1$): escape in 204 steps at final
+    displacement $3.00$\,m. \textbf{SCM} (Bekker-Wong classical terramechanics,
+    $n{=}1$): stall at $0.28$\,m after 184 steps --- the policy's torque-saturation
+    heuristic does not generalise to the fundamentally different
+    force-displacement model of classical terramechanics. \textbf{NSC} (rigid
+    low-$\mu$ surface, complementarity contact, $n{=}150$ trials over 3 seeds):
+    $47.3\%$ recovery rate, 95\% CI $[39.3\%, 55.3\%]$. The pattern --- success
+    on the SPH-class continuum solver matching the training class, populated
+    success statistics on a morphology- and solver-shifted rigid baseline, and
+    failure on the model-mismatched Bekker-Wong target --- isolates physics
+    class as the dominant transfer axis and motivates future adaptation for
+    Bekker-Wong terrains.}
   \label{fig:chrono_comparison}
 \end{figure}
 
