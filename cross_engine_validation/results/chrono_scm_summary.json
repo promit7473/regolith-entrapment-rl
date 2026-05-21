@@ -1,0 +1,32 @@
+{
+  "engine": "Project Chrono",
+  "rigid_body_solver": "ChSystemNSC (NSC complementarity, Bullet broadphase)",
+  "terrain": "Deformable granular terrain \u2014 Bekker-Wong pressure-sinkage (K\u03c6=0.2e6, Kc=0, n=1.1) + Janosi-Hanamoto shear (K=0.01 m). Internal friction angle randomised per trial [10.0\u00b0, 30.0\u00b0]. Wheel entrapment emerges from load-driven sinkage and limited shear strength.",
+  "rover": "Curiosity FullRover (NASA MSL, pychrono.robot)",
+  "n_trials": 150,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "trials_per_seed": 50,
+  "recovery_rate": 0.44,
+  "recovery_rate_ci_95": [
+    0.36,
+    0.52
+  ],
+  "time_to_escape_mean_steps": 179.92424242424244,
+  "time_to_escape_std_steps": 97.3623831606905,
+  "mean_wheel_sinkage_m": 0.02393341523905595,
+  "failure_modes": {
+    "no_progress": 69,
+    "ESCAPED": 66,
+    "timeout_no_progress": 15
+  },
+  "onnx_policy": "/media/rmedu/18C6E68BC6E66888/regolith-entrapment-rl/sim2real/onnx_export/output/recovery_policy.onnx",
+  "fidelity_gap_notes": [
+    "Rigid body solver: Chrono NSC (complementarity) vs MPM implicit \u2014 different numerical treatment of multi-body contact.",
+    "Terrain: Deformable granular terrain \u2014 Bekker-Wong pressure-sinkage (K\u03c6=0.2e6, Kc=0, n=1.1) + Janosi-Hanamoto shear (K=0.01 m). Internal friction angle randomised per trial [10.0\u00b0, 30.0\u00b0]. Wheel entrapment emerges from load-driven sinkage and limited shear strength.",
+    "Rover mass: Curiosity 899 kg vs AAU ~35 kg; wheel radius 0.25 m vs 0.10 m. Genuine morphological domain gap."
+  ]
+}

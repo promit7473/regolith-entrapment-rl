@@ -5,7 +5,7 @@
 %%  Target: IEEE Transactions on Robotics / IROS 2026
 %%  Authors: Meraj Hossain Promit, Chandak Chakma
 %%  Supervisors: Md. Jubair Ahmed Sourov, Dr. Sejuti Rahman
-%%  University of Dhaka --- Dept. Robotics & Mechatronics Engineering
+%%  University of Dhaka - Dept. Robotics & Mechatronics Engineering
 %% ============================================================
 
 \documentclass[conference]{IEEEtran}
@@ -106,9 +106,9 @@ publicly released coupling of Newton Material
 Point Method (MPM) granular physics with MuJoCo rigid-body dynamics inside Isaac
 Lab's DirectRLEnv for RL-based entrapment recovery, producing physically accurate
 wheel--soil interaction under Martian gravity ($3.72\,\text{m/s}^2$). A recurrent
-policy (PPO+GRU, hidden size 256) with an asymmetric actor--critic --- actor
+policy (PPO+GRU, hidden size 256) with an asymmetric actor--critic - actor
 observes a 29-dimensional proprioceptive vector, critic additionally reads 8
-privileged simulator features --- is trained for 300\,000 policy steps across 16
+privileged simulator features - is trained for 300\,000 policy steps across 16
 parallel environments on a single workstation with an NVIDIA RTX 4090. After
 training, the policy attains an \textbf{86.9\,\% episode success rate}
 (single seed; 3 additional seeds in progress) on a $3.0$\,m projected-escape
@@ -127,7 +127,7 @@ evaluating the exported ONNX policy on Project Chrono
 (\texttt{ChSystemNSC} complementarity solver) with a morphologically distinct
 Curiosity rover (899\,kg, 0.25\,m wheel radius) over a rigid flat surface with
 randomised low friction ($\mu\in[0.10,0.35]$), achieving a \textbf{47.3\%}
-recovery rate (95\% CI [39.3\%, 55.3\%]) across 150 zero-shot trials---without
+recovery rate (95\% CI [39.3\%, 55.3\%]) across 150 zero-shot trials-without
 any fine-tuning or parameter adaptation. To our knowledge, this is the first
 open-source PPO-GRU baseline that pairs full granular MPM with a rocker-bogie
 platform under Mars gravity for entrapment recovery; we release code, weights,
@@ -427,15 +427,17 @@ dynamics across axles that demand a larger, more expressive action space.
       \draw[arrow] (entrapid2.west)  -- (sabn2.east);
     \end{tikzpicture}%
   }
-  \caption{System overview. \emph{Top:} training pipeline --- Newton MPM +
+  \caption{System overview. \emph{Top:} training pipeline - Newton MPM +
     MuJoCo simulation with competence-gated curriculum sinkage scheduling feeds a
     9-term shaped reward and curriculum bonus into PPO-GRU across 16 parallel
     environments, producing the escape action generation model.
-    \emph{Bottom:} dual-brain deployment loop --- the trained model runs on the
+    \emph{Bottom:} dual-brain deployment loop - the trained model runs on the
     rover with on-board entrapment state identification; control hands off from
     the navigation brain to the escape brain and back autonomously.}
   \label{fig:system_overview}
 \end{figure*}
+
+\enlargethispage{-2\baselineskip}
 
 % ══════════════════════════════════════════════════════════════
 \section{Related Work}
@@ -502,7 +504,6 @@ RLRoverLab~\cite{rlroverlab}, which itself extends ORBIT~\cite{mittal2023orbit}
 and provides the AAU rocker-bogie alongside open-source platforms such as
 ExoMy~\cite{voellmy2020exomy} for comparative work.
 
-\FloatBarrier
 \subsection{Research Gaps}
 
 No prior DRL-based recovery work: (1) couples a rocker-bogie rover with MPM
@@ -510,6 +511,8 @@ granular physics; (2) operates under Mars gravity; (3) exploits a 10D
 independent per-wheel drive-and-steer action space; (4) applies
 competence-gated curriculum sinkage scheduling; or (5) demonstrates zero-shot
 goal-directed escape via omnidirectional heading generalisation.
+
+\enlargethispage{-3\baselineskip}
 
 % ══════════════════════════════════════════════════════════════
 \section{Problem Formulation}
@@ -717,7 +720,7 @@ Fig.~\ref{fig:physics_stack} and Fig.~\ref{fig:policy_arch} respectively.
     \texttt{compute\_body\_forces} kernel; the cyan arrow shows the resulting
     particle impulses feeding back as external forces on the rover body
     (\texttt{subtract\_body\_force} kernel applied between every physics step,
-    not every policy step --- a decimation-2 mismatch fixed in v9). 64
+    not every policy step - a decimation-2 mismatch fixed in v9). 64
     environments run in parallel, each with ${\sim}235$\,k MPM particles in a
     $3.5\times3.5\times0.6$\,m sand bed under Martian gravity
     ($g{=}3.72\,\text{m/s}^2$). The 0.6\,m depth provides $>2{\times}$ wheel
@@ -750,7 +753,7 @@ separation.} Granular contact is the dominant source of solver stiffness in
 this problem; isolating it in Newton's implicit MPM (which is the reason we
 chose Newton in the first place) and handing the comparatively cheap
 articulated-rigid problem to the mature CPU solver gives a clean failure
-boundary --- if a physics artefact appears we know which solver to inspect.
+boundary - if a physics artefact appears we know which solver to inspect.
 (iii)~\emph{Coupling is one-shot per substep regardless.} The two-way
 coupling is implemented as Warp kernels that read wheel SDF poses and write
 external body forces; the rigid-body engine on the other side of that
@@ -1065,7 +1068,7 @@ episodes covers every GPS bearing.
     \midrule
     $r_{\text{prog}}$
       & $+1.5$
-      & $(\mathbf{v}_{xy} \cdot \hat{\mathbf{e}})\,\Delta t$ --- world-frame
+      & $(\mathbf{v}_{xy} \cdot \hat{\mathbf{e}})\,\Delta t$ - world-frame
         progress along $\hat{\mathbf{e}}$; \emph{unconditionally active}
         (never gated by $f_{\text{ent}}$) \\[2pt]
     $r_{\text{esc}}$
@@ -1074,38 +1077,38 @@ episodes covers every GPS bearing.
         (scaled $0.1$/$0.2$/$0.4$/$1.0$) \\[2pt]
     $r_{\text{esc,shaped}}$
       & $+5$
-      & $\Delta d_{\hat{\mathbf{e}}} \,\Delta t$ --- dense distance signal between
+      & $\Delta d_{\hat{\mathbf{e}}} \,\Delta t$ - dense distance signal between
         milestones \\[2pt]
     $r_{\text{rock}}$
       & $+0.5$
       & $|\Delta (\mathbf{v}_{xy}\!\cdot\!\hat{\mathbf{e}})| \cdot f_\text{ent}\,
-         \Delta t$ --- small bootstrap nudge for rocking while trapped \\[2pt]
+         \Delta t$ - small bootstrap nudge for rocking while trapped \\[2pt]
     $p_{\text{slip}}$
       & $-0.5$
-      & $\bar{\sigma}(1{-}f_\text{ent})\,\Delta t$ --- penalises spinning wheels
+      & $\bar{\sigma}(1{-}f_\text{ent})\,\Delta t$ - penalises spinning wheels
         only during free driving \\[2pt]
     $p_{\text{tilt}}$
       & $-0.3$
-      & $\|\boldsymbol{\omega}_{xy}\|_2\,\Delta t$ --- stabilises body attitude
+      & $\|\boldsymbol{\omega}_{xy}\|_2\,\Delta t$ - stabilises body attitude
         \\[2pt]
     $p_{\text{smooth}}$
       & $-0.01$
-      & $\|\mathbf{a}_t {-} \mathbf{a}_{t-1}\|_2\,\Delta t$ --- suppresses
+      & $\|\mathbf{a}_t {-} \mathbf{a}_{t-1}\|_2\,\Delta t$ - suppresses
         high-frequency jitter; reduced from $0.12$ because rocking requires
         large rapid action reversals and $0.12$ taught the policy that zero
         actions beat rocking \\[2pt]
     $p_{\text{abn}}$
       & $-0.3$
-      & $(-v_x)^+\! f_\text{anom}(1{-}f_\text{ent})\,\Delta t$ --- penalises
+      & $(-v_x)^+\! f_\text{anom}(1{-}f_\text{ent})\,\Delta t$ - penalises
         reversing under slip anomaly \\[2pt]
     $p_{\text{rev}}$
       & $-1.0$
-      & $\bigl(\!-\!\mathbf{v}_{xy}\!\cdot\!\hat{\mathbf{e}}\bigr)^+\!\Delta t$ ---
+      & $\bigl(\!-\!\mathbf{v}_{xy}\!\cdot\!\hat{\mathbf{e}}\bigr)^+\!\Delta t$ -
         symmetry-breaker: kills the backward-drift local optimum observed in
         early runs \\[2pt]
     $p_{\text{hop}}$
       & $-0.5$
-      & $|v_z^\text{world}|\bigl(1{-}f_\text{grace}\bigr)\,\Delta t$ ---
+      & $|v_z^\text{world}|\bigl(1{-}f_\text{grace}\bigr)\,\Delta t$ -
         direct vertical-bounce penalty, gated by the burial-grace window so
         post-reset settle drift is not punished. Replaces the indirect
         $k_e{=}10^{15}$ rigid-floor signal that previously drove a
@@ -1113,7 +1116,7 @@ episodes covers every GPS bearing.
     $p_{\text{grind}}$
       & $-0.05$
       & $\mathbf{1}[\bar{\sigma}{>}0.70]\,\|\mathbf{a}_t^{\text{drive}}\|_2\,\Delta t$
-        --- slip-conditional command-magnitude penalty. Fires \emph{only}
+        - slip-conditional command-magnitude penalty. Fires \emph{only}
         when wheels are actually slipping. Reduced from $0.30$ once we
         observed that cumulative grind cost on a deep ($0.60$\,m) bed
         ($\sim{-}12$ per episode) dominated the escape bonus ($+20$) and
@@ -1219,7 +1222,7 @@ $\gamma{=}0.99$; GAE $\lambda{=}0.95$~\cite{schulman2015gae}; entropy coefficien
 $\alpha{=}0.015$. An earlier configuration used $\alpha{=}0.03$, but with a
 10-D continuous action space the per-step entropy bonus is
 $\mathcal{O}(d_a)$, giving ${\approx}0.42$ per step under the initial
-$\sigma{\approx}1$ policy --- comparable to the entire shaped reward magnitude
+$\sigma{\approx}1$ policy - comparable to the entire shaped reward magnitude
 ($0.1$--$0.3$ per step) early in training and so drowning the reward signal.
 Halving $\alpha$ restores the reward gradient while still preventing collapse
 (the policy std plateaus at ${\approx}1.05$ at convergence,
@@ -1477,7 +1480,7 @@ procedure with GAE advantage estimation~\cite{schulman2015gae}.
           \Comment{advance to deeper sinkage}
       \ElsIf{rate $< 0.20$ \textbf{or} trivial $> 0.60$}
         \State $p \gets \max(p - \Delta p,\,0.2)$
-          \Comment{backoff — but never below 20\,\%}
+          \Comment{backoff - but never below 20\,\%}
       \EndIf
 
     \EndFor
@@ -1541,7 +1544,7 @@ solver in the current conda build.
 \subsection{Training Convergence}
 
 Fig.~\ref{fig:training_convergence} shows the policy learning curve over
-300\,k steps.  Escape rate — the primary task-success metric — rises
+300\,k steps.  Escape rate - the primary task-success metric - rises
 monotonically from 0\,\% at initialisation to an \textbf{89.3\,\%} plateau,
 following the characteristic fast-rise then saturation shape of competent RL
 agents.  The amber background shading tracks curriculum difficulty: each time
@@ -1558,7 +1561,7 @@ Escape rate is the correct measure of policy progress for this task.
   \caption{Policy learning curve over 300\,k steps.  \emph{Primary axis}
     (red): rolling-window escape rate, showing the classic fast-rise then
     plateau from 0\,\% to 89.3\,\%.  \emph{Background shading} (amber):
-    curriculum difficulty — deeper amber indicates deeper sinkage imposed by
+    curriculum difficulty - deeper amber indicates deeper sinkage imposed by
     the competence gate, explaining why the plateau is not perfectly flat.
     Episode return is omitted: MPM physics-explosion outliers and repeated
     curriculum resets make it an unreliable surrogate for task success.}
@@ -1613,7 +1616,7 @@ final 20\,k policy steps (the same window used for Table~\ref{tab:results}).
     perpendicular to $\hat{\mathbf{e}}$ exceeds $\textrm{env\_spacing}/2 - 1.0$\,m
     (drift-into-neighbour guard); \emph{timeout} fires at the
     \texttt{episode\_length\_s}~$=40$\,s ceiling without escape; \emph{stall}
-    is the residual --- the rover has neither escaped nor drifted out, but
+    is the residual - the rover has neither escaped nor drifted out, but
     the rocking manoeuvre fails to yield the granular column within the
     episode budget.}
   \label{tab:failures}
@@ -1740,19 +1743,19 @@ their velocity ceiling and front steering angled outward, bulldozing clear in
 3--5 policy steps.
 
 \textbf{Moderate ($15 \leq d < 22$\,cm):} a characteristic
-``\emph{commit-release-commit}'' sequence --- the policy briefly reverses the
+``\emph{commit-release-commit}'' sequence - the policy briefly reverses the
 drive wheels while counter-steering, then re-commits at full torque in the
 forward direction. This produces the arc-shaped disturbance track visible in
 the post-run MPM particle displacement field.
 
-\textbf{Deep ($d \geq 22$\,cm):} coordinated rocking --- alternating
-forward/reverse drive commands with oscillating steer angles --- progressively
+\textbf{Deep ($d \geq 22$\,cm):} coordinated rocking - alternating
+forward/reverse drive commands with oscillating steer angles - progressively
 loosens soil before a sustained escape. This behaviour emerges solely from the
 small $r_\text{rock}$ bootstrap and the world-frame-projected $r_\text{prog}$
 gradient; it was not explicitly scripted.
 
-\textbf{Asymmetric sinkage:} differential torque --- higher drive on the
-less-buried side, reverse-steer on the buried side --- pivots the rover out of
+\textbf{Asymmetric sinkage:} differential torque - higher drive on the
+less-buried side, reverse-steer on the buried side - pivots the rover out of
 the entrapment zone at a slight heading angle. The 10D action space is a
 necessary condition for this strategy; the 2D skid-steer action space of prior
 work cannot express it.
@@ -1842,8 +1845,8 @@ are what the dual-brain system must transfer to without retraining.
 We validate the complete dual-brain system in a controlled A$\to$B navigation
 scenario inside the \emph{same} Newton MPM simulator used for training but with
 a held-out task structure: the rover departs from point A, encounters a sand
-patch blocking the direct path to goal B, and must use the full hierarchy ---
-navigation, detection, recovery, and re-navigation --- to complete the task.
+patch blocking the direct path to goal B, and must use the full hierarchy -
+navigation, detection, recovery, and re-navigation - to complete the task.
 This is a generalisation test (novel goal-conditioned task), not a cross-engine
 sim-to-sim transfer test; the cross-engine validation in
 Sec.~\ref{sec:cross_engine} addresses that separately.
@@ -1855,21 +1858,21 @@ in a \emph{novel task variant} that was never seen during training.
 
 The on-board hierarchy comprises three layers (Fig.~\ref{fig:dual_brain}):
 
-\textbf{Layer 1 --- PD Navigation.}
+\textbf{Layer 1 - PD Navigation.}
 A proportional-derivative waypoint follower drives the rover toward goal B.
 Heading error drives the four steering joints; all six drive wheels run at
 constant speed. The navigation brain has no knowledge of sand patches and is
 intentionally kept simple, as it mirrors the class of controllers typically
 available on planetary assets without RL infrastructure.
 
-\textbf{Layer 2 --- Entrapment Detection.}
+\textbf{Layer 2 - Entrapment Detection.}
 The dual-mode detector (Eq.~\eqref{eq:entrapment}--\eqref{eq:anomaly})
 monitors $f_\text{ent}$ continuously. When $f_\text{ent}$ fires for 15
 consecutive steps, control transfers to the Escape Brain. On recovery, control
 returns to Layer~1 immediately; the PD navigator then drives the rover from the
 escape point to B without further intervention.
 
-\textbf{Layer 3 --- Recovery.}
+\textbf{Layer 3 - Recovery.}
 The trained GRU-PPO policy takes over. The escape direction is set to
 $\hat{\mathbf{e}}_\text{deploy}$ (GPS bearing toward B at the moment of
 entrapment), exploiting the zero-shot heading-generalisation property that
@@ -1976,7 +1979,7 @@ post-handover correction distance.
     (fixed seed 123); the full $N=100$ per condition study will be reported in
     the camera-ready version. PD-Only (no recovery) is included as a hard
     baseline for reference. 95\% bootstrap CIs are shown where $N$ permits
-    meaningful estimation; ``---'' indicates metric is inapplicable (no goal
+    meaningful estimation; ``-'' indicates metric is inapplicable (no goal
     reached or no recovery primitive active). Time-to-escape statistics are
     computed over recovered trials only.}
   \label{tab:sim2sim}
@@ -1988,12 +1991,12 @@ post-handover correction distance.
       & \textbf{Recovery-Random}
       & \textbf{PD-Only} \\
     \midrule
-    $N$ (trials)                    & 5 (prelim.) & 5 (prelim.) & --- \\
+    $N$ (trials)                    & 5 (prelim.) & 5 (prelim.) & - \\
     Recovery rate (\%)              & 60.0        & 60.0        & 0.0 \\
     Goal reach rate (\%)            & 0.0         & 0.0         & 0.0 \\
-    Time to escape (s)              & $20.8 \pm 0.7$  & ---     & --- \\
-    Escape heading error ($^\circ$) & $0.04 \pm 0.004$ & ---    & --- \\
-    Path efficiency $\eta$          & ---         & ---         & --- \\
+    Time to escape (s)              & $20.8 \pm 0.7$  & -     & - \\
+    Escape heading error ($^\circ$) & $0.04 \pm 0.004$ & -    & - \\
+    Path efficiency $\eta$          & -         & -         & - \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -2006,7 +2009,7 @@ partially confirmed}). The 60\% recovery rate falls below the 86.9\%
 training-time figure; the gap is expected, as the four held-out domain-gap axes
 (Sec.~\ref{sec:sim2sim_design}) were not seen during training.
 
-\textbf{H1 (heading generalisation) --- supported in preliminary data.}
+\textbf{H1 (heading generalisation) - supported in preliminary data.}
 The escape heading error of $0.04\pm 0.004^\circ$ on recovered trials is
 indistinguishable from zero, confirming that the 1D escape-direction channel
 correctly encodes the GPS bearing at deployment. No residual yaw bias is
@@ -2023,8 +2026,8 @@ but the PD navigator's heading correction steers the rover across the
 sand-patch edge, triggering re-entrapment before B is reached. This is a
 Layer~1/Layer~3 coordination failure: the escape exit point lies off the
 direct A--B line, and the PD controller's pure pursuit steers back through
-the sand rather than around it. The fix --- a post-escape waypoint offset or
-a brief no-re-entry zone around the bed --- does not require policy retraining.
+the sand rather than around it. The fix - a post-escape waypoint offset or
+a brief no-re-entry zone around the bed - does not require policy retraining.
 
 \textbf{Planned full evaluation ($N=100$ per condition).}
 The full study will: (a)~complete 100 trials per condition ($\times$5 seeds),
@@ -2060,14 +2063,14 @@ the depth at which the 300\,k-step policy degrades.
     adaptation, or replay buffer. \textbf{CRM} (SPH continuum granular,
     Drucker-Prager plasticity, $n{=}1$): escape in 204 steps at final
     displacement $3.00$\,m. \textbf{SCM} (Bekker-Wong classical terramechanics,
-    $n{=}1$): stall at $0.28$\,m after 184 steps --- the policy's torque-saturation
+    $n{=}1$): stall at $0.28$\,m after 184 steps - the policy's torque-saturation
     heuristic does not generalise to the fundamentally different
     force-displacement model of classical terramechanics. \textbf{NSC} (rigid
     low-$\mu$ surface, complementarity contact, $n{=}150$ trials over 3 seeds):
-    $47.3\%$ recovery rate, 95\% CI $[39.3\%, 55.3\%]$. The pattern --- success
+    $47.3\%$ recovery rate, 95\% CI $[39.3\%, 55.3\%]$. The pattern - success
     on the SPH-class continuum solver matching the training class, populated
     success statistics on a morphology- and solver-shifted rigid baseline, and
-    failure on the model-mismatched Bekker-Wong target --- isolates physics
+    failure on the model-mismatched Bekker-Wong target - isolates physics
     class as the dominant transfer axis and motivates future adaptation for
     Bekker-Wong terrains.}
   \label{fig:chrono_comparison}
@@ -2081,7 +2084,7 @@ gap and shows that the first is already closed:
 \emph{Escape-phase heading.} The $0.04^\circ$ heading error confirms that the
 1D escape-direction observation channel generalises zero-shot to arbitrary GPS
 bearings. This is a strong result: it means the deployed ONNX actor requires
-no retraining or fine-tuning to accept a new goal heading at runtime --- only
+no retraining or fine-tuning to accept a new goal heading at runtime - only
 the single scalar $\hat{e}_x, \hat{e}_y$ channels need to be updated.
 
 \emph{Task completion.} The post-escape re-entrapment pattern is an
@@ -2106,7 +2109,7 @@ A criticism of any sim-only RL paper is that the trained policy may have
 overfit to the specific physics solver used at training time. To rule this out
 we re-evaluate the unmodified ONNX policy in a \emph{different rigid-body
 engine}, with a \emph{different terrain physics model} and a \emph{different
-rover morphology}---all three changed simultaneously. We deploy the exported
+rover morphology}-all three changed simultaneously. We deploy the exported
 ONNX actor inside Project Chrono~\cite{tasora2016chrono}
 (\texttt{ChSystemNSC} non-smooth complementarity solver), driving the
 built-in \texttt{Curiosity} 6-wheel rocker-bogie rover
@@ -2126,7 +2129,7 @@ stack:
         replaces the training MPM continuum granular bed.  This is a
         \emph{different physics class}, not a parameter perturbation:
         there are no granular particles, no sinkage, and no yield
-        surface---entrapment is induced purely by wheel slip on a
+        surface-entrapment is induced purely by wheel slip on a
         low-friction rigid surface.  Bekker--Wong SCM was prototyped but
         rejected: at the Curiosity wheel radius ($r=0.25$\,m) and
         899\,kg mass the Bekker equation predicts sinkages of
@@ -2137,7 +2140,7 @@ stack:
         progress) without initialisation artefacts.
   \item \textbf{Rover morphology}: Chrono's Curiosity has 0.25\,m wheel
         radius (vs.\ AAU 0.10\,m), 899\,kg mass (vs.\ AAU $\sim$35\,kg),
-        and a 2.9\,m wheelbase (vs.\ AAU 1.05\,m)---a genuine 25$\times$
+        and a 2.9\,m wheelbase (vs.\ AAU 1.05\,m)-a genuine 25$\times$
         mass gap with the same 6-wheel rocker-bogie topology.
 \end{itemize}
 
@@ -2199,7 +2202,7 @@ and morphology transfer confirms that the policy learned a physically
 grounded escape strategy rather than MPM-specific exploits.  The dominant
 failure mode is \texttt{no\_progress} (38\,\%), which concentrates at
 $\mu\!\approx\!0.10$ where wheel slip is near 100\,\% regardless of
-recovery strategy---this is a traction limit of the Curiosity
+recovery strategy-this is a traction limit of the Curiosity
 morphology on the rigid low-$\mu$ surface, not a policy failure.
 The \texttt{lateral\_OOB} mode (11\,\%) reflects the difficulty of
 steering Curiosity's 2.9\,m wheelbase through the 180$^\circ$ turns
@@ -2368,7 +2371,7 @@ terrain would forbid is precisely the behaviour a capable planetary rover must
 learn.
 \emph{Asymmetric actor--critic} lets the value head exploit unobservable soil
 state (sinkage depth, sand-force proxy) for lower-variance advantage estimates
-while keeping the deployed actor a pure 29D onboard observer --- the privileged
+while keeping the deployed actor a pure 29D onboard observer - the privileged
 signals never appear in the ONNX export.
 \emph{Omnidirectional heading sampling} (per-episode $\mathcal{U}(0,2\pi)$)
 converts the policy into a zero-shot goal-directed recovery controller without

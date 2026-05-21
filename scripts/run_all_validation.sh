@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
-# One-shot orchestrator: runs the full post-training validation pipeline.
+# Cross-engine validation pipeline: ONNX export → Chrono granular terrain.
 #
-# RECOMMENDED: run the stages step-by-step (see RUNBOOK.md). Each stage takes
-# hours and a mid-pipeline failure wastes upstream compute. This script exists
-# for unattended overnight runs and as authoritative documentation of the
-# argument flow between stages.
+# Stages:
+#   1. ONNX export (training checkpoint → onnx)
+#   2. Chrono validation — granular (Bekker-Wong) terrain
+#   3. Chrono validation — rigid baseline (NSC low-friction)
 #
 # Usage:
 #   bash scripts/run_all_validation.sh \
 #       --checkpoint experiments/regolith_recovery/seed_0/.../agent_200000.pt \
-#       --seeds "0 1 2 3 4" --num_trials 100
-#   bash scripts/run_all_validation.sh ... --dry-run    # print, do not execute
-#   bash scripts/run_all_validation.sh ... --skip-crm   # skip CRM tier (no FSI build)
+#       --seeds "0 1 2" --num_trials 50
+#   bash scripts/run_all_validation.sh ... --dry-run
 set -euo pipefail
 
 CKPT=""
-SEEDS="0 1 2 3 4"
-NTRIALS=100
+SEEDS="0 1 2"
+NTRIALS=50
 DRY=0
-SKIP_CRM=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -26,7 +24,6 @@ while [[ $# -gt 0 ]]; do
     --seeds)      SEEDS="$2"; shift 2;;
     --num_trials) NTRIALS="$2"; shift 2;;
     --dry-run)    DRY=1; shift;;
-    --skip-crm)   SKIP_CRM=1; shift;;
     *) echo "unknown arg $1"; exit 2;;
   esac
 done
@@ -43,28 +40,29 @@ run() {
 cd "$(dirname "$0")/.."
 ONNX="sim2real/onnx_export/output/recovery_policy.onnx"
 
-echo "=== [1/6] ONNX export ==="
+echo "=== [1/3] ONNX export ==="
 run "./launch.sh sim2real/onnx_export/export_model.py --policy_ckpt '$CKPT' --out_dir '$(dirname $ONNX)'"
 
-echo "=== [2/6] Full validation grid (5 seeds × ${NTRIALS} × 3 conds) ==="
-run "./launch.sh scripts/run_full_validation.py --checkpoint '$CKPT' --num_trials $NTRIALS --seeds '$SEEDS'"
+echo "=== [2/3] Chrono — granular (Bekker-Wong) terrain ==="
+run "conda run -n chrono_viz python cross_engine_validation/chrono_validation.py \
+  --onnx '$ONNX' \
+  --terrain granular \
+  --num_trials $NTRIALS --seeds $SEEDS"
 
-echo "=== [3/6] OOD sinkage × friction sweep ==="
-run "./launch.sh scripts/run_ood_sweep.py --checkpoint '$CKPT'"
+echo "=== [3/3] Chrono — rigid baseline (NSC low-friction) ==="
+run "conda run -n chrono_viz python cross_engine_validation/chrono_validation.py \
+  --onnx '$ONNX' \
+  --terrain rigid \
+  --num_trials $NTRIALS --seeds $SEEDS"
 
-echo "=== [4/6] Cross-engine: Chrono ChSystemNSC + Bekker-Wong terrain ==="
-# Uses conda env chrono_viz (pychrono 10.0.0 core+robot; Bekker-Wong via custom ChLoad)
-run "conda run -n chrono_viz python cross_engine/chrono_validation.py --onnx '$ONNX' --num_trials 50 --seeds 0 1 2"
-
-echo "=== [5/6] (CRM/SPH tier requires pychrono built with FSI — skipped) ==="
-
-echo "=== [6/6] Aggregate figures ==="
-run "python3 scripts/make_rliable_figure.py"
-run "python3 scripts/classify_failures.py"
+echo "=== [4/4] Chrono — constant drive baseline (no policy) ==="
+run "conda run -n chrono_viz python cross_engine_validation/chrono_validation.py \
+  --control constant_drive \
+  --terrain granular \
+  --num_trials $NTRIALS --seeds $SEEDS"
 
 echo
 echo "DONE. Artifacts:"
-echo "  experiments/full_validation/seed_*.json"
-echo "  cross_engine/results/chrono_{scm,crm}_summary.json"
-echo "  paper/figures/rliable_iqm.pdf"
-echo "  paper/figures/failure_modes.pdf"
+echo "  cross_engine_validation/results/chrono_scm_policy_*          (granular, learned policy)"
+echo "  cross_engine_validation/results/chrono_scm_constant_drive_*  (granular, open-loop naive)"
+echo "  cross_engine_validation/results/chrono_nsc_policy_*          (rigid baseline)"

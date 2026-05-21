@@ -179,9 +179,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     log_failure_modes     = True   # set False to disable I/O overhead during profiling
     dr_sinkage_range     = (0.15, 0.28) # m — full curriculum range. Deep spawn was previously capped at 0.22 due to MPM penetration-resolution launch on teleport; now stabilised by the settle_steps force clamp below, so deep burial is safe again.
     dr_friction_range    = (0.6, 0.9)   # μ_s sand friction DR per reset.
-    # OOD-eval overrides: when set, pin sinkage / friction to a single value and
-    # bypass the curriculum (used by scripts/run_ood_sweep.py to evaluate the
-    # trained policy across a sinkage × friction grid).
+    # Eval overrides: when set, pin sinkage / friction to a single value.
     sinkage_override     = None         # float | None — m
     friction_override    = None         # float | None — μ_s
 
@@ -1079,7 +1077,6 @@ class EntrapmentEnv(DirectRLEnv):
             if not hasattr(self, '_vis_radii') or len(self._vis_radii) != n_vis:
                 self._vis_radii  = wp.full(n_vis, VOXEL_SIZE * 0.6,
                                            dtype=wp.float32, device=sand_pts.device)
-                # Mars-red palette — matches sim2sim_validation/validation_env.py.
                 self._vis_colors = wp.full(n_vis, wp.vec3(0.62, 0.30, 0.20),
                                            dtype=wp.vec3, device=sand_pts.device)
 

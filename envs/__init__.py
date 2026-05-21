@@ -8,11 +8,3 @@ gym.register(
     kwargs={"env_cfg_entry_point": EntrapmentEnvCfg},
     disable_env_checker=True,
 )
-
-
-gym.register(
-    id="MarsRover-Sim2SimValidation-v0",
-    entry_point="sim2sim_validation.validation_env:ValidationEnv",
-    kwargs={"env_cfg_entry_point": "sim2sim_validation.validation_env:ValidationEnvCfg"},
-    disable_env_checker=True,
-)

@@ -1,0 +1,35 @@
+{
+  "engine": "Project Chrono",
+  "rigid_body_solver": "ChSystemNSC (NSC complementarity, Bullet broadphase)",
+  "terrain": "Deformable granular terrain \u2014 Bekker-Wong pressure-sinkage (K\u03c6=0.2e6, Kc=0, n=1.1) + Janosi-Hanamoto shear (K=0.01 m). Internal friction angle randomised per trial [10.0\u00b0, 30.0\u00b0]. Wheel entrapment emerges from load-driven sinkage and limited shear strength.",
+  "rover": "AAU collision proxy (~35 kg, r=0.10 m)",
+  "n_trials": 300,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "trials_per_seed": 50,
+  "recovery_rate": 0.35,
+  "recovery_rate_ci_95": [
+    0.2966666666666667,
+    0.4033333333333333
+  ],
+  "time_to_escape_mean_steps": 247.44761904761904,
+  "time_to_escape_std_steps": 69.66805388717489,
+  "mean_wheel_sinkage_m": 0.02030423829331994,
+  "failure_modes": {
+    "ESCAPED": 105,
+    "no_progress": 160,
+    "timeout_no_progress": 35
+  },
+  "onnx_policy": "/media/rmedu/18C6E68BC6E66888/regolith-entrapment-rl/sim2real/onnx_export/output/recovery_policy_seed3.onnx",
+  "fidelity_gap_notes": [
+    "Rigid body solver: Chrono NSC (complementarity) vs MPM implicit \u2014 different numerical treatment of multi-body contact.",
+    "Terrain: Deformable granular terrain \u2014 Bekker-Wong pressure-sinkage (K\u03c6=0.2e6, Kc=0, n=1.1) + Janosi-Hanamoto shear (K=0.01 m). Internal friction angle randomised per trial [10.0\u00b0, 30.0\u00b0]. Wheel entrapment emerges from load-driven sinkage and limited shear strength.",
+    "AAU proxy rover matches training morphology (~35 kg, r=0.10 m). No morphological domain gap \u2014 isolates sim-to-sim (Newton MPM \u2192 Chrono NSC) gap."
+  ]
+}

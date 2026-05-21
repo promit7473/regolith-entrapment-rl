@@ -3,14 +3,25 @@
 End-to-end commands to reproduce every paper figure & table on a single RTX
 5070Ti box. Run each block in order; later blocks consume earlier outputs.
 
+**Note:** the only live validation pipeline is the cross-engine Chrono
+validation on granular (Bekker-Wong) terrain. The sim2sim (MPM→MPM) track
+has been removed — see git history for archived scripts.
+
 ## 0. One-time setup
 
 ```bash
 cd ~/regolith_entrapment_research
-pip install onnxruntime rliable scipy matplotlib  # if missing
+pip install onnxruntime
 ```
 
-## 1. Train 5 seeds  (~23 h on 5070Ti @ 64 envs × 200k steps)
+Chrono validation requires the `chrono_viz` conda environment:
+
+```bash
+conda create -n chrono_viz python=3.12 -c conda-forge -y
+conda install -n chrono_viz -c conda-forge pychrono=10.0.0 numpy onnxruntime matplotlib -y
+```
+
+## 1. Train 5 seeds (~23 h on 5070Ti @ 64 envs × 200k steps)
 
 ```bash
 bash scripts/train_multiseed.sh --seeds "0 1 2 3 4" --timesteps 200000 --num_envs 64
@@ -29,23 +40,7 @@ CKPT=$(ls experiments/regolith_recovery/seed_0/*/checkpoints/agent_200000.pt | t
 bash scripts/train_ablations.sh --timesteps 200000 --num_envs 64 --seed 0
 ```
 
-## 3. Full statistical eval — 5 seeds × 100 trials × 3 conditions
-
-```bash
-./launch.sh scripts/run_full_validation.py \
-    --checkpoint "$CKPT" --seeds "0 1 2 3 4" --num_trials 100 --num_envs 8
-```
-
-Writes `experiments/full_validation/seed_*.json` and `aggregate_report.json`
-(success rates + Mann–Whitney U with Bonferroni correction).
-
-## 4. OOD sweep — 5×5 sinkage×friction grid, 50 trials each
-
-```bash
-./launch.sh scripts/run_ood_sweep.py --checkpoint "$CKPT" --num_trials 50 --num_envs 8
-```
-
-## 5. ONNX export
+## 3. ONNX export
 
 ```bash
 ./launch.sh sim2real/onnx_export/export_model.py --policy_ckpt "$CKPT"
@@ -53,51 +48,57 @@ Writes `experiments/full_validation/seed_*.json` and `aggregate_report.json`
 
 Produces `sim2real/onnx_export/output/recovery_policy.onnx`.
 
-## 6. Cross-engine validation (Project Chrono — Bekker-Wong terrain)
-
-**Setup (one-time):**
-```bash
-conda create -n chrono_viz python=3.12 -c conda-forge -y
-conda install -n chrono_viz -c conda-forge pychrono=10.0.0 numpy onnxruntime -y
-```
-
-The conda-forge `pychrono 10.0.0` ships `core + robot` modules.
-The validation uses a custom Bekker-Wong `ChLoad` applied per wheel —
-no `pychrono.vehicle` (SCMTerrain) or `pychrono.fsi` (CRMTerrain) required.
-
-**Run:**
-```bash
-conda run -n chrono_viz python cross_engine/chrono_validation.py \
-    --onnx sim2real/onnx_export/output/recovery_policy.onnx \
-    --num_trials 50 --seeds 0 1 2 \
-    --output cross_engine/results/
-```
-
-Output: `cross_engine/results/chrono_bekker_{results.csv,summary.json}`
+## 4. Cross-engine validation — granular (Bekker-Wong) terrain
 
 **What makes this genuinely cross-engine:**
 - Rigid-body solver: Chrono `ChSystemNSC` (NSC complementarity + Bullet broadphase)
   vs. training Newton (MPM implicit + MuJoCo contact).
-- Terrain physics: Bekker-Wong semi-empirical (`p(z) = (Kφ/b + Kc)·z^n`,
+- Terrain physics: Bekker-Wong semi-empirical (`p(z) = (Kφ/b + Kc)·zⁿ`,
   Janosi-Hanamoto shear) vs. MPM continuum elasto-plasticity — different
-  mathematical class, not a parameter perturbation.
+  mathematical class.
 - Rover: Curiosity (899 kg, r=0.25 m) vs. AAU rover (~35 kg, r=0.10 m).
 
-### Optional: one-shot orchestrator
+### Granular terrain (default, recommended):
+
 ```bash
-bash scripts/run_all_validation.sh --checkpoint "$CKPT" --seeds "0 1 2 3 4" --num_trials 100
+conda run -n chrono_viz python cross_engine_validation/chrono_validation.py \
+    --onnx sim2real/onnx_export/output/recovery_policy.onnx \
+    --terrain granular \
+    --num_trials 50 --seeds 0 1 2 \
+    --output cross_engine_validation/results/
 ```
 
-## 7. Paper figures
+Uses `pychrono.vehicle.SCMTerrain` with bulldozing enabled + synthetic chassis
+velocity damping (BULLDOZE_DAMP=80) to emulate the entrapment feedback loop
+at low friction angles. Internal friction angle randomised per trial (φ = 10°–30°)
+— lower φ → weaker soil → deeper wheel sinkage → stronger entrapment + more
+aggressive synthetic drag.
+
+### Rigid baseline (ablation):
 
 ```bash
-./launch.sh scripts/make_rliable_figure.py    # IQM + stratified bootstrap CI
-./launch.sh scripts/classify_failures.py      # failure-mode stacked bars
+conda run -n chrono_viz python cross_engine_validation/chrono_validation.py \
+    --onnx sim2real/onnx_export/output/recovery_policy.onnx \
+    --terrain rigid \
+    --num_trials 50 --seeds 0 1 2 \
+    --output cross_engine_validation/results/
+```
+
+### One-shot orchestrator
+
+```bash
+bash scripts/run_all_validation.sh --checkpoint "$CKPT" --seeds "0 1 2" --num_trials 50
+```
+
+## 5. Paper figures
+
+```bash
+python3 scripts/plot_chrono_transfer.py    # cross-engine transfer diagram
 ```
 
 PDFs land in `paper/figures/`.
 
-## 8. Compile paper
+## 6. Compile paper
 
 ```bash
 cd paper && latexmk -pdf paper.tex

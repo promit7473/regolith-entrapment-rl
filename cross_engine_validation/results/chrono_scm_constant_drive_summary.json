@@ -1,0 +1,30 @@
+{
+  "engine": "Project Chrono",
+  "rigid_body_solver": "ChSystemNSC (NSC complementarity, Bullet broadphase)",
+  "terrain": "Deformable granular terrain \u2014 Bekker-Wong... constant_drive baseline",
+  "rover": "Curiosity (constant_drive, no policy)",
+  "n_trials": 300,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "trials_per_seed": 50,
+  "recovery_rate": 0.41,
+  "recovery_rate_ci_95": [
+    0.3566666666666667,
+    0.4666666666666667
+  ],
+  "time_to_escape_mean_steps": 171.72357723577235,
+  "time_to_escape_std_steps": 92.43158760512223,
+  "mean_wheel_sinkage_m": 0.02375915663316846,
+  "mean_final_proj_m": -2.6716597530245783,
+  "failure_modes": {
+    "no_progress": 147,
+    "ESCAPED": 123,
+    "timeout_no_progress": 30
+  }
+}

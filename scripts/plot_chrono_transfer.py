@@ -10,7 +10,7 @@ Targets: Project Chrono with three independent terrain models
 Renders a single composite figure: a left-hand source card, three right-hand
 target cards, an arrow connector, and per-target outcome bars annotated with
 final projected distance, step count, and physics class. Numbers are loaded
-from cross_engine/results/chrono_*_summary.json so the figure stays in sync
+from cross_engine_validation/results/chrono_*_summary.json so the figure stays in sync
 with the underlying experiments.
 """
 
@@ -41,7 +41,7 @@ plt.rcParams.update({
 })
 
 REPO_ROOT  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESULTS    = os.path.join(REPO_ROOT, "cross_engine", "results")
+RESULTS    = os.path.join(REPO_ROOT, "cross_engine_validation", "results")
 OUT_PLOTS  = os.path.join(REPO_ROOT, "experiments", "regolith_recovery", "plots")
 OUT_FIGS   = os.path.join(REPO_ROOT, "paper", "figures")
 ESCAPE_THR = 3.0
@@ -65,15 +65,18 @@ def load_summary(name):
 
 
 def main():
-    crm = load_summary("crm")
     scm = load_summary("scm")
     nsc = load_summary("nsc")
 
-    # Extract numbers used in the figure
-    crm_final = 3.003       # final_proj from crm_results.csv
-    scm_final = 0.276
-    crm_steps = int(crm["time_to_escape_mean_steps"])
-    scm_steps = 184         # entrapped_steps for the stalled trial
+    # Granular (Bekker-Wong) results
+    scm_rate  = scm["recovery_rate"] * 100 if scm["n_trials"] > 1 else None
+    scm_n     = scm["n_trials"]
+    scm_tte   = scm.get("time_to_escape_mean_steps")
+    if scm_rate is not None:
+        scm_lo, scm_hi = [v * 100 for v in scm["recovery_rate_ci_95"]]
+    scm_sink  = scm.get("mean_wheel_sinkage_m", 0.0)
+
+    # Rigid baseline results
     nsc_rate  = nsc["recovery_rate"] * 100
     nsc_lo, nsc_hi = [v * 100 for v in nsc["recovery_rate_ci_95"]]
     nsc_n     = nsc["n_trials"]
@@ -153,31 +156,24 @@ def main():
                 fontsize=8.5, color=DEEP, ha="left", weight="bold",
                 transform=ax_tgt.transAxes)
 
-    # ─── Three target cards ──────────────────────────────────────────────────
+    # ─── Target cards ──────────────────────────────────────────────────────
+    scm_status = f"{scm_rate:.1f}% RECOVERY" if scm_rate is not None else "PENDING"
+    scm_ci = f"95% CI [{scm_lo:.1f}, {scm_hi:.1f}]%" if scm_rate is not None else ""
+    scm_note = f"$n{{=}}{scm_n}$" if scm_n else ""
+
     cards = [
         dict(
-            name="CRM",
-            long="SPH continuum granular",
-            phys="Drucker-Prager plasticity",
-            colour=EMERALD, status="ESCAPED",
-            status_colour=EMERALD,
-            bar_value=crm_final, bar_max=ESCAPE_THR,
-            metric_label="final displacement",
-            metric_value=f"{crm_final:.2f} m",
-            sub_label=f"in {crm_steps} steps  ·  $n{{=}}1$",
-            interp="continuum, matches MPM training class",
-        ),
-        dict(
             name="SCM",
-            long="Bekker–Wong terramechanics",
-            phys="classical force–displacement",
-            colour=CRIMSON, status="STALLED",
-            status_colour=CRIMSON,
-            bar_value=scm_final, bar_max=ESCAPE_THR,
-            metric_label="final displacement",
-            metric_value=f"{scm_final:.2f} m",
-            sub_label=f"stall after {scm_steps} steps  ·  $n{{=}}1$",
-            interp="model mismatch: not in training class",
+            long="SCMTerrain + synthetic bulldozing",
+            phys="deformable granular (Bekker–Wong + Janosi–Hanamoto)",
+            colour=EMERALD, status=scm_status,
+            status_colour=EMERALD,
+            bar_value=scm_rate or 0, bar_max=100,
+            ci_lo=scm_lo, ci_hi=scm_hi,
+            metric_label="recovery rate",
+            metric_value=scm_status,
+            sub_label=f"{scm_ci}  ·  {scm_note}" if scm_n else "Run '--terrain granular' to populate",
+            interp="semi-empirical granular + bulldozing drag",
         ),
         dict(
             name="NSC",
