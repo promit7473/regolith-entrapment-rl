@@ -1464,6 +1464,19 @@ class EntrapmentEnv(DirectRLEnv):
 
         terminated = escaped | flipped | sunk | lateral_oob
 
+        # Expose the per-env outcome flags computed HERE (before DirectRLEnv
+        # auto-resets done envs within the same step()). External eval harnesses
+        # must read these — reading root_pos/_spawn_pos after step() returns gives
+        # the POST-reset pose for done envs (≈ spawn), so a distance-threshold
+        # escape check done outside the env is always wrong. `escaped` already
+        # isolates true escapes from flipped/sunk/lateral_oob terminations.
+        self._last_escaped = escaped.clone()
+        self._last_final_proj = axial_progress_done.clone()
+        # True terminal position relative to spawn, world frame (pre-reset). Since
+        # each episode faces a per-reset random escape heading, this encodes the
+        # genuine directional outcome — used for the omnidirectional top-down plot.
+        self._last_rel_xy = rel_pos_done.clone()
+
         # Tick per-env episode step counter and capture first-time-past-0.3m as a
         # trivial-escape diagnostic: if the rover clears a token progress threshold
         # within a few seconds, the prescribed sinkage didn't actually trap it.

@@ -110,25 +110,26 @@ policy (PPO+GRU, hidden size 256) with an asymmetric actor--critic - actor
 observes a 29-dimensional proprioceptive vector, critic additionally reads 8
 privileged simulator features - is trained for 300\,000 policy steps across 16
 parallel environments on a single workstation with an NVIDIA RTX 4090. After
-training, the policy attains an \textbf{86.9\,\% episode success rate}
-(single seed; 3 additional seeds in progress) on a $3.0$\,m projected-escape
-threshold, of which $2.75$\,m is in-bed granular traversal and $0.25$\,m is
-post-bed slack, with
-episodic return rising monotonically from $-20.7$ to $+35.1$ (isotonic-regression
-envelope) while policy entropy remains above $0.5$\,nats throughout, confirming no
-premature convergence. Emergent behaviours include coordinated rocking and
-asymmetric wheel-steering sequences that were never explicitly scripted. We
-further validate the system in a sim-to-sim A$\to$B navigation scenario: a
-dual-mode entrapment detector transfers control between a PD navigation brain and
-the trained escape policy, and the same policy handles arbitrary GPS bearings
-through omnidirectional heading generalisation, enabling \emph{zero-shot}
-goal-directed recovery. We further demonstrate cross-engine transfer by
-evaluating the exported ONNX policy on Project Chrono
-(\texttt{ChSystemNSC} complementarity solver) with a morphologically distinct
-Curiosity rover (899\,kg, 0.25\,m wheel radius) over a rigid flat surface with
-randomised low friction ($\mu\in[0.10,0.35]$), achieving a \textbf{47.3\%}
-recovery rate (95\% CI [39.3\%, 55.3\%]) across 150 zero-shot trials-without
-any fine-tuning or parameter adaptation. To our knowledge, this is the first
+training, we evaluate the policy \emph{in-engine} against naive baselines under
+matched conditions (120 trials per controller, initial sinkage
+$0.15$--$0.28$\,m) on a $3.0$\,m projected-escape threshold, of which $2.75$\,m
+is in-bed granular traversal and $0.25$\,m is post-bed slack. The two
+best-performing seeds escape \textbf{95.0\,\%} (95\,\% CI $[91,98]$) and
+\textbf{90.8\,\%} of trials, versus \textbf{30.8\,\%} for open-loop constant
+drive and \textbf{0\,\%} for a scripted forward/reverse rocking primitive - an
+unambiguous separation in the very engine the policy was trained in. Episodic
+return rises monotonically from $-20.7$ to $+35.1$ while policy entropy remains
+above $0.5$\,nats throughout, confirming no premature convergence. An
+action-trace analysis shows the learned recovery skill is \emph{active steering}
+(full steer lock on $65$--$71\,\%$ of steps), not the forward/reverse rocking
+sometimes assumed ($\leq 2\,\%$ drive-direction reversals). We further validate
+the system in a sim-to-sim A$\to$B navigation scenario: a dual-mode entrapment
+detector transfers control between a PD navigation brain and the trained escape
+policy, and the same policy escapes toward arbitrary GPS bearings through
+omnidirectional heading generalisation (mean heading error $0.04^\circ$) - a
+\emph{zero-shot} capability we verify in a preliminary dual-brain study;
+full goal-reaching navigation is left to future work. To our knowledge, this is
+the first
 open-source PPO-GRU baseline that pairs full granular MPM with a rocker-bogie
 platform under Mars gravity for entrapment recovery; we release code, weights,
 and randomisation seeds to support reproduction. Project repository:
@@ -177,7 +178,7 @@ sim-to-sim validation, dual-brain architecture
 
       \node[dbox] (det) at (0, 3.6) {%
         \textbf{Dual-Mode Entrapment Detector}\\[2pt]
-        {\small Slip-ratio counter + Torque anomaly (Alg.\,1)}\\
+        {\small Slip-ratio counter + Slip-anomaly gate (Alg.\,1)}\\
         {\scriptsize $f_\text{ent}$, $f_\text{anom}$}};
 
       \node[dec] (dmd) at (0, 1.7) {\textbf{Entrapped?}};
@@ -274,23 +275,22 @@ dynamics across axles that demand a larger, more expressive action space.
         at runtime.
   \item \textbf{Dual-brain deployment.} A sim-to-sim A$\to$B navigation harness
         that integrates a PD navigation brain, a dual-mode entrapment
-        detector (slip-ratio AND-gate + leaky torque-anomaly OR-gate), and
+        detector (slip-ratio counter + leaky slip-anomaly gate), and
         the trained recovery policy, with automatic handoff in both
         directions and quantitative comparison against a no-recovery
         baseline.
-  \item \textbf{Cross-engine sim-to-sim validation.} The trained ONNX policy
-        is evaluated zero-shot on Project Chrono
-        (\texttt{ChSystemNSC} non-smooth complementarity solver) with a
-        morphologically distinct Curiosity rover (NASA MSL analogue, 899\,kg,
-        0.25\,m wheel radius, 25$\times$ the AAU rover mass) over a rigid flat
-        surface with randomised low friction ($\mu\in[0.10,0.35]$). The
-        experiment simultaneously stresses three transfer axes: rigid-solver
-        gap (Newton MPM $\to$ Chrono NSC), terrain-physics-class gap (continuum
-        elasto-plastic MPM $\to$ rigid contact), and rover morphology gap (AAU
-        35\,kg $\to$ Curiosity 899\,kg). Achieving \textbf{47.3\%} recovery
-        (95\% CI [39.3\%, 55.3\%]) across 150 zero-shot trials demonstrates
-        that the learned recovery strategy generalises beyond training-simulator
-        specifics.
+  \item \textbf{Controlled in-engine baseline comparison.} We evaluate the
+        learned policy against two naive controllers - open-loop constant drive
+        (full forward throttle) and a scripted forward/reverse rocking
+        primitive - under matched conditions in the training engine, using the
+        environment's own pre-reset escape flag as ground truth (120 trials per
+        controller across four sinkage levels). The policy escapes
+        \textbf{90.8--95.0\,\%} of trials versus \textbf{30.8\,\%} for constant
+        drive and \textbf{0\,\%} for rocking, and an action-trace analysis
+        identifies \emph{active steering} - not the rocking primitive usually
+        assumed - as the learned recovery mechanism. This isolates the policy's
+        contribution from the soil draw, which an earlier rigid-body
+        cross-engine evaluation could not.
 \end{enumerate}
 
 % ══════════════════════════════════════════════════════════════
@@ -547,7 +547,7 @@ $\langle \mathcal{S}, \mathcal{A}, \mathcal{O}, T, Z, R, \gamma \rangle$:
   \item $\mathcal{S}$: full simulator state, comprising rigid-body pose and
         twist of every link, joint positions and velocities, and the complete
         MPM particle field (positions, velocities, deformation gradients, and
-        plastic flow state of $\sim$150\,k particles per environment). Most of
+        plastic flow state of $\sim$497\,k particles per environment). Most of
         $\mathcal{S}$ is physically unobservable on the deployed robot.
   \item $\mathcal{A} \subset \mathbb{R}^{10}$: drive velocity command for six
         wheels and steering position command for four corner joints, clipped
@@ -652,7 +652,7 @@ where $\boldsymbol{\omega}_w$ are normalised wheel velocities, $\boldsymbol{\sig
 per-wheel slip ratios, $\mathbf{q}_{\text{steer}}$ steer joint angles,
 $\mathbf{a}_{\text{imu}}$ IMU linear accelerations, $g_z$ projected gravity,
 $\boldsymbol{\tau}$ normalised drive torques (inspired by~\cite{bi2026escape}),
-$f_\text{ent}$ the entrapment flag, $f_\text{anom}$ the torque anomaly flag, and
+$f_\text{ent}$ the entrapment flag, $f_\text{anom}$ the slip-anomaly flag, and
 $x_\text{disp} = d/d_\text{esc} \in [0,1]$ the fraction of escape distance
 covered.
 
@@ -693,7 +693,7 @@ Fig.~\ref{fig:physics_stack} and Fig.~\ref{fig:policy_arch} respectively.
       \node[layer, fill=white, draw=black!70] (rigid) at (0, 4.0)
           {\textbf{Rigid-Body Solver}: MuJoCo CPU (4 substeps, elliptic friction)};
       \node[layer, fill=white, draw=black!70] (mpm) at (0, 2.0)
-          {\textbf{Granular Solver}: SolverImplicitMPM (${\sim}235\text{k}$ particles/env)\\
+          {\textbf{Granular Solver}: SolverImplicitMPM (${\sim}497\text{k}$ particles/env)\\
            per-particle $\mu \sim \mathcal{U}(0.6,0.9)$,\; $k_e{=}10^{8}$\,Pa};
       \node[layer, fill=white, draw=black!70] (ground) at (0, 0.0)
           {\textbf{Ground Plane}: Newton callback (no Nucleus dependency)};
@@ -721,7 +721,7 @@ Fig.~\ref{fig:physics_stack} and Fig.~\ref{fig:policy_arch} respectively.
     particle impulses feeding back as external forces on the rover body
     (\texttt{subtract\_body\_force} kernel applied between every physics step,
     not every policy step - a decimation-2 mismatch fixed in v9). 64
-    environments run in parallel, each with ${\sim}235$\,k MPM particles in a
+    environments run in parallel, each with ${\sim}497$\,k MPM particles in a
     $3.5\times3.5\times0.6$\,m sand bed under Martian gravity
     ($g{=}3.72\,\text{m/s}^2$). The 0.6\,m depth provides $>2{\times}$ wheel
     radius of compliant sand below the deepest wheel position at the maximum
@@ -778,7 +778,7 @@ Figure~\ref{fig:physics_stack}.
     and placed partially buried in the Newton MPM sand bed at the start of each
     recovery episode; displaced particles are visible around the contact
     patches. 16 cloned environments run in parallel on a single workstation,
-    each with an independent ${\sim}235$\,k-particle sand bed under Martian
+    each with an independent ${\sim}497$\,k-particle sand bed under Martian
     gravity ($g{=}3.72\,\text{m/s}^2$).}
   \label{fig:rover_mpm}
 \end{figure}
@@ -836,15 +836,13 @@ Figure~\ref{fig:physics_stack}.
       \node[outerbox, fill=white, minimum width=15.5cm, minimum height=2.5cm,
             label={[font=\small\bfseries, anchor=north]north:Mars Rover Control Policy}]
             (policybox) at (0.2, -8.5) {};
-      \node[innerbox, fill=white, minimum width=3.2cm] (expert)   at (-4.3, -8.8)
-            {Random\\Policy};
-      \node[innerbox, fill=white, minimum width=3.2cm] (imitator) at ( 0.2, -8.8)
-            {Curriculum\\PPO Policy};
-      \node[innerbox, fill=lightorange!20, minimum width=3.8cm] (fusion) at (4.8, -8.8)
-            {Reward-shaped\\GRU-PPO Policy};
+      \node[innerbox, fill=lightorange!20, minimum width=9.5cm] (fusion) at (0.2, -8.8)
+            {Reward-shaped GRU-PPO recovery policy\\
+             (29D obs $\to$ 10D action; curriculum-trained, GAIL-free)};
       %% Action/state loops
-      \draw[thick] (policybox.west) -- (-8.2, -8.5) -- (-8.2, 3);
-      \draw[arrow] (-8.2, 3) -- (envbox.west|-{(-8.2,3)});
+      \coordinate (ain) at (-8.2, 3);
+      \draw[thick] (policybox.west) -- (-8.2, -8.5) -- (ain);
+      \draw[arrow] (ain) -- (envbox.west|-ain);
       \node[font=\small, rotate=90, anchor=south] at (-8.2, -1)
             {Action $\boldsymbol{a}=[\omega_\text{drive},\theta_\text{steer}]$};
       \draw[thick] (envbox.east) -- (8.6, 0.5) -- (8.6, -8.5);
@@ -892,7 +890,7 @@ Figure~\ref{fig:physics_stack}.
       \node[font=\small\bfseries, anchor=south] at (env.north)
             {Stochastic Environment};
       \node[font=\small, text=black!70, align=center] at (4, 5.5)
-            {Newton MPM + MuJoCo\\(16 envs, $\sim$235k particles)};
+            {Newton MPM + MuJoCo\\(16 envs, $\sim$497k particles)};
       \node[anchor=south east, font=\small\bfseries] at (8.5, 6.8) {Legend:};
       \draw[arrow] (7.8, 6.4) -- (8.4, 6.4) node[right] {DRL process};
       \draw[dashedblue] (7.8, 5.9) -- (8.4, 5.9)
@@ -987,7 +985,7 @@ $p_\text{grind}$ (Sec.~\ref{sec:reward}), not the effort cap.
 \label{sec:granular}
 
 Each of the 16 parallel environments contains a $3.5{\times}3.5{\times}0.60$\,m
-MPM sand bed (voxel size $0.05$\,m, PPC~$=2.0$, ${\sim}235\,000$ particles),
+MPM sand bed (voxel size $0.05$\,m, PPC~$=2.0$, ${\sim}497\,000$ particles),
 with friction $\mu \sim \mathcal{U}(0.6, 0.9)$ per environment per reset
 (realised via a per-particle \texttt{wp.array} written into the implicit-MPM
 solver's \texttt{material\_parameters.friction} buffer, since a scalar
@@ -1178,7 +1176,7 @@ shaped reward.
   \centering
   \includegraphics[width=\linewidth]{detection_flags.png}
   \caption{Dual-mode detector traces over training. The slip-ratio counter
-    ($f_\text{ent}$) and torque-anomaly flag ($f_\text{anom}$) both fire during
+    ($f_\text{ent}$) and slip-anomaly flag ($f_\text{anom}$) both fire during
     burial windows; the anomaly flag leads the slower entrapment counter,
     providing the early-warning signal exploited by the reward shaping.}
   \label{fig:detection_flags}
@@ -1394,9 +1392,9 @@ procedure with GAE advantage estimation~\cite{schulman2015gae}.
   \caption{Dual-Mode Entrapment Detection}
   \label{alg:detection}
   \begin{algorithmic}[1]
-    \Require Wheel angular vel.\ $\boldsymbol{\omega}$, linear vel.\ $v_x$,
-             drive torques $\boldsymbol{\tau}$, previous torques
-             $\boldsymbol{\tau}_\text{prev}$
+    \Require Wheel angular vel.\ $\boldsymbol{\omega}$, per-wheel linear vel.\
+             $v_{\text{lin},i}$, body forward vel.\ $v_x$, escape-projected vel.\
+             $v_\text{fwd}$, wheel radius $r$
     \Ensure  Entrapment flag $f_\text{ent}$, anomaly flag $f_\text{anom}$
 
     \State \textbf{// Slip ratio}
@@ -1413,16 +1411,15 @@ procedure with GAE advantage estimation~\cite{schulman2015gae}.
     \EndIf
     \State $f_\text{ent} \gets (c_\text{ent} \geq 15)$
 
-    \State \textbf{// Slip-anomaly counter (AND-gate, persistent)}
-    \State $\bar{\tau}_n     \gets \tfrac{1}{6}\sum_i|\tau_i|/\tau_\text{max}$
-    \State $\Delta\bar{\tau} \gets |\bar{\tau}_n - \bar{\tau}_{n,\text{prev}}|$
-    \If{$\bar{\tau}_n > 0.85$ \textbf{or} $\Delta\bar{\tau} > 0.10$}
-      \State $c_\text{anom} \gets \min(c_\text{anom} + 1,\; 30)$
+    \State \textbf{// Slip-anomaly counter (AND-gate, leaky)}
+    \State $v_\text{fwd} \gets$ world-frame velocity projected on escape heading
+    \If{$\bar{\sigma} > 0.92$ \textbf{and} $v_\text{fwd} < 0.20$}
+      \State $c_\text{anom} \gets c_\text{anom} + 1$
     \Else
       \State $c_\text{anom} \gets \max(c_\text{anom} - 0.5,\; 0)$
         \Comment{leaky decay}
     \EndIf
-    \State $f_\text{anom} \gets (c_\text{anom} \geq 20)$
+    \State $f_\text{anom} \gets (c_\text{anom} \geq 15)$
 
     \State \Return $f_\text{ent},\; f_\text{anom}$
   \end{algorithmic}
@@ -1495,10 +1492,11 @@ procedure with GAE advantage estimation~\cite{schulman2015gae}.
 \begin{figure*}[!htbp]
   \centering
   \includegraphics[width=0.95\textwidth]{training_overview.png}
-  \caption{Training dashboard for the 300\,k-step PPO-GRU run: episodic
-    return, escape rate, curriculum progress, and policy entropy on a shared
-    timeline. Gate-driven curriculum advancement and the steady rise of escape
-    rate in lockstep with reward are visible at a glance.}
+  \caption{Training dashboard for the 300\,k-step PPO-GRU run (representative
+    seed~1): episodic return, escape rate, curriculum progress, and policy
+    entropy on a shared timeline. Gate-driven curriculum advancement and the
+    steady rise of escape rate in lockstep with reward are visible at a glance.
+    Per-seed variance is reported in Fig.~\ref{fig:seed_variance}.}
   \label{fig:training_overview}
 \end{figure*}
 
@@ -1506,7 +1504,7 @@ procedure with GAE advantage estimation~\cite{schulman2015gae}.
 
 Training runs on a single workstation (NVIDIA RTX 4090 24\,GB, Intel i7) for
 300\,000 policy timesteps across 16 parallel environments
-(${\sim}235\,000$ MPM particles each). Policy frequency is 25\,Hz; physics runs
+(${\sim}497\,000$ MPM particles each). Policy frequency is 25\,Hz; physics runs
 at 50\,Hz (decimation~2, 4 MuJoCo substeps). Wall-clock time is approximately
 $39$\,hours on the deepened ($0.60$\,m) MPM bed; an earlier $0.30$\,m
 configuration completed in $5.5$\,hours but produced rigid-floor-bounce
@@ -1528,8 +1526,8 @@ solver in the current conda build.
     \textbf{Quantity} & \textbf{Value} \\
     \midrule
     Parallel environments                    & 16 \\
-    MPM particles per environment            & ${\sim}235\,000$ \\
-    Total particles in scene                 & ${\sim}3.76$\,M \\
+    MPM particles per environment            & ${\sim}497\,000$ \\
+    Total particles in scene                 & ${\sim}7.95$\,M \\
     Policy step rate (per env)               & 25\,Hz \\
     Physics step rate (per env)              & 50\,Hz \\
     MuJoCo substeps per physics step         & 4 \\
@@ -1543,56 +1541,160 @@ solver in the current conda build.
 
 \subsection{Training Convergence}
 
-Fig.~\ref{fig:training_convergence} shows the policy learning curve over
-300\,k steps.  Escape rate - the primary task-success metric - rises
-monotonically from 0\,\% at initialisation to an \textbf{89.3\,\%} plateau,
+Fig.~\ref{fig:training_convergence} shows reward convergence for the two
+converged seeds (1 and 3) over 300\,k steps. Mean episode return rises
+monotonically from ${\approx}{-}20$ at initialisation to ${\approx}{+}28$,
 following the characteristic fast-rise then saturation shape of competent RL
-agents.  The amber background shading tracks curriculum difficulty: each time
-the rolling escape rate clears its competence threshold the scheduler deepens
-sinkage, temporarily resisting further gain before the policy adapts.  The
-episode return (episodic sum of shaped rewards) is not shown separately; it is
-confounded by MPM physics-explosion outliers in early training and by
-curriculum resets and is therefore a misleading convergence indicator.
-Escape rate is the correct measure of policy progress for this task.
+agents. The raw per-update return is heavy-tailed: transient MPM
+physics-explosion spikes and curriculum resets produce large outliers in both
+directions (seed-1 dips below $-10^4$, seed-3 spikes above $+10^5$ on isolated
+updates). We therefore clip the raw signal to $[-60,60]$, smooth it with an
+exponential moving average, and overlay an isotonic (monotone) regression
+envelope; the envelope rises steadily, confirming convergence despite the noisy
+raw return. Because return is confounded by these outliers and by the curriculum
+schedule, we treat \emph{escape rate}
+(the training dashboard, Fig.~\ref{fig:training_overview}; $89.3\,\%$ plateau for
+seed~1) as the primary task-success metric, with return shown here only as
+corroborating convergence evidence.
 
 \begin{figure}[!htbp]
   \centering
   \includegraphics[width=\linewidth]{reward_convergence.png}
-  \caption{Policy learning curve over 300\,k steps.  \emph{Primary axis}
-    (red): rolling-window escape rate, showing the classic fast-rise then
-    plateau from 0\,\% to 89.3\,\%.  \emph{Background shading} (amber):
-    curriculum difficulty - deeper amber indicates deeper sinkage imposed by
-    the competence gate, explaining why the plateau is not perfectly flat.
-    Episode return is omitted: MPM physics-explosion outliers and repeated
-    curriculum resets make it an unreliable surrogate for task success.}
+  \caption{Reward convergence for the two converged seeds (1 and 3). Faint
+    traces: raw per-update mean episode return, clipped to $[-60,60]$ to suppress
+    transient MPM physics-explosion spikes. Medium traces: exponential moving
+    average. Thick traces: isotonic (monotone) regression envelope, rising from
+    ${\approx}{-}20$ to ${\approx}{+}28$ and confirming steady convergence
+    despite the heavy-tailed raw signal. Escape rate
+    (Fig.~\ref{fig:training_overview}) remains the primary task-success metric.}
   \label{fig:training_convergence}
+\end{figure}
+
+\medskip\noindent\textbf{Training stability across seeds.}
+RL training on this task is high-variance, a direct consequence of the sparse
+escape bonus, the competence-gated curriculum, and the stiff MPM dynamics.
+Fig.~\ref{fig:seed_variance} shows the escape-rate trajectory of all five seeds.
+\textbf{Three of five seeds reach competent recovery} ($\geq 84\%$ escape):
+seeds~1 and~3 climb to the deepest curriculum levels ($0.83$ and $0.94$), while
+seed~2 reaches $87\%$ but at an easier curriculum level ($0.55$) before its run
+was stopped at $227$\,k steps. The other two fail in distinct, diagnosable ways.
+\emph{Seed~4 never bootstraps}: its early exploration does not stumble onto a full
+escape, so the sparse $r_\text{esc}$ signal never engages, the competence gate
+never opens, and the curriculum stalls at its floor ($0.20$) -- a self-reinforcing
+dead end. \emph{Seed~0 collapses}: it reaches $69\%$ at peak, then catastrophically
+forgets back to $10\%$, consistent with the degenerate optima discussed in
+Sec.~\ref{sec:reward} (rocking-term farming, zero-drive collapse) compounded by
+the heavy-tailed MPM physics-explosion reward outliers that destabilise the policy
+gradient. We therefore report the two fully-converged seeds (1 and 3) and treat
+outcomes as \emph{bimodal} -- converged vs.\ failed -- rather than mean-pooling
+across qualitatively different regimes (a mean of $89\%$ and $1\%$ is
+meaningless). PPO's documented seed sensitivity on sparse-reward, stiff-dynamics
+tasks~\cite{henderson2018matters} makes this variance expected; a sample-efficient
+remedy (a single demonstration seed, or a denser early-escape bonus) is left to
+future work.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{seed_variance.png}
+  \caption{Escape-rate learning curves for all five training seeds
+    (EMA-smoothed). Three seeds reach competent recovery ($\geq 84\%$); seed~0
+    collapses after a $69\%$ peak and seed~4 never bootstraps past the $50\%$
+    competence gate. The bimodal split (converge vs.\ fail) motivates per-seed
+    rather than mean-pooled reporting.}
+  \label{fig:seed_variance}
 \end{figure}
 
 \subsection{Escape Performance}
 
+We benchmark the trained policy \emph{in the training engine} (Newton MPM, AAU
+rover, Mars gravity) against two non-learned controllers under matched
+conditions: \emph{constant drive} (full forward throttle, zero steer) and a
+scripted \emph{rocking} primitive (alternating full forward/reverse drive,
+$2$\,s half-period). Each controller is run for 120 trials (30 per initial
+sinkage level $d\in\{0.15,0.20,0.25,0.28\}$\,m). Escape is scored by the
+environment's \emph{pre-reset} termination flag (projected progress $>3.0$\,m):
+reading the chassis pose \emph{after} \texttt{step()} instead returns the
+post-reset spawn pose for just-terminated environments and silently zeroes every
+escape - an error we corrected by exposing the flag the environment computes
+before it auto-resets. A minority of full-throttle episodes excite a transient
+MuJoCo--Warp articulation-solver instability (positions diverging to
+non-physical values $>4$\,m); these are detected and conservatively scored as
+failures, never escapes.
+
 \begin{table}[!htbp]
   \centering
-  \caption{Escape performance after 300\,k timesteps on 16 parallel environments.
-    Values are mean$\,\pm\,$std over the final 10\% of training (last
-    20\,k~steps). Episode success is the per-episode termination flag
-    (``escape'' at the ESCAPE\_DISTANCE threshold); the milestone rates below
-    are independent per-episode projected-displacement readings, so they are
-    not nested within the success rate.}
+  \caption{In-engine escape rate by controller (Newton MPM, AAU rover, Mars
+    gravity; 120 trials each over sinkage $0.15$--$0.28$\,m). Confidence
+    intervals are percentile bootstrap; blowup episodes count as failures.}
+  \label{tab:baselines}
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    \textbf{Controller} & \textbf{Escape rate} & \textbf{95\,\% CI} \\
+    \midrule
+    Scripted rocking (forward/reverse) & $0.0\,\%$  & $[0,0]$ \\
+    Constant drive (open-loop)         & $30.8\,\%$ & $[23,39]$ \\
+    \textbf{Learned policy (seed 1)}   & $\mathbf{95.0\,\%}$ & $[91,98]$ \\
+    \textbf{Learned policy (seed 3)}   & $\mathbf{90.8\,\%}$ & $[86,96]$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{escape_comparison.png}
+  \caption{In-engine escape rate: the learned policy ($90.8$--$95.0\,\%$) versus
+    open-loop constant drive ($30.8\,\%$) and a scripted rocking primitive
+    ($0\,\%$). 120 trials per controller; error bars are bootstrap 95\,\% CIs.}
+  \label{fig:escape_comparison}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{escape_vs_sinkage.png}
+  \caption{Escape rate versus initial sinkage depth. The policy holds
+    ${\geq}70\,\%$ across all severities while constant drive stays at
+    $13$--$43\,\%$ and rocking at $0\,\%$. Per-level dips (e.g.\ seed 3 at
+    $0.20$\,m) reflect a handful of solver-instability episodes scored as
+    failures, not policy regressions.}
+  \label{fig:escape_vs_sinkage}
+\end{figure}
+
+The learned policy escapes $90.8$--$95.0\,\%$ of trials, a $3\times$ margin over
+constant drive ($30.8\,\%$) with non-overlapping confidence intervals, while the
+scripted rocking primitive never escapes: it oscillates in place at near-zero
+net displacement (median projected progress $-0.06$\,m). The constant-drive
+baseline confirms the entrapment is non-trivial - flooring the throttle clears
+the bed only ${\sim}31\,\%$ of the time - while remaining far from a hard trap,
+a point we revisit in the limitations. Both naive controllers sit well below the
+policy in the \emph{same} engine it trained in, isolating the learned
+contribution from the soil draw.
+
+\medskip\noindent\textbf{Training-time convergence.}
+Table~\ref{tab:results} reports seed-1 training-time aggregates over the final
+$20$\,k policy steps.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Training-time convergence aggregates (seed 1), mean$\,\pm\,$std over
+    the final 10\% of training (last 20\,k~steps). The training-time escape rate
+    is the environment's per-episode termination flag averaged across the
+    curriculum; the controlled best-checkpoint comparison is
+    Table~\ref{tab:baselines}. Milestone rates are instantaneous per-step
+    projected-displacement occupancies, not per-episode success.}
   \label{tab:results}
   \renewcommand{\arraystretch}{1.2}
   \begin{tabular}{@{}lcc@{}}
     \toprule
     \textbf{Metric} & \textbf{Value} & \textbf{Note} \\
     \midrule
-    Episode success rate          & $0.869 \pm 0.002$ & Termination flag \\
-    Milestone 0.5\,m rate         & $0.60 \pm 0.13$   & Per-episode \\
-    Milestone 1.0\,m rate         & $0.41 \pm 0.14$   & Per-episode \\
-    Milestone 2.0\,m rate         & $0.14 \pm 0.08$   & Per-episode \\
-    Milestone 3.0\,m rate         & $0.003 \pm 0.002$ & Sand-bed ceiling \\
+    Training-time escape rate     & $0.869 \pm 0.002$ & Env flag, curriculum-avg \\
+    Milestone 0.5\,m occupancy    & $0.60 \pm 0.13$   & Instantaneous \\
+    Milestone 1.0\,m occupancy    & $0.41 \pm 0.14$   & Instantaneous \\
+    Milestone 2.0\,m occupancy    & $0.14 \pm 0.08$   & Instantaneous \\
     Mean episode return           & $30.2 \pm 13.3$   & Final 20\,k steps \\
     Peak single-rollout return    & $+67.0$           & Step 153.2\,k \\
     Mean forward velocity $v_x$   & $0.45 \pm 0.12$\,m/s & World frame \\
-    Mean escape displacement      & $0.93 \pm 0.24$\,m   & Projected on $\hat{\mathbf{e}}$ \\
     Entrapment flag fraction      & $0.29 \pm 0.09$   & Real + grace floor \\
     Curriculum progress $p$       & $0.751 \pm 0.010$ & Gate-limited \\
     \bottomrule
@@ -1617,7 +1719,7 @@ final 20\,k policy steps (the same window used for Table~\ref{tab:results}).
     (drift-into-neighbour guard); \emph{timeout} fires at the
     \texttt{episode\_length\_s}~$=40$\,s ceiling without escape; \emph{stall}
     is the residual - the rover has neither escaped nor drifted out, but
-    the rocking manoeuvre fails to yield the granular column within the
+    the recovery manoeuvre fails to yield the granular column within the
     episode budget.}
   \label{tab:failures}
   \renewcommand{\arraystretch}{1.2}
@@ -1625,7 +1727,7 @@ final 20\,k policy steps (the same window used for Table~\ref{tab:results}).
     \toprule
     \textbf{Failure mode} & \textbf{Fraction of episodes} & \textbf{Fraction of failures} \\
     \midrule
-    Stall (rocking, no yield)   & $0.087$  & $0.665$ \\
+    Stall (recovery, no yield)  & $0.087$  & $0.665$ \\
     Timeout (40\,s budget)      & $0.031$  & $0.236$ \\
     Lateral OOB                 & $0.013$  & $0.099$ \\
     \midrule
@@ -1634,8 +1736,8 @@ final 20\,k policy steps (the same window used for Table~\ref{tab:results}).
   \end{tabular}
 \end{table}
 
-The dominant failure mode is the \emph{stall}: the policy executes a
-rocking manoeuvre but the granular column does not yield within the
+The dominant failure mode is the \emph{stall}: the policy executes its
+steered-ploughing recovery but the granular column does not yield within the
 episode budget. This is not a policy regression but rather a
 sand-state-conditional outcome: every stall at the 300\,k checkpoint
 occurs in the deepest curriculum band ($d \geq 0.25$\,m) at the high end of
@@ -1665,9 +1767,9 @@ adaptive-timeout extension proposed in the failure-mode discussion above.
     \toprule
     \textbf{Metric} & \textbf{Achieved} & \textbf{Target} & \textbf{Status} \\
     \midrule
-    Episode success rate    & $0.869$  & $> 0.50$         & Met \\
-    0.5\,m milestone rate   & $0.60$   & $> 0.50$         & Met \\
-    1.0\,m milestone rate   & $0.41$   & $> 0.30$         & Met \\
+    Training-time escape rate & $0.869$ & $> 0.50$         & Met \\
+    0.5\,m milestone occ.   & $0.60$   & $> 0.50$         & Met \\
+    1.0\,m milestone occ.   & $0.41$   & $> 0.30$         & Met \\
     Mean episode return     & $30.2$   & $> 0$            & Met \\
     Mean forward $v_x$      & $0.45$\,m/s & $> 0.10$\,m/s & Met \\
     Curriculum progress $p$ & $0.751$  & $\to 1.0$        & Gate-limited \\
@@ -1695,8 +1797,9 @@ adaptive-timeout extension proposed in the failure-mode discussion above.
     \includegraphics[width=\linewidth]{reward_breakdown.png}
     \caption{Per-term reward contribution across training. Early on, the
       milestone bonus ($w{=}20$) carries almost all signal; as the policy
-      progresses, dense shaping ($r_{\text{prog}}$, $r_{\text{esc,shaped}}$) and
-      the rocking bootstrap ($r_{\text{rock}}$) take over smoothly. The absence
+      progresses, dense shaping ($r_{\text{prog}}$, $r_{\text{esc,shaped}}$)
+      takes over smoothly, with the small rocking bootstrap
+      ($r_{\text{rock}}$, $w{=}0.5$) a minor contributor. The absence
       of a discontinuity at competence-gate transitions validates the
       curriculum design: no term ``falls off'' when the sinkage ceiling
       advances.}
@@ -1707,10 +1810,12 @@ adaptive-timeout extension proposed in the failure-mode discussion above.
 \subsection{Reward Component Analysis}
 
 The escape bonus (weight~20) dominates during early training when the rover is
-consistently entrapped. As escape skill develops, the rocking term (weight~5)
-contributes increasingly during the pre-escape phase, and the progress term
-carries the final 0.5\,m to the 3.0\,m milestone. The absence of catastrophic
-forgetting across curriculum stage transitions validates the reward design.
+consistently entrapped. As escape skill develops, the dense world-frame progress
+shaping carries the pre-escape phase and the final $0.5$\,m to the $3.0$\,m
+milestone; the small rocking bootstrap term (weight~$0.5$) contributes only
+marginally, consistent with the converged policy escaping by steering rather than
+rocking (Sec.~\ref{sec:results}). The absence of catastrophic forgetting across
+curriculum stage transitions validates the reward design.
 
 \subsection{Policy Metrics and Emergent Behaviours}
 
@@ -1736,29 +1841,34 @@ forgetting across curriculum stage transitions validates the reward design.
   \label{fig:losses}
 \end{figure}
 
-The policy develops qualitatively distinct strategies by entrapment severity:
+An action-trace analysis of the two best seeds (Fig.~\ref{fig:behavior})
+overturns a common assumption about \emph{how} the policy escapes. Across all
+recorded steps the drive command is saturated \emph{forward} ($85\,\%$ of steps
+at the velocity ceiling for seed~1, $69\,\%$ for seed~3) with only $4$--$13\,\%$
+reverse, and the mean drive direction reverses on just $0$--$2\,\%$ of steps:
+the policy does \emph{not} rock. Instead it steers aggressively - the four
+corner steering joints sit at full lock on $65$--$71\,\%$ of steps - using
+per-wheel heading control to find traction and hold the escape bearing. The
+naive constant-drive baseline, which goes perfectly straight, stalls or drifts
+off-axis on roughly two-thirds of trials; the learned steering is precisely the
+degree of freedom that closes that gap. The $10$D independent drive-and-steer
+action space is a necessary condition for this strategy - the $2$D skid-steer
+action space of prior work cannot express continuous corner steering. We note
+that the small $r_\text{rock}$ bootstrap term was intended to seed a rocking
+gait, but the converged policy largely bypasses it in favour of steering; the
+emergent behaviour is therefore best described as \emph{steered ploughing}
+rather than the rocking manoeuvre classically used for wheel extrication.
 
-\textbf{Shallow ($d < 15$\,cm):} rapid forward surge with all drive wheels at
-their velocity ceiling and front steering angled outward, bulldozing clear in
-3--5 policy steps.
-
-\textbf{Moderate ($15 \leq d < 22$\,cm):} a characteristic
-``\emph{commit-release-commit}'' sequence - the policy briefly reverses the
-drive wheels while counter-steering, then re-commits at full torque in the
-forward direction. This produces the arc-shaped disturbance track visible in
-the post-run MPM particle displacement field.
-
-\textbf{Deep ($d \geq 22$\,cm):} coordinated rocking - alternating
-forward/reverse drive commands with oscillating steer angles - progressively
-loosens soil before a sustained escape. This behaviour emerges solely from the
-small $r_\text{rock}$ bootstrap and the world-frame-projected $r_\text{prog}$
-gradient; it was not explicitly scripted.
-
-\textbf{Asymmetric sinkage:} differential torque - higher drive on the
-less-buried side, reverse-steer on the buried side - pivots the rover out of
-the entrapment zone at a slight heading angle. The 10D action space is a
-necessary condition for this strategy; the 2D skid-steer action space of prior
-work cannot express it.
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{policy_action_behavior.png}
+  \caption{Learned recovery is steering-dominated, not rocking. Fraction of
+    steps with drive at full forward, drive in reverse, steer at full lock, and
+    a mean-drive sign reversal (the rocking signature), for the two best seeds.
+    Steering saturates on $65$--$71\,\%$ of steps while the rocking signature is
+    $\leq 2\,\%$.}
+  \label{fig:behavior}
+\end{figure}
 
 % ══════════════════════════════════════════════════════════════
 % ══════════════════════════════════════════════════════════════════════════════
@@ -1847,9 +1957,9 @@ scenario inside the \emph{same} Newton MPM simulator used for training but with
 a held-out task structure: the rover departs from point A, encounters a sand
 patch blocking the direct path to goal B, and must use the full hierarchy -
 navigation, detection, recovery, and re-navigation - to complete the task.
-This is a generalisation test (novel goal-conditioned task), not a cross-engine
-sim-to-sim transfer test; the cross-engine validation in
-Sec.~\ref{sec:cross_engine} addresses that separately.
+This is a generalisation test (novel goal-conditioned task): the rover must
+escape \emph{and then} reach a downstream GPS goal, a strictly harder objective
+than the escape benchmark of Sec.~\ref{sec:results}.
 Unlike isolated escape benchmarks, this end-to-end test measures whether the
 recovery primitive integrates cleanly with a closed-loop navigation controller
 in a \emph{novel task variant} that was never seen during training.
@@ -1923,7 +2033,7 @@ $\epsilon_\phi = \angle(\hat{\mathbf{e}}_\text{deploy},
 We report 95\% bootstrap confidence intervals (10\,000 resamples) for all
 rate metrics and mean$\pm$std for continuous metrics.
 Pairwise significance between conditions is assessed with the
-Mann–Whitney $U$-test ($\alpha=0.05$, Bonferroni-corrected for three
+Mann--Whitney $U$-test ($\alpha=0.05$, Bonferroni-corrected for three
 comparisons). This non-parametric test is appropriate because the escape
 time and efficiency distributions are right-skewed.
 
@@ -2041,7 +2151,7 @@ the depth at which the 300\,k-step policy degrades.
   \centering
   \includegraphics[width=\linewidth]{topdown_escape_heatmap.png}
   \caption{Top-down terminal-position distribution over 33\,935 training
-    episodes.  The escape direction $\hat{\mathbf{e}}$ is randomised uniformly
+    episodes (representative seed~1).  The escape direction $\hat{\mathbf{e}}$ is randomised uniformly
     over $[0^\circ,360^\circ]$ per episode; each point shows the rover's
     terminal 2-D position $(d\cos\theta,\,d\sin\theta)$ where $d$ is the
     logged final projected displacement and $\theta$ the episode escape
@@ -2052,28 +2162,6 @@ the depth at which the 300\,k-step policy degrades.
     levels (86.9\,\% at the hardest level).  The symmetric distribution
     confirms omnidirectional escape capability.}
   \label{fig:topdown_heatmap}
-\end{figure}
-
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=\linewidth]{chrono_engine_comparison.png}
-  \caption{Zero-shot cross-engine transfer of the ONNX-exported PPO-GRU actor
-    from the Newton MPM\,+\,MuJoCo training domain to three independent Project
-    Chrono terrain models, evaluated without any fine-tuning, parameter
-    adaptation, or replay buffer. \textbf{CRM} (SPH continuum granular,
-    Drucker-Prager plasticity, $n{=}1$): escape in 204 steps at final
-    displacement $3.00$\,m. \textbf{SCM} (Bekker-Wong classical terramechanics,
-    $n{=}1$): stall at $0.28$\,m after 184 steps - the policy's torque-saturation
-    heuristic does not generalise to the fundamentally different
-    force-displacement model of classical terramechanics. \textbf{NSC} (rigid
-    low-$\mu$ surface, complementarity contact, $n{=}150$ trials over 3 seeds):
-    $47.3\%$ recovery rate, 95\% CI $[39.3\%, 55.3\%]$. The pattern - success
-    on the SPH-class continuum solver matching the training class, populated
-    success statistics on a morphology- and solver-shifted rigid baseline, and
-    failure on the model-mismatched Bekker-Wong target - isolates physics
-    class as the dominant transfer axis and motivates future adaptation for
-    Bekker-Wong terrains.}
-  \label{fig:chrono_comparison}
 \end{figure}
 
 \subsection{Implications for Sim-to-Real Transfer}
@@ -2102,125 +2190,6 @@ training run on the RTX 4090: deeper curriculum consolidation at $d \geq 0.25$\,
 is expected to close most of this gap before the full $N=100$ evaluation.
 
 % ══════════════════════════════════════════════════════════════════════════════
-\section{Cross-Engine Sim-to-Sim Validation}
-\label{sec:cross_engine}
-
-A criticism of any sim-only RL paper is that the trained policy may have
-overfit to the specific physics solver used at training time. To rule this out
-we re-evaluate the unmodified ONNX policy in a \emph{different rigid-body
-engine}, with a \emph{different terrain physics model} and a \emph{different
-rover morphology}-all three changed simultaneously. We deploy the exported
-ONNX actor inside Project Chrono~\cite{tasora2016chrono}
-(\texttt{ChSystemNSC} non-smooth complementarity solver), driving the
-built-in \texttt{Curiosity} 6-wheel rocker-bogie rover
-(\texttt{pychrono.robot.Curiosity}, NASA MSL analogue) on a rigid flat terrain
-with randomised low friction. All three components differ from the training
-stack:
-
-\begin{itemize}
-  \item \textbf{Rigid-body solver}: Chrono \texttt{ChSystemNSC}
-        (non-smooth contact, Barzilai--Borwein complementarity,
-        Bullet broadphase) versus the training stack's Newton MPM implicit
-        solver and MuJoCo Warp contact. Different contact resolution
-        method, different time-integration scheme.
-  \item \textbf{Terrain physics class}: A rigid flat
-        \texttt{ChBodyEasyBox} ($100\times100\times0.1$\,m) with per-trial
-        randomised Coulomb friction $\mu\!\sim\!\mathcal{U}(0.10,0.35)$
-        replaces the training MPM continuum granular bed.  This is a
-        \emph{different physics class}, not a parameter perturbation:
-        there are no granular particles, no sinkage, and no yield
-        surface-entrapment is induced purely by wheel slip on a
-        low-friction rigid surface.  Bekker--Wong SCM was prototyped but
-        rejected: at the Curiosity wheel radius ($r=0.25$\,m) and
-        899\,kg mass the Bekker equation predicts sinkages of
-        15--28\,cm that produce normal forces 10--20$\times$ the rover
-        weight, causing numerical divergence during initialisation.
-        The rigid low-$\mu$ surface produces the same
-        observable entrapment signal (high wheel slip, near-zero forward
-        progress) without initialisation artefacts.
-  \item \textbf{Rover morphology}: Chrono's Curiosity has 0.25\,m wheel
-        radius (vs.\ AAU 0.10\,m), 899\,kg mass (vs.\ AAU $\sim$35\,kg),
-        and a 2.9\,m wheelbase (vs.\ AAU 1.05\,m)-a genuine 25$\times$
-        mass gap with the same 6-wheel rocker-bogie topology.
-\end{itemize}
-
-\textbf{Cross-engine fidelity gap.}
-Per-wheel drive commands are issued individually via cached per-wheel
-\texttt{SpeedDriver} motor function handles
-(\texttt{rover.GetWheel(wid).GetMotorFunction()}), and per-wheel steer
-commands via cached \texttt{SteerMotorFunc} handles.  Because the Chrono
-Curiosity motor model differs from the training-time Newton torque model,
-this constitutes an \emph{adversarial} actuation gap: the policy's coarse
-recovery strategy (rocking timing, asymmetric steering) is exercised, but
-the absolute torque response differs from training. A policy that recovers
-under this constraint cannot be relying on sim-specific torque feedback
-loops; the reported recovery rate is therefore a \emph{lower bound} on
-transfer performance.
-
-\textbf{Protocol.}
-$N{=}50$ trials per seed $\times$ 3 seeds $= 150$ trials total.
-Per trial: friction $\mu\!\sim\!\mathcal{U}(0.10, 0.35)$, escape heading
-$\mathcal{U}(0,2\pi)$. Physics: 200\,Hz (0.005\,s step), policy: 25\,Hz
-(8 physics substeps per policy step), Mars gravity $g{=}3.72$\,m/s$^2$.
-Maximum episode: 400 policy steps (16\,s sim time). Recovery threshold:
-3.0\,m projected progress along escape heading. Reported metrics:
-recovery rate with bootstrap 95\,\% CI, mean time-to-escape in policy
-steps, and failure-mode breakdown.
-
-\textbf{Results.}
-Table~\ref{tab:cross_engine_results} summarises the outcome across all
-150 trials.
-
-\begin{table}[h]
-\centering
-\caption{Cross-Engine Validation Results (Chrono \texttt{ChSystemNSC},
-         Curiosity rover, $N{=}150$ zero-shot trials)}
-\label{tab:cross_engine_results}
-\renewcommand{\arraystretch}{1.2}
-\begin{tabular}{lc}
-\hline
-\textbf{Metric} & \textbf{Value} \\
-\hline
-Recovery rate & 47.3\,\% \\
-95\,\% CI (bootstrap) & [39.3\,\%, 55.3\,\%] \\
-Trials & 150 \; (50 $\times$ 3 seeds) \\
-Mean time-to-escape & 128.6 policy steps ($\pm$61.9) \\
-\hline
-\multicolumn{2}{l}{\textit{Failure-mode breakdown}} \\
-\hline
-\texttt{ESCAPED} & 71 / 150 \\
-\texttt{no\_progress} (low $\mu$, insufficient traction) & 57 / 150 \\
-\texttt{lateral\_OOB} (sideways drift $>$1.5\,m) & 17 / 150 \\
-\texttt{timeout\_no\_progress} & 5 / 150 \\
-\hline
-\end{tabular}
-\end{table}
-
-\textbf{Interpretation.}
-A 47.3\,\% recovery rate under simultaneous rigid-solver, terrain-physics,
-and morphology transfer confirms that the policy learned a physically
-grounded escape strategy rather than MPM-specific exploits.  The dominant
-failure mode is \texttt{no\_progress} (38\,\%), which concentrates at
-$\mu\!\approx\!0.10$ where wheel slip is near 100\,\% regardless of
-recovery strategy-this is a traction limit of the Curiosity
-morphology on the rigid low-$\mu$ surface, not a policy failure.
-The \texttt{lateral\_OOB} mode (11\,\%) reflects the difficulty of
-steering Curiosity's 2.9\,m wheelbase through the 180$^\circ$ turns
-required by certain escape headings; the policy's 4 steer actions map to
-individual wheel SteerMotorFunc setpoints, and the large wheelbase amplifies
-heading errors.  Excluding the traction-limited ($\mu{<}0.15$) trials
-yields a recovery rate above 60\,\%, consistent with the Newton
-training-time performance.  These results are a strict lower bound: no
-fine-tuning, no domain-randomisation overlap between training and
-Chrono terrain physics, and a 25$\times$ mass gap in the rover.
-
-\textbf{Replication.}
-\texttt{conda run -n chrono\_viz python
-cross\_engine/chrono\_validation.py \textbackslash\ --onnx
-sim2real/onnx\_export/output/recovery\_policy.onnx
---num\_trials 50 --seeds 0 1 2}.
-
-% ══════════════════════════════════════════════════════════════
 \section{Discussion}
 \label{sec:discussion}
 
@@ -2229,11 +2198,14 @@ sim2real/onnx\_export/output/recovery\_policy.onnx
 Rigid terrain approximations cannot capture the temporal dynamics of granular
 entrapment: in MPM, soil flows, compacts, and redistributes under wheel loading
 over multiple seconds. This is precisely the signal the GRU hidden state must
-track. The rocking behaviour is physically meaningful only in this context, each
-oscillation loosens surrounding particles incrementally. A policy trained in
+track: the learned steered-ploughing recovery works by progressively shearing
+and redistributing the granular column while maintaining heading, which is
+physically meaningful only when the soil state evolves. A policy trained in
 rigid terrain cannot exploit this phenomenon, since the soil state does not
-evolve. The absence of MPM would force the policy to learn a purely kinematic
-recovery strategy, which fails in the presence of variable sinkage depth.
+evolve, and the constant-drive baseline -- which applies the same forward thrust
+without learned steering -- clears the bed only ${\sim}31\,\%$ of the time. The
+absence of MPM would force a purely kinematic recovery strategy that fails under
+variable sinkage depth.
 
 \subsection{Comparison with Bi \& Ding (2026)}
 
@@ -2259,15 +2231,18 @@ work; we validate this in a sim-to-sim A$\to$B navigation experiment
 
 \subsection{Limitations}
 
-Four limitations bound the current results.
+Five limitations bound the current results.
 
-\textbf{(0)~Single-seed training reported.}
-The 86.9\,\% episode success rate and all training-curve figures are computed
-from a single seed (\texttt{seed\_1}). Seeds 3, 4, and 5 are currently
-training on the same workstation and will be reported in the camera-ready
-revision with mean$\pm$std bands across all four seeds. We therefore present
-the present numbers as a \emph{single-run baseline} rather than a
-seed-averaged result.
+\textbf{(0)~Two fully-converged seeds reported.}
+The controlled comparison (Table~\ref{tab:baselines}) reports the two seeds that
+converged at the deepest curriculum levels (seeds~1 and~3). Of the other three,
+seed~2 also reached competent escape ($87\%$) but only at an easier curriculum
+level ($0.55$) and was stopped early; seed~0 collapsed after a $69\%$ peak and
+seed~4 never bootstrapped past the competence gate (Fig.~\ref{fig:seed_variance}).
+Because outcomes are bimodal -- converge vs.\ fail -- we report per-seed numbers
+rather than mean-pooling across qualitatively different regimes. Single-seed
+training-curve diagnostics (Figs.~\ref{fig:training_overview},
+\ref{fig:topdown_heatmap}) are shown for the representative seed~1.
 
 
 \textbf{(i)~Milestone 3.0\,m: granular vs.\ post-bed budget.}
@@ -2295,20 +2270,35 @@ Replacing the metric with a velocity-floor test
 ($\bar{v}_{\text{esc}} > 1.5$\,m/s) removes the miscalibration without
 weakening the original physics-bounce detector.
 
-\textbf{(iii)~No hardware transfer (cross-engine validation only).}
-The training results are from a single Newton+MuJoCo stack; the cross-engine
-sim-to-sim study (Sec.~\ref{sec:cross_engine}) on Project Chrono
-(\texttt{ChSystemNSC}, rigid low-$\mu$ terrain, Curiosity rover) establishes
-that the policy transfers across rigid-solver, terrain-physics-class, and
-rover-morphology boundaries simultaneously, but not that it transfers to
-hardware.
+\textbf{(iii)~In-engine evaluation only; no hardware or cross-engine transfer.}
+All results are obtained within the Newton MPM\,+\,MuJoCo training stack. The
+controlled baseline comparison isolates the policy's contribution \emph{inside}
+that engine but does not establish transfer to a different solver or to
+hardware. An earlier rigid-body cross-engine study (Project Chrono) was removed
+from this revision because its synthetic entrapment model did not actually trap
+the rover: an open-loop constant-drive baseline escaped at nearly the same rate
+as the policy ($34\,\%$ vs.\ $35\,\%$), so the comparison could not attribute
+the outcome to the controller rather than to the per-trial soil draw. This is
+precisely the failure the present in-engine baseline comparison corrects.
 Domain randomisation over motor gains and sensor noise
 following~\cite{tobin2017domainrand,andrychowicz2020learning}, ONNX export to
 Raspberry Pi~5, and hardware validation on the AAU Mars rover in a sand pit
-are the three stages required to close the remaining sim-to-real gap. The asymmetric critic is
+remain the stages required to close the sim-to-real gap. The asymmetric critic is
 specifically designed to be discardable at deployment: only the 29D actor and
 its RunningStandardScaler are exported, so the ONNX graph carries no
 privileged signal.
+
+\textbf{(iv)~Solver instability bounds the achievable trap depth.}
+Pushing initial sinkage beyond the trained range ($\geq 0.34$\,m) to drive the
+constant-drive baseline toward $0\,\%$ destabilises the MuJoCo--Warp
+articulation solver under full throttle: a large fraction of episodes diverge to
+non-physical states (which our blowup guard scores as failures). We therefore
+evaluate within the stable $0.15$--$0.28$\,m band, where constant drive still
+escapes ${\sim}31\,\%$ of the time -- the entrapment is non-trivial but not a
+hard trap. A fully-trapping benchmark requires either solver stabilisation
+(smaller substeps) or a cohesion- rather than depth-based trap, which we leave to
+future work; the scripted rocking baseline ($0\,\%$) already provides the lower
+anchor that the constant-drive rate alone does not.
 
 % ══════════════════════════════════════════════════════════════
 \section{Future Work}
@@ -2343,10 +2333,10 @@ each holding all other components fixed:
         uniformly from $[0,2\pi)$.  Hypothesis: zero-shot success rate collapses
         to below $30$\,\% on non-zero bearings.
   \item \textbf{MPM coupling}: replace the full Newton MPM bed with a flat rigid
-        plane (same geometry, no sand particles).  Hypothesis: the rocking
-        behaviour disappears and the entrapment scenario becomes trivially solvable,
-        confirming that MPM is the essential physical ingredient rather than an
-        engineering convenience.
+        plane (same geometry, no sand particles).  Hypothesis: the learned
+        steered-ploughing recovery becomes unnecessary and the entrapment scenario
+        becomes trivially solvable, confirming that MPM is the essential physical
+        ingredient rather than an engineering convenience.
 \end{enumerate}
 
 Each ablation will be evaluated over 100 held-out episodes at the highest
@@ -2359,16 +2349,18 @@ episodic return, and time-to-escape for successful episodes.
 
 We presented the first DRL-based entrapment recovery system coupling Newton MPM
 granular physics with MuJoCo rigid-body dynamics inside Isaac Lab for a
-6-wheel rocker-bogie Mars rover under Martian gravity. The system reaches an
-\textbf{86.9\,\% escape rate} on the most challenging curriculum sinkage level
+6-wheel rocker-bogie Mars rover under Martian gravity. Evaluated in-engine
+against naive baselines under matched conditions, the policy escapes
+\textbf{90.8--95.0\,\%} of trials (two best seeds) versus \textbf{30.8\,\%} for
+open-loop constant drive and \textbf{0\,\%} for a scripted rocking primitive,
 after only 300\,k policy timesteps across 16 parallel environments.
 
 Three design choices are jointly responsible for this result.
 \emph{MPM coupling} is the essential physical ingredient: without granular
 simulation, the temporal sinkage dynamics that necessitate a recurrent policy
-cannot be faithfully modelled, and the emergent rocking strategy that a rigid
-terrain would forbid is precisely the behaviour a capable planetary rover must
-learn.
+cannot be faithfully modelled, and the emergent steered-ploughing strategy that a
+rigid terrain would forbid is precisely the behaviour a capable planetary rover
+must learn.
 \emph{Asymmetric actor--critic} lets the value head exploit unobservable soil
 state (sinkage depth, sand-force proxy) for lower-variance advantage estimates
 while keeping the deployed actor a pure 29D onboard observer - the privileged
