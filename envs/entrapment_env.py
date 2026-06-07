@@ -256,7 +256,10 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     )
     newton_cfg = NewtonCfg(
         solver_cfg=solver_cfg,
-        num_substeps=4,
+        # was 4 (explicit euler blew up under stiff drive damping). 8 halves the
+        # substep (0.005->0.0025s) and stabilises. Override via NEWTON_SUBSTEPS env
+        # var for the integration-convergence study (2026-06-06).
+        num_substeps=int(os.environ.get("NEWTON_SUBSTEPS", "8")),
         debug_mode=False,
         use_cuda_graph=False,
     )
@@ -740,6 +743,11 @@ class EntrapmentEnv(DirectRLEnv):
         mpm_opt.critical_fraction = 0.025
         mpm_opt.hardening         = 5.0
         mpm_opt.air_drag          = 1.0
+        # Cohesion (shear yield stress, Pa). Default 0 = purely frictional sand,
+        # which does NOT trap a powered rover under converged physics. Set via
+        # MPM_YIELD_STRESS to add cohesive strength and create a real trap
+        # (cohesion study 2026-06-06). Real regolith cohesion ~0.1-10 kPa.
+        mpm_opt.yield_stress      = float(os.environ.get("MPM_YIELD_STRESS", "0.0"))
 
         _p("[MPM] Creating MPM model...")
         mpm_model = SolverImplicitMPM.Model(self.sand_model, mpm_opt)

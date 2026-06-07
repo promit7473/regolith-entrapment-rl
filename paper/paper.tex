@@ -1486,8 +1486,10 @@ procedure with GAE advantage estimation~\cite{schulman2015gae}.
 \end{algorithm}
 
 % ══════════════════════════════════════════════════════════════
-\section{Experimental Results}
+\section{Training Results}
 \label{sec:results}
+
+We report two distinct result types: \emph{training} convergence in this section (how the policy learns -- no baseline is involved), and \emph{validation} against naive controllers in Sec.~\ref{sec:validation} (whether the learned policy actually works). The training-time escape rate here must not be confused with the controlled validation rate of Table~\ref{tab:baselines}.
 
 \begin{figure*}[!htbp]
   \centering
@@ -1603,72 +1605,6 @@ future work.
     rather than mean-pooled reporting.}
   \label{fig:seed_variance}
 \end{figure}
-
-\subsection{Escape Performance}
-
-We benchmark the trained policy \emph{in the training engine} (Newton MPM, AAU
-rover, Mars gravity) against two non-learned controllers under matched
-conditions: \emph{constant drive} (full forward throttle, zero steer) and a
-scripted \emph{rocking} primitive (alternating full forward/reverse drive,
-$2$\,s half-period). Each controller is run for 120 trials (30 per initial
-sinkage level $d\in\{0.15,0.20,0.25,0.28\}$\,m). Escape is scored by the
-environment's \emph{pre-reset} termination flag (projected progress $>3.0$\,m):
-reading the chassis pose \emph{after} \texttt{step()} instead returns the
-post-reset spawn pose for just-terminated environments and silently zeroes every
-escape - an error we corrected by exposing the flag the environment computes
-before it auto-resets. A minority of full-throttle episodes excite a transient
-MuJoCo--Warp articulation-solver instability (positions diverging to
-non-physical values $>4$\,m); these are detected and conservatively scored as
-failures, never escapes.
-
-\begin{table}[!htbp]
-  \centering
-  \caption{In-engine escape rate by controller (Newton MPM, AAU rover, Mars
-    gravity; 120 trials each over sinkage $0.15$--$0.28$\,m). Confidence
-    intervals are percentile bootstrap; blowup episodes count as failures.}
-  \label{tab:baselines}
-  \renewcommand{\arraystretch}{1.2}
-  \begin{tabular}{@{}lcc@{}}
-    \toprule
-    \textbf{Controller} & \textbf{Escape rate} & \textbf{95\,\% CI} \\
-    \midrule
-    Scripted rocking (forward/reverse) & $0.0\,\%$  & $[0,0]$ \\
-    Constant drive (open-loop)         & $30.8\,\%$ & $[23,39]$ \\
-    \textbf{Learned policy (seed 1)}   & $\mathbf{95.0\,\%}$ & $[91,98]$ \\
-    \textbf{Learned policy (seed 3)}   & $\mathbf{90.8\,\%}$ & $[86,96]$ \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=\linewidth]{escape_comparison.png}
-  \caption{In-engine escape rate: the learned policy ($90.8$--$95.0\,\%$) versus
-    open-loop constant drive ($30.8\,\%$) and a scripted rocking primitive
-    ($0\,\%$). 120 trials per controller; error bars are bootstrap 95\,\% CIs.}
-  \label{fig:escape_comparison}
-\end{figure}
-
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=\linewidth]{escape_vs_sinkage.png}
-  \caption{Escape rate versus initial sinkage depth. The policy holds
-    ${\geq}70\,\%$ across all severities while constant drive stays at
-    $13$--$43\,\%$ and rocking at $0\,\%$. Per-level dips (e.g.\ seed 3 at
-    $0.20$\,m) reflect a handful of solver-instability episodes scored as
-    failures, not policy regressions.}
-  \label{fig:escape_vs_sinkage}
-\end{figure}
-
-The learned policy escapes $90.8$--$95.0\,\%$ of trials, a $3\times$ margin over
-constant drive ($30.8\,\%$) with non-overlapping confidence intervals, while the
-scripted rocking primitive never escapes: it oscillates in place at near-zero
-net displacement (median projected progress $-0.06$\,m). The constant-drive
-baseline confirms the entrapment is non-trivial - flooring the throttle clears
-the bed only ${\sim}31\,\%$ of the time - while remaining far from a hard trap,
-a point we revisit in the limitations. Both naive controllers sit well below the
-policy in the \emph{same} engine it trained in, isolating the learned
-contribution from the soil draw.
 
 \medskip\noindent\textbf{Training-time convergence.}
 Table~\ref{tab:results} reports seed-1 training-time aggregates over the final
@@ -1816,6 +1752,78 @@ milestone; the small rocking bootstrap term (weight~$0.5$) contributes only
 marginally, consistent with the converged policy escaping by steering rather than
 rocking (Sec.~\ref{sec:results}). The absence of catastrophic forgetting across
 curriculum stage transitions validates the reward design.
+
+% ==============================================================
+\section{Validation Results}
+\label{sec:validation}
+
+We validate the deployed best-checkpoint policy in a \emph{controlled} comparison against non-learned controllers in the same engine it trained in.
+
+\subsection{Escape Performance}
+
+We benchmark the trained policy \emph{in the training engine} (Newton MPM, AAU
+rover, Mars gravity) against two non-learned controllers under matched
+conditions: \emph{constant drive} (full forward throttle, zero steer) and a
+scripted \emph{rocking} primitive (alternating full forward/reverse drive,
+$2$\,s half-period). Each controller is run for 120 trials (30 per initial
+sinkage level $d\in\{0.15,0.20,0.25,0.28\}$\,m). Escape is scored by the
+environment's \emph{pre-reset} termination flag (projected progress $>3.0$\,m):
+reading the chassis pose \emph{after} \texttt{step()} instead returns the
+post-reset spawn pose for just-terminated environments and silently zeroes every
+escape - an error we corrected by exposing the flag the environment computes
+before it auto-resets. A minority of full-throttle episodes excite a transient
+MuJoCo--Warp articulation-solver instability (positions diverging to
+non-physical values $>4$\,m); these are detected and conservatively scored as
+failures, never escapes.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{In-engine escape rate by controller (Newton MPM, AAU rover, Mars
+    gravity; 120 trials each over sinkage $0.15$--$0.28$\,m). Confidence
+    intervals are percentile bootstrap; blowup episodes count as failures.}
+  \label{tab:baselines}
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    \textbf{Controller} & \textbf{Escape rate} & \textbf{95\,\% CI} \\
+    \midrule
+    Scripted rocking (forward/reverse) & $0.0\,\%$  & $[0,0]$ \\
+    Constant drive (open-loop)         & $30.8\,\%$ & $[23,39]$ \\
+    \textbf{Learned policy (seed 1)}   & $\mathbf{95.0\,\%}$ & $[91,98]$ \\
+    \textbf{Learned policy (seed 3)}   & $\mathbf{90.8\,\%}$ & $[86,96]$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{escape_comparison.png}
+  \caption{In-engine escape rate: the learned policy ($90.8$--$95.0\,\%$) versus
+    open-loop constant drive ($30.8\,\%$) and a scripted rocking primitive
+    ($0\,\%$). 120 trials per controller; error bars are bootstrap 95\,\% CIs.}
+  \label{fig:escape_comparison}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{escape_vs_sinkage.png}
+  \caption{Escape rate versus initial sinkage depth. The policy holds
+    ${\geq}70\,\%$ across all severities while constant drive stays at
+    $13$--$43\,\%$ and rocking at $0\,\%$. Per-level dips (e.g.\ seed 3 at
+    $0.20$\,m) reflect a handful of solver-instability episodes scored as
+    failures, not policy regressions.}
+  \label{fig:escape_vs_sinkage}
+\end{figure}
+
+The learned policy escapes $90.8$--$95.0\,\%$ of trials, a $3\times$ margin over
+constant drive ($30.8\,\%$) with non-overlapping confidence intervals, while the
+scripted rocking primitive never escapes: it oscillates in place at near-zero
+net displacement (median projected progress $-0.06$\,m). The constant-drive
+baseline confirms the entrapment is non-trivial - flooring the throttle clears
+the bed only ${\sim}31\,\%$ of the time - while remaining far from a hard trap,
+a point we revisit in the limitations. Both naive controllers sit well below the
+policy in the \emph{same} engine it trained in, isolating the learned
+contribution from the soil draw.
 
 \subsection{Policy Metrics and Emergent Behaviours}
 
@@ -2147,22 +2155,22 @@ heading-conditioned goal efficiency across all bearings,
 and (d)~characterise the sinkage--recovery-rate curve to pinpoint
 the depth at which the 300\,k-step policy degrades.
 
-\begin{figure}[!htbp]
+\begin{figure*}[!htbp]
   \centering
   \includegraphics[width=\linewidth]{topdown_escape_heatmap.png}
-  \caption{Top-down terminal-position distribution over 33\,935 training
-    episodes (representative seed~1).  The escape direction $\hat{\mathbf{e}}$ is randomised uniformly
-    over $[0^\circ,360^\circ]$ per episode; each point shows the rover's
-    terminal 2-D position $(d\cos\theta,\,d\sin\theta)$ where $d$ is the
-    logged final projected displacement and $\theta$ the episode escape
-    angle. \textit{Left:} failed episodes cluster near the origin ($\bar{d}
-    \approx 0.1$\,m); the KDE reveals the policy's partial recovery attempts.
-    \textit{Right:} escaped episodes ring the 3.0\,m escape boundary
-    (gold circle), achieving 65.0\,\% success over all curriculum sinkage
-    levels (86.9\,\% at the hardest level).  The symmetric distribution
-    confirms omnidirectional escape capability.}
+  \caption{Spatial outcome of the validation comparison (Table~\ref{tab:baselines}):
+    \emph{true} terminal positions over random-heading in-engine trials
+    ($\phi_\text{esc}\sim\mathcal{U}(0,2\pi)$ per trial), each point the rover's
+    measured final position relative to spawn (world frame); the angular
+    distribution is observed, not assumed. \emph{Left:} open-loop constant drive
+    -- a sparse scatter of escapes buried under a dense cluster of failures
+    (pink) stuck inside the $3.5$\,m sand bed (dotted square). \emph{Right:} the
+    learned policy forms a uniform escaped ring (blue) at the $3.0$\,m threshold
+    (gold dashed) across all bearings (per-octant counts vary by ${<}1.5\times$).
+    Only the policy recovers omnidirectionally; escape rates are in
+    Table~\ref{tab:baselines}.}
   \label{fig:topdown_heatmap}
-\end{figure}
+\end{figure*}
 
 \subsection{Implications for Sim-to-Real Transfer}
 
@@ -2240,9 +2248,10 @@ seed~2 also reached competent escape ($87\%$) but only at an easier curriculum
 level ($0.55$) and was stopped early; seed~0 collapsed after a $69\%$ peak and
 seed~4 never bootstrapped past the competence gate (Fig.~\ref{fig:seed_variance}).
 Because outcomes are bimodal -- converge vs.\ fail -- we report per-seed numbers
-rather than mean-pooling across qualitatively different regimes. Single-seed
-training-curve diagnostics (Figs.~\ref{fig:training_overview},
-\ref{fig:topdown_heatmap}) are shown for the representative seed~1.
+rather than mean-pooling across qualitatively different regimes. The training
+dashboard (Fig.~\ref{fig:training_overview}) is shown for the representative
+seed~1; the omnidirectional top-down (Fig.~\ref{fig:topdown_heatmap}) pools both
+converged seeds.
 
 
 \textbf{(i)~Milestone 3.0\,m: granular vs.\ post-bed budget.}

@@ -286,59 +286,69 @@ def fig_seed_variance():
     print("wrote seed_variance.png")
 
 
-# ── 5. REAL omnidirectional top-down (true terminal positions) ──────────────
-def fig_topdown():
+# ── 5. REAL top-down: without-policy vs policy (true terminal positions) ────
+def _load_topdown(paths):
     import csv
-    TD = os.path.join(ROOT, "experiments/escape_eval/topdown")
-    pts = {"esc": [], "fail": []}
-    nseed = 0
-    for s in (1, 3):
-        p = os.path.join(TD, f"topdown_seed{s}.csv")
+    esc, fail = [], []
+    for p in paths:
         if not os.path.exists(p):
             continue
-        nseed += 1
         for r in csv.DictReader(open(p)):
             try:
                 x, y = float(r["rel_x"]), float(r["rel_y"])
-                esc = int(r["escaped"]); blow = int(r.get("blowup", 0))
+                e = int(r["escaped"]); blow = int(r.get("blowup", 0))
             except (KeyError, ValueError):
                 continue
             if blow or not (abs(x) < 6 and abs(y) < 6):
                 continue
-            pts["esc" if esc else "fail"].append((x, y))
-    if not pts["esc"]:
-        print("topdown CSVs not ready; skipping topdown fig"); return
-    esc = np.array(pts["esc"]); fail = np.array(pts["fail"]) if pts["fail"] else np.empty((0, 2))
-    fig, ax = plt.subplots(figsize=(5.2, 5.2))
-    # sand-bed boundary (1.75 m half-side) and escape circle (3.0 m)
-    ax.add_patch(plt.Rectangle((-1.75, -1.75), 3.5, 3.5, fill=False,
-                               edgecolor="#C8A24B", lw=1.0, ls=":", zorder=2))
+            (esc if e else fail).append((x, y))
+    return (np.array(esc) if esc else np.empty((0, 2)),
+            np.array(fail) if fail else np.empty((0, 2)))
+
+
+def _draw_topdown(ax, esc, fail, title):
     th = np.linspace(0, 2 * np.pi, 200)
+    ax.add_patch(plt.Rectangle((-1.75, -1.75), 3.5, 3.5, fill=False,
+                 edgecolor="#C8A24B", lw=1.0, ls=":", zorder=2))
     ax.plot(3.0 * np.cos(th), 3.0 * np.sin(th), color="#C8A24B", lw=1.6,
             ls="--", zorder=2)
-    ax.text(0, 3.18, "escape threshold (3.0 m)", color="#9A7A20", fontsize=8.5,
-            ha="center", va="bottom")
     if len(fail):
-        ax.scatter(fail[:, 0], fail[:, 1], s=14, color="#C44E52", alpha=0.28,
+        ax.scatter(fail[:, 0], fail[:, 1], s=13, color="#C44E52", alpha=0.30,
                    edgecolor="none", zorder=3, label=f"failed (n={len(fail)})")
-    ax.scatter(esc[:, 0], esc[:, 1], s=16, color="#1F6FB2", alpha=0.55,
-               edgecolor="none", zorder=4, label=f"escaped (n={len(esc)})")
-    ax.scatter([0], [0], marker="+", s=120, color="black", lw=1.6, zorder=5)
-    ax.text(0.15, -0.05, "spawn", fontsize=8.5, va="top")
-    ax.set_xlim(-4, 4); ax.set_ylim(-4, 4)
-    ax.set_aspect("equal")
-    ax.set_xlabel("x from spawn (m)", fontsize=10)
-    ax.set_ylabel("y from spawn (m)", fontsize=10)
+    if len(esc):
+        ax.scatter(esc[:, 0], esc[:, 1], s=15, color="#1F6FB2", alpha=0.55,
+                   edgecolor="none", zorder=4, label=f"escaped (n={len(esc)})")
+    ax.scatter([0], [0], marker="+", s=110, color="black", lw=1.5, zorder=5)
+    ax.set_xlim(-4, 4); ax.set_ylim(-4, 4); ax.set_aspect("equal")
+    ax.set_xlabel("x from spawn (m)", fontsize=9.5)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
-    ax.legend(frameon=False, fontsize=9, loc="lower right")
-    ax.set_title(f"Omnidirectional escape — true terminal positions\n"
-                 f"(seeds 1+3, {nseed*300} trials, headings ∼U(0,2π))",
-                 fontsize=10.5, fontweight="bold", color=INK, loc="left", pad=8)
+    ax.legend(frameon=False, fontsize=8.5, loc="lower right")
+    ax.set_title(title, fontsize=10.5, fontweight="bold", color=INK,
+                 loc="left", pad=6)
+
+
+def fig_topdown():
+    TD = os.path.join(ROOT, "experiments/escape_eval/topdown")
+    pol_e, pol_f = _load_topdown([os.path.join(TD, f"topdown_seed{s}.csv") for s in (1, 3)])
+    cd_e, cd_f = _load_topdown([os.path.join(TD, "topdown_constdrv.csv")])
+    if not len(pol_e):
+        print("policy topdown not ready; skipping topdown fig"); return
+    if len(cd_e) or len(cd_f):  # side-by-side comparison
+        fig, axes = plt.subplots(1, 2, figsize=(9.4, 4.9), sharey=True)
+        _draw_topdown(axes[0], cd_e, cd_f, "Without policy (constant drive)")
+        _draw_topdown(axes[1], pol_e, pol_f, "Learned policy")
+        axes[0].set_ylabel("y from spawn (m)", fontsize=9.5)
+        note = f"comparison: constdrv (esc={len(cd_e)},fail={len(cd_f)}) vs policy (esc={len(pol_e)})"
+    else:  # policy-only fallback until baseline data is ready
+        fig, ax = plt.subplots(figsize=(5.2, 5.2))
+        _draw_topdown(ax, pol_e, pol_f, "Learned policy — omnidirectional escape")
+        ax.set_ylabel("y from spawn (m)", fontsize=9.5)
+        note = f"policy-only (esc={len(pol_e)})"
     fig.tight_layout()
     fig.savefig(os.path.join(OUT, "topdown_escape_heatmap.png"), bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote topdown_escape_heatmap.png  (esc={len(esc)}, fail={len(fail)})")
+    print(f"wrote topdown_escape_heatmap.png  [{note}]")
 
 
 if __name__ == "__main__":
