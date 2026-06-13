@@ -31,8 +31,17 @@ from isaaclab.assets.articulation import ArticulationCfg
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROVER_USD_PATH = os.path.join(_REPO_ROOT, "robots", "Mars_Rover.usd")
 
-# Wheel radius: 0.10 m
-ROVER_WHEEL_RADIUS = 0.10   # m
+# Wheel radius — measured from Mars_Rover.usd VERTICES with full world
+# transforms (scripts/wheel_geometry.py, 2026-06-13). The AAU wheel is a
+# tire (r=0.0939, width 0.1035) with FINE SHALLOW GROUSERS: blade tips at
+# r=0.1053 → 1.1 cm deep, 8 mm plate arc — a knobby tread, NOT big paddles.
+# (An earlier bbox-based measurement claimed blade tips at r=0.131; no vertex
+# exists beyond r=0.1057 — the axis-aligned bbox was transform-inflated. The
+# r=0.113 proxy built from it was 13% oversized.)
+# Equivalent cylinder: r_eff = r_tire + 0.5·h_grouser = 0.0939 + 0.0055 ≈ 0.10.
+# Used consistently for the sand collider, slip model, and spawn-sinkage
+# formula; deployment slip should use the same effective radius.
+ROVER_WHEEL_RADIUS = 0.0994  # m
 
 MARS_ROVER_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(

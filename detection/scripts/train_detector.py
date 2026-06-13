@@ -23,15 +23,17 @@ def load_dataset(data_dir: str):
             f"Generate training data using eval.py --save-data or create a custom "
             f"data collection script to produce sequences_*.npz files."
         )
-    Xs, ys = [], []
-    for f in files:
+    Xs, ys, file_ids = [], [], []
+    for fi, f in enumerate(files):
         d = np.load(f)
         Xs.append(d["X"])
         ys.append(d["y"])
+        file_ids.append(np.full(len(d["X"]), fi, dtype=np.int64))
         print(f"  Loaded {len(d['X'])} windows from {os.path.basename(f)}")
     X = np.concatenate(Xs, axis=0)
     y = np.concatenate(ys, axis=0)
-    return torch.from_numpy(X), torch.from_numpy(y)
+    fid = np.concatenate(file_ids, axis=0)
+    return torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(fid)
 
 
 def train():
@@ -52,7 +54,7 @@ def train():
     os.makedirs(args.out_dir, exist_ok=True)
 
     print(f"\nLoading dataset from {args.data_dir} ...")
-    X, y = load_dataset(args.data_dir)
+    X, y, fid = load_dataset(args.data_dir)
 
 
     counts = torch.bincount(y, minlength=3).float()
@@ -61,12 +63,30 @@ def train():
           f"entrapped: {int(counts[2])}")
     print(f"  Class weights: {weights.tolist()}")
 
-
-    dataset = TensorDataset(X, y)
-    n_val   = int(len(dataset) * args.val_split)
-    n_train = len(dataset) - n_val
-    train_set, val_set = random_split(dataset, [n_train, n_val],
-                                      generator=torch.Generator().manual_seed(args.seed))
+    # Split by SOURCE FILE (collection run), not by window. Sliding windows
+    # from the same episode are temporally correlated — a random window-level
+    # split leaks near-duplicates of every training window into the val set
+    # and inflates F1. With file-level splitting, val episodes are unseen.
+    n_files = int(fid.max().item()) + 1
+    if n_files < 2:
+        print("  WARNING: only one sequence file — falling back to window-level "
+              "split. Val metrics will be optimistically biased; collect more "
+              "runs (one file per eval run) for honest numbers.")
+        dataset = TensorDataset(X, y)
+        n_val   = int(len(dataset) * args.val_split)
+        n_train = len(dataset) - n_val
+        train_set, val_set = random_split(dataset, [n_train, n_val],
+                                          generator=torch.Generator().manual_seed(args.seed))
+    else:
+        g = torch.Generator().manual_seed(args.seed)
+        perm = torch.randperm(n_files, generator=g)
+        n_val_files = max(1, int(round(n_files * args.val_split)))
+        val_files = set(perm[:n_val_files].tolist())
+        val_mask  = torch.tensor([int(f) in val_files for f in fid])
+        train_set = TensorDataset(X[~val_mask], y[~val_mask])
+        val_set   = TensorDataset(X[val_mask],  y[val_mask])
+        print(f"  File-level split: {n_files - n_val_files} train / "
+              f"{n_val_files} val files ({len(train_set)}/{len(val_set)} windows)")
 
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
                               num_workers=4, pin_memory=True)

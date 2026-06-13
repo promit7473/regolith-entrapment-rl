@@ -74,6 +74,10 @@ GRU_HIDDEN  = 256   # GRU hidden units
 GRU_LAYERS  = 1     # GRU stacked layers
 SEQ_LEN     = 32    # BPTT sequence length (~1.3s at 25Hz — covers entrap detection window)
 ROLLOUTS    = 64    # Steps stored per env per update (64 / 32 = 2 seqs per env, 2× more data)
+# v9=0.015, v10=0.05. Seeds 0&2 still collapsed (std≈0.56) while seed 1 thrived
+# (std=1.70). Raised to 0.08 to reliably sustain std≥0.8 through early curriculum.
+# Single source of truth — used by ppo_cfg, the entropy floor, and W&B config.
+ENTROPY_SCALE = 0.08
 
 # Asymmetric actor-critic: policy reads the first POLICY_OBS_DIM dims, critic
 # reads the full tensor (policy obs + privileged oracle features). Must match
@@ -301,7 +305,7 @@ def train():
         "ratio_clip":         0.2,
         "value_clip":         0.2,
         "clip_predicted_values": True,
-        "entropy_loss_scale": 0.08,  # v9=0.015, v10=0.05. Seeds 0&2 still collapsed (std≈0.56) while seed 1 thrived (std=1.70). Raised to 0.08 to reliably sustain std≥0.8 through early curriculum.
+        "entropy_loss_scale": ENTROPY_SCALE,
         "value_loss_scale":   1.0,
         "state_preprocessor":             RunningStandardScaler,
         "state_preprocessor_kwargs":      {"size": num_obs, "device": device},
@@ -328,12 +332,23 @@ def train():
                     "seq_len":      SEQ_LEN,
                     "policy_obs_dim": POLICY_OBS_DIM,
                     "lr":           3e-4,
-                    "entropy_scale": 0.08,
+                    "entropy_scale": ENTROPY_SCALE,
                 },
                 "sync_tensorboard": True,
             },
         },
     })
+
+    # Opt-in KL-adaptive LR (KL_ADAPTIVE_LR=1): standard PPO stabiliser (holds
+    # the policy-update KL near a target by scaling lr) and the textbook remedy
+    # for the seed-collapse mode seen in seeds 0/2. Off by default so the v12
+    # retrain stays comparable to the documented config; enable if collapse
+    # recurs despite the (now-functional) entropy floor.
+    if os.environ.get("KL_ADAPTIVE_LR") == "1":
+        from skrl.resources.schedulers.torch import KLAdaptiveLR
+        ppo_cfg["learning_rate_scheduler"] = KLAdaptiveLR
+        ppo_cfg["learning_rate_scheduler_kwargs"] = {"kl_threshold": 0.008}
+        print("[train] KL-adaptive LR enabled (kl_threshold=0.008)")
 
     agent = PPO_RNN(
         models=models, memory=memory, cfg=ppo_cfg,
@@ -381,12 +396,19 @@ def train():
         if timestep < _STD_FLOOR_STEP:
             try:
                 current_std = float(agent.policy.log_std.exp().mean().item())
+                # NOTE: must set the PRIVATE attribute — skrl's PPO_RNN caches
+                # cfg["entropy_loss_scale"] into self._entropy_loss_scale at
+                # __init__ and the update loop only reads the cached attribute.
+                # Writing agent.cfg[...] alone is a silent no-op (bug found
+                # 2026-06-12: the floor never actually fired in any run to date).
                 if current_std < _STD_FLOOR and not _ent_boosted:
                     agent.cfg["entropy_loss_scale"] = _ENT_BOOSTED
+                    agent._entropy_loss_scale = _ENT_BOOSTED
                     _ent_boosted = True
                     agent.track_data("Info / entropy_boost_active", 1.0)
                 elif current_std >= _STD_FLOOR and _ent_boosted:
                     agent.cfg["entropy_loss_scale"] = _ENT_BASE
+                    agent._entropy_loss_scale = _ENT_BASE
                     _ent_boosted = False
                     agent.track_data("Info / entropy_boost_active", 0.0)
             except Exception:

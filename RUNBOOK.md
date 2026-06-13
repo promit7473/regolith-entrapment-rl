@@ -3,6 +3,24 @@
 End-to-end commands to reproduce every paper figure & table on a single RTX
 5070Ti box. Run each block in order; later blocks consume earlier outputs.
 
+> **v12 (2026-06-13): ALL results produced before this date are invalid for
+> the paper.** Physics fixes change the environment: (1) **substep force
+> dilution — THE BIG ONE**: every sand force in every prior run was applied at
+> 1/NEWTON_SUBSTEPS (=⅛) of its true value (NewtonManager clears forces each
+> substep); now delivered continuously via a clear_forces wrapper. The rover
+> could never actually drive on sand before this fix. (2) sand bed now
+> simulates under the same gravity as the rover (was Earth-g sand vs Mars-g
+> rover); (3) MPM rheology solve now converges (`max_iterations` 30→100,
+> `tolerance` 1e-5→1e-7 — the old setting leaked bed volume every step);
+> (4) bed pre-settled at init, spawn sinkage references the measured surface,
+> spawn pocket-carving removes teleport interpenetration; (5) wheel geometry
+> measured definitively (`scripts/wheel_geometry.py`): r_eff=0.0994 + 8
+> true-size grouser blade colliders. Obs semantics also changed (IMU =
+> body-frame specific force / local g; DR noise in true physical units), so
+> old checkpoints are incompatible. Retrain everything below from scratch.
+> See CLAUDE.md "CURRENT STATE" (untracked — copy alongside the repo).
+> Step cost is ~1.5–2× the old runs; budget accordingly.
+
 **Note:** the only live validation pipeline is the cross-engine Chrono
 validation on granular (Bekker-Wong) terrain. The sim2sim (MPM→MPM) track
 has been removed — see git history for archived scripts.
@@ -33,6 +51,19 @@ Pick the final checkpoint of seed 0 as `$CKPT` for downstream eval:
 ```bash
 CKPT=$(ls experiments/regolith_recovery/seed_0/*/checkpoints/agent_200000.pt | tail -1)
 ```
+
+## 1b. Scripted-baseline tuning (no training needed — run BEFORE/while training)
+
+```bash
+bash scripts/tune_scripted_baseline.sh                      # gate level (EPS=4)
+EPS=50 bash scripts/tune_scripted_baseline.sh               # paper level, winner only
+```
+
+Sweeps the compatible-actuation scripted family (rocking / steer_paddle /
+rock_paddle; spiral cells appended separately) over period × throttle at the
+trapped depths. The best cell = the "tuned scripted" row of the comparison
+table — the fairness bar the policy must beat. Results land in
+`experiments/scripted_tuning/summary.csv`.
 
 ## 2. Ablations (one seed each; ~4.5 h × 4 = ~18 h)
 

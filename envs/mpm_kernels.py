@@ -90,6 +90,11 @@ def clamp_sand_forces_during_settle(
     f = body_f[b]
     lin = wp.spatial_top(f)
     ang = wp.spatial_bottom(f)
+    # Isotropic magnitude clamp. Cap values live on EntrapmentEnvCfg and were
+    # retuned for full-strength coupling after the substep-dilution fix (the
+    # historical 250 N was calibrated against ÷8-diluted forces). An
+    # anisotropic vertical/lateral variant was trialled for the hull-collider
+    # experiment and reverted with it (git history; CLAUDE.md v12 item 13).
     lin_mag = wp.length(lin)
     if lin_mag > force_cap:
         lin = lin * (force_cap / lin_mag)
@@ -118,6 +123,7 @@ def clamp_escaped_particles(
     half_x:            float,
     half_y:            float,
     depth:             float,
+    z_headroom:        float,
 ):
     """
     After each MPM step, snap any particle that left its env's sand box back
@@ -127,7 +133,15 @@ def clamp_escaped_particles(
     Bounds per env:
         x ∈ [origin_x - half_x,  origin_x + half_x]
         y ∈ [origin_y - half_y,  origin_y + half_y]
-        z ∈ [origin_z - 0.05,    origin_z + depth + 0.10]
+        z ∈ [origin_z - 0.05,    origin_z + depth + z_headroom]
+
+    z_headroom: 0.10 is the value the v12 convergence/traction matrix was
+    calibrated with (ejecta recaptured quickly). Larger values (0.45) let
+    wheel-spin ejecta fly full Mars-gravity arcs for recordings, but sand
+    thrown clear of the rut no longer refills it — measurably more mobility,
+    i.e. a weaker trap. Controlled by SAND_EJECTA_HEADROOM (default 0.10);
+    only raise it for cinematic eval runs, never for training or reported
+    numbers.
     """
     i   = wp.tid()
     env = i // particles_per_env
@@ -135,7 +149,7 @@ def clamp_escaped_particles(
     p   = particle_q[i]
     px  = wp.clamp(p[0], o[0] - half_x,       o[0] + half_x)
     py  = wp.clamp(p[1], o[1] - half_y,       o[1] + half_y)
-    pz  = wp.clamp(p[2], o[2] - float(0.05),  o[2] + depth + float(0.10))
+    pz  = wp.clamp(p[2], o[2] - float(0.05),  o[2] + depth + z_headroom)
     particle_q[i] = wp.vec3(px, py, pz)
 
 

@@ -76,3 +76,52 @@ guard, sinkage 0.20+0.28 m, 16 envs):
 ## Edits gated on sweep completion
 - New results table + figures, headline escape number in abstract/intro/conclusion,
   Bi & Ding number.
+
+## v12 stale-methods checklist (2026-06-13 audit — fix during post-retrain paper pass)
+1. **Entropy coefficient stale**: paper says α=0.015 with a "halved from 0.03"
+   narrative (L907 fig label, L1224–1231). Code history: 0.015 (v9) → 0.05
+   (v10) → **0.08 (current)**, plus a now-functional adaptive floor (×2 boost
+   below std 0.7 before 150k steps). Rewrite the paragraph after the retrain
+   with the real value + the seeds-0/2-collapse motivation.
+2. **IMU obs definition changed (v12)**: paper says "IMU linear accelerations"
+   (L653). Now: body-frame specific force R⁻¹(a_w − g_w), normalised by local
+   |g| — measurable by a real accelerometer, planet-agnostic at rest. Update
+   the POMDP obs description + any normalisation table.
+3. **"9-term shaped reward" (L432)**: recount against the current reward
+   (progress, milestones+Δdist, slip, tilt, smooth, abnormal, reverse, hop,
+   grind, rocking) and make the count consistent everywhere.
+4. **Convergence study must be added to methods/limitations**: solver at
+   30 it/1e-5 leaked volume (all pre-v12 results); production 100 it/1e-7;
+   trap claim verified at 500 it/1e-8. Cite scripts/bed_calibration.py and
+   the matrix in CLAUDE.md. Do NOT claim convergence-independent physics.
+5. **Chassis collider**: ALL runs (pre- and post-v12) have wheel-only sand
+   contact — the belly box was never bound (silent name-match failure), and
+   binding a hull-sized box detonates the spawn + erases the trap, so it is
+   opt-in (SAND_HULL_COLLIDER=1) pending pocket-carving. Any sentence
+   implying hull/belly drag is modelled is wrong; state it as a limitation
+   ("hull-soil interaction unmodelled; sand interacts with the six wheels").
+6. All numbers in Results/Tables/Figures are pre-v11/v12 — regenerate after
+   the matched-gravity converged-solver retrain (RUNBOOK notice).
+7. **Substep-dilution disclosure (v12, CRITICAL)**: all pre-2026-06-13 results
+   ran with sand forces at 1/8 strength (NewtonManager substep force clearing).
+   Methods must describe the continuous-force delivery (clear_forces wrapper);
+   no pre-fix number may appear anywhere in the paper.
+8. **Wheel modeling paragraph**: measured geometry (scripts/wheel_geometry.py:
+   tire r=0.0939, 1.1 cm × 8 mm grousers), equivalent-cylinder r_eff=0.0994 +
+   8 sand-only blade colliders (real tread has dozens of fine grousers that
+   alias into a ring at the 5 cm voxel). Replace any "smooth cylinder proxy"
+   description.
+9. **Scripted literature baselines**: add Creager et al. 2015 (push–pull
+   extrication, J. Terramechanics 57) approximated as inching drive schedule,
+   and Shrivastava et al. 2020 (Sci. Robotics, cyclic sweep "paddling")
+   approximated as cyclic steering sweeps — alongside constant-drive and
+   rocking. Note: no spiral-trajectory extraction method exists in the
+   literature (searched 2026-06-13).
+10. **Pre-training baseline result (2026-06-13)**: on fixed physics, ALL four
+    scripted controllers fail at 0.15/0.20 m burial (rocking 1/8 lucky;
+    inching 0/8; steer_paddle 0/8; constant drive terminal). Use as the
+    motivating result: "no scripted strategy — naive, field-practice, or
+    literature-derived — escapes; learning is required." Regenerate at N=50
+    with CIs for the paper table; explain each failure mechanistically
+    (self-excavation / missing load-transfer articulation / missing lifting
+    appendages).

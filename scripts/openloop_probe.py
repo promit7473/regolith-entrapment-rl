@@ -24,6 +24,9 @@ parser.add_argument("--phase_a", type=float, default=5.0)
 parser.add_argument("--phase_b", type=float, default=10.0)
 parser.add_argument("--sinkage", type=float, default=None,
                     help="Override sinkage depth in meters (bypasses DR sampling)")
+parser.add_argument("--friction", type=float, default=None,
+                    help="Pin sand friction (bypasses DR draw — use for A/B probes; "
+                         "without this every probe is a single mu~U(0.6,0.9) sample)")
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 
@@ -51,6 +54,9 @@ def main():
     if args_cli.sinkage is not None:
         cfg.dr_sinkage_range = (args_cli.sinkage, args_cli.sinkage)
         print(f"[probe] sinkage forced to {args_cli.sinkage:.3f} m")
+    if args_cli.friction is not None:
+        cfg.friction_override = float(args_cli.friction)
+        print(f"[probe] sand friction pinned to {args_cli.friction:.2f}")
 
     env = gym.make("MarsRover-RegolithEscape-v0", cfg=cfg)
     unwrapped = env.unwrapped
@@ -73,6 +79,21 @@ def main():
                 drive_ids = getattr(unwrapped, attr)
                 break
     print(f"[probe] drive_ids = {drive_ids}")
+
+    def sand_force():
+        """Net world-frame sand force on the env-0 rover (N): (fx, fy, fz).
+
+        Reads the per-body injected sand wrench (_body_sand_f, layout
+        spatial_vector = [force, torque]); summed over the first env's bodies.
+        """
+        try:
+            import warp as wp
+            f = wp.to_torch(unwrapped._body_sand_f).reshape(-1, 6)
+            n_b = getattr(unwrapped, "_bodies_per_env", f.shape[0])
+            net = f[:n_b, :3].sum(dim=0)
+            return float(net[0]), float(net[1]), float(net[2])
+        except Exception:
+            return float("nan"), float("nan"), float("nan")
 
     def report(label, step):
         rp = unwrapped.root_pos[0].cpu().numpy() - origin
@@ -100,9 +121,11 @@ def main():
                              f"mean={jv.mean():+.2f}")
             except Exception as e:
                 wheel_str = f" w_err={type(e).__name__}"
+        fx, fy, fz = sand_force()
         print(f"[{label} t={t_now:5.2f}s] "
               f"x={rp[0]:+.3f} y={rp[1]:+.3f} z={rp[2]:+.3f} "
-              f"vx={vx:+.3f} vz={vz:+.3f}{slip_str}{wheel_str}")
+              f"vx={vx:+.3f} vz={vz:+.3f}{slip_str}{wheel_str} "
+              f"F_sand=({fx:+.0f},{fy:+.0f},{fz:+.0f})N")
 
     print("\n=== Phase A: zero action — testing static support ===")
     z0 = float(unwrapped.root_pos[0, 2].item() - origin[2])
@@ -124,15 +147,24 @@ def main():
     y_start = float(unwrapped.root_pos[0, 1].item() - origin[1])
     a = torch.zeros(args_cli.num_envs, num_act, device=device)
     a[:, :6] = args_cli.drive
+    # Cache the last PRE-termination pose: DirectRLEnv auto-resets done envs
+    # inside step(), so reading root_pos after a termination returns the fresh
+    # spawn pose — the displacement then straddles a teleport and is garbage
+    # (this silently corrupted earlier probe rows).
+    x_end, y_end = x_start, y_start
+    t_term = None
     for s in range(steps_b):
         obs, _, term, trunc, _ = env.step(a)
+        if (term | trunc).any():
+            t_term = s * dt
+            print(f"  episode terminated during phase B at t={t_term:.2f}s "
+                  f"(sunk/flipped/oob = terminal failure; displacement below is "
+                  f"up to termination, not across the reset teleport)")
+            break
+        x_end = float(unwrapped.root_pos[0, 0].item() - origin[0])
+        y_end = float(unwrapped.root_pos[0, 1].item() - origin[1])
         if s % max(1, int(0.5 / dt)) == 0:
             report("B", s)
-        if (term | trunc).any():
-            print("  episode terminated during phase B")
-            break
-    x_end = float(unwrapped.root_pos[0, 0].item() - origin[0])
-    y_end = float(unwrapped.root_pos[0, 1].item() - origin[1])
     dx, dy = x_end - x_start, y_end - y_start
     dist = math.hypot(dx, dy)
     print(f"\nphase B displacement: dx={dx:+.3f} dy={dy:+.3f} "
@@ -142,8 +174,11 @@ def main():
     if dist > 0.3:
         print("  PHYSICS OK — rover moves with hardcoded action. Issue is RL/policy side.")
     else:
-        print("  FLUIDIZATION CONFIRMED — physics cannot produce motion at this drive.")
-        print("  Next levers: lower effort_limit_sim, raise wheel mu, or switch to mesh wheels.")
+        print("  NO TRANSLATION at this drive level — either genuine entrapment (deep")
+        print("  burial) or a coupling regression. Check F_sand telemetry first:")
+        print("  F_z >> rover weight while sinking → force-application bug (see the")
+        print("  2026-06-13 substep-dilution fix); F_z ≈ weight + near-zero F_xy while")
+        print("  wheels spin → genuine traction failure / real trap.")
 
     env.close()
     simulation_app.close()

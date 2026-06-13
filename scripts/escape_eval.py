@@ -37,8 +37,16 @@ import sys
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="In-engine escape eval (policy vs baselines)")
-parser.add_argument("--control", choices=["policy", "constant_drive", "rocking"],
-                    required=True, help="Controller under test")
+parser.add_argument("--control",
+                    choices=["policy", "constant_drive", "rocking",
+                             "inching", "steer_paddle", "rock_paddle",
+                             "spiral"],
+                    required=True, help="Controller under test. "
+                    "inching = Creager et al. 2015 push-pull extrication "
+                    "(J. Terramechanics 57) approximated as alternating "
+                    "locked/driving wheel groups; steer_paddle = Shrivastava "
+                    "et al. 2020 (Sci. Robotics, RP15) cyclic-sweep paddling "
+                    "approximated as full-lock sinusoidal steering + drive.")
 parser.add_argument("--checkpoint", type=str, default=None,
                     help="Policy checkpoint (.pt) — required for --control policy")
 parser.add_argument("--num_envs", type=int, default=64)
@@ -48,7 +56,9 @@ parser.add_argument("--sinkage_levels", type=str, default="0.15,0.20,0.25,0.28",
 parser.add_argument("--friction_override", type=float, default=None,
                     help="Pin MPM sand friction (else DR range used)")
 parser.add_argument("--half_period", type=float, default=2.0,
-                    help="Rocking half-cycle seconds (rocking mode only)")
+                    help="Half-cycle seconds for the cyclic baselines "
+                         "(rocking drive flips, inching group swaps, "
+                         "steer_paddle sweep half-period)")
 parser.add_argument("--drive_mag", type=float, default=1.0,
                     help="Drive command magnitude for baselines [-1,1]")
 parser.add_argument("--seed", type=int, default=0)
@@ -152,6 +162,30 @@ def run_level(env, sinkage, n_eps, device, num_act, control,
     step_counter = torch.zeros(unwrapped.num_envs, device=device)
     global_step = 0
 
+    # Wheel-group masks for the inching (push-pull) baseline, built from the
+    # actual drive-joint name order so index assumptions can't silently rot.
+    drive_names = [unwrapped.robot.joint_names[i] for i in unwrapped._drive_ids]
+    front_mask = torch.tensor(
+        [1.0 if ("FL" in n or "FR" in n) else 0.0 for n in drive_names],
+        device=device)
+    rear_mid_mask = 1.0 - front_mask
+    # Steer-corner sign mask for the spiral baseline (front +, rear −  =
+    # double-Ackermann arc), from live steer-joint names.
+    steer_names = [unwrapped.robot.joint_names[i] for i in unwrapped._steer_ids]
+    steer_arc_sign = torch.tensor(
+        [1.0 if ("FL" in n or "FR" in n) else -1.0 for n in steer_names],
+        device=device)
+    # SELF-VERIFICATION (this project's signature bug class is the silent
+    # name-match no-op — chassis box, entropy floor, …). Fail loudly instead.
+    print(f"[escape_eval] drive joints: {drive_names}")
+    print(f"[escape_eval] steer joints: {steer_names}")
+    print(f"[escape_eval] inching front mask = {front_mask.tolist()}, "
+          f"spiral arc signs = {steer_arc_sign.tolist()}")
+    assert front_mask.sum().item() == 2.0, \
+        f"inching front mask must catch exactly FL+FR, got {front_mask.tolist()} for {drive_names}"
+    assert steer_arc_sign.sum().item() == 0.0 and len(steer_names) == 4, \
+        f"spiral arc mask must be +1,+1,-1,-1 over 4 corners, got {steer_arc_sign.tolist()} for {steer_names}"
+
     obs, _ = env.reset()
 
     while completed < n_eps:
@@ -165,12 +199,80 @@ def run_level(env, sinkage, n_eps, device, num_act, control,
         elif control == "constant_drive":
             action = torch.zeros(unwrapped.num_envs, num_act, device=device)
             action[:, :6] = drive_mag
-        else:  # rocking
+        elif control == "rocking":
             phase = (step_counter // half_period_steps) % 2
             drive_sign = torch.where(phase == 0, torch.ones_like(phase),
                                      -torch.ones_like(phase))
             action = torch.zeros(unwrapped.num_envs, num_act, device=device)
             action[:, :6] = (drive_sign * drive_mag).unsqueeze(-1).expand(-1, 6)
+        elif control == "inching":
+            # Creager et al. 2015 push-pull extrication (J. Terramechanics 57),
+            # wheeled approximation for a passive rocker: alternate thrusting
+            # wheel groups against held (0-velocity-target = braked) anchors.
+            # Phase 0: rear+mid push, front anchors; phase 1: front pulls.
+            phase = ((step_counter // half_period_steps) % 2).unsqueeze(-1)
+            group = torch.where(
+                phase == 0,
+                rear_mid_mask.unsqueeze(0).expand(unwrapped.num_envs, -1),
+                front_mask.unsqueeze(0).expand(unwrapped.num_envs, -1))
+            action = torch.zeros(unwrapped.num_envs, num_act, device=device)
+            action[:, :6] = group * drive_mag
+        elif control == "rock_paddle":
+            # Combined operator strategy for drive+steer-only platforms: rocking
+            # (alternating drive sign) superposed with steering sweeps — the
+            # compatible-actuation "skilled operator" baseline. With parameter
+            # tuning (scripts/tune_scripted_baseline.sh) this is the fairest
+            # non-learning bar: the best scripted strategy this action space
+            # admits.
+            phase = (step_counter // half_period_steps) % 2
+            drive_sign = torch.where(phase == 0, torch.ones_like(phase),
+                                     -torch.ones_like(phase))
+            sweep = torch.sin(
+                2.0 * torch.pi * step_counter / float(2 * half_period_steps))
+            action = torch.zeros(unwrapped.num_envs, num_act, device=device)
+            action[:, :6] = (drive_sign * drive_mag).unsqueeze(-1).expand(-1, 6)
+            action[:, 6:10] = sweep.unsqueeze(-1).expand(-1, 4)
+        elif control == "spiral":
+            # Spiral egress heuristic (OURS — no published spiral extraction
+            # method exists; searched 2026-06-13). Rationale: arcing shears
+            # wheels sideways into fresh, uncompacted sand instead of the
+            # self-dug rut; the lock angle relaxes linearly over the episode,
+            # so a tight circle widens into translation — an Archimedean-ish
+            # egress spiral. Steer: front +, rear − (double-Ackermann arc);
+            # half_period sets the relaxation timescale (lock → straight over
+            # 10 × half_period).
+            relax_steps = float(10 * half_period_steps)
+            lock = (1.0 - step_counter / relax_steps).clamp(min=0.15)
+            action = torch.zeros(unwrapped.num_envs, num_act, device=device)
+            action[:, :6] = drive_mag
+            action[:, 6:10] = lock.unsqueeze(-1) * steer_arc_sign.unsqueeze(0)
+        else:  # steer_paddle
+            # Shrivastava et al. 2020 (Sci. Robotics, RP15) cyclic-sweep
+            # "paddling" gait, wheeled reduction: constant forward drive with
+            # full-lock sinusoidal steering sweeps on all four corners
+            # (sweep period = 2 × half_period).
+            sweep = torch.sin(
+                2.0 * torch.pi * step_counter / float(2 * half_period_steps))
+            action = torch.zeros(unwrapped.num_envs, num_act, device=device)
+            action[:, :6] = drive_mag
+            action[:, 6:10] = sweep.unsqueeze(-1).expand(-1, 4)
+
+        # Steering realization telemetry: for steering controllers, print
+        # commanded vs realized corner angles a few times per run so "the
+        # steering silently never moved" can never ship unnoticed again.
+        if control in ("steer_paddle", "rock_paddle", "spiral") and \
+                global_step in (37, 113, 411):  # prime-ish offsets — never
+                # aligned with sweep zero-crossings (step-25-multiple periods
+                # made commanded values print as 0.0 and confuse verification)
+            try:
+                import warp as _wp
+                jp = _wp.to_torch(unwrapped.robot.data.joint_pos)[0, unwrapped._steer_ids]
+                cmd = (action[0, 6:10] * 0.6).tolist()
+                print(f"[escape_eval] {control} step {global_step}: steer cmd(rad)="
+                      f"{[round(c,3) for c in cmd]} realized="
+                      f"{[round(float(v),3) for v in jp]}")
+            except Exception as e:
+                print(f"[escape_eval] steer telemetry failed: {e}")
 
         if record_actions is not None:
             # record env 0's action + mean abs slip for behaviour analysis

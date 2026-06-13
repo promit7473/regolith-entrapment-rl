@@ -904,7 +904,7 @@ Figure~\ref{fig:physics_stack}.
       \node[inner, minimum width=1.9cm] (crit) at (4.8, 1.6)
             {Critic\\(GRU)\\$\mathbf{o}^{[:37]}$};
       \node[inner, minimum width=3.6cm, minimum height=1cm] (loss) at (4, 0.3)
-            {PPO clip loss + value loss\\+ entropy ($\alpha{=}0.015$)};
+            {PPO clip loss + value loss\\+ entropy ($\alpha{=}0.08$)};
       \node[font=\tiny, text=black!60, anchor=north]
             at ($(loss.south)+(0,-0.15)$)
             {Adam, lr$=3{\times}10^{-4}$, mini-batches~8, epochs~3};
@@ -1188,7 +1188,12 @@ Sinkage depth is sampled each episode from a progressively deepening window:
 \begin{equation}
   d \sim \mathcal{U}[d_{\min} + (d_{\max}-d_{\min})\cdot p,\; d_{\max}]
 \end{equation}
-with $d_{\min}{=}15$\,cm, $d_{\max}{=}28$\,cm (axle-level burial). Curriculum
+with $d_{\min}{=}15$\,cm, $d_{\max}{=}28$\,cm. Relative to the $r{=}10$\,cm
+wheels this spans rim-deep burial ($1.5r$) to full entombment with $8$\,cm of
+overburden and chassis--soil contact ($2.8r$); the upper levels exceed
+documented flight-rover embedding (Opportunity at Purgatory Dune reached
+approximately full-diameter wheel burial) and constitute a deliberate
+worst case. Curriculum
 progress $p \in [0,1]$ advances by $\Delta p{=}0.01$ per rollout only when two
 conditions hold simultaneously over a 50-episode rolling window:
 (i)~\emph{recent escape rate} $\geq 0.50$, and
@@ -1761,11 +1766,30 @@ We validate the deployed best-checkpoint policy in a \emph{controlled} compariso
 
 \subsection{Escape Performance}
 
+% TODO(v12 rewrite): regenerate ALL numbers in this section on the fixed
+% physics (substep-dilution fix, measured wheel geometry, honest spawn). The
+% scripted suite is now SIX controllers in scripts/escape_eval.py
+% (constant_drive / rocking / inching / steer_paddle / rock_paddle / spiral)
+% organised in two tiers: Tier 1 = compatible-actuation heuristics, with the
+% best TUNED member (scripts/tune_scripted_baseline.sh sweeps period x
+% throttle) as the fairness bar; Tier 2 = literature gaits as transferred
+% approximations whose failure characterises actuation dependence. The
+% spiral egress heuristic is OURS (no published spiral extraction method
+% exists; searched 2026-06-13). Rewrite this paragraph to the tier framing
+% once the tuned champion is known.
 We benchmark the trained policy \emph{in the training engine} (Newton MPM, AAU
-rover, Mars gravity) against two non-learned controllers under matched
-conditions: \emph{constant drive} (full forward throttle, zero steer) and a
+rover, Mars gravity) against four non-learned controllers under matched
+conditions: \emph{constant drive} (full forward throttle, zero steer); a
 scripted \emph{rocking} primitive (alternating full forward/reverse drive,
-$2$\,s half-period). Each controller is run for 120 trials (30 per initial
+$2$\,s half-period); a scripted \emph{push--pull inching} gait after
+Creager et al.~\cite{creager2015pushpull}, who demonstrated vehicle
+extrication from entrapped granular states by thrusting wheel groups against
+anchored ones (our rover's rocker is passive, so we approximate the gait by
+alternating locked/driving wheel groups); and a scripted \emph{cyclic
+steering-sweep} gait after Shrivastava et al.~\cite{shrivastava2020material},
+whose rotate-and-sweep ``paddling'' enabled NASA's RP15 robophysical rover to
+swim out of entrapping granular media (we use its wheeled reduction:
+full-lock sinusoidal steering sweeps superposed on forward drive). Each controller is run for 120 trials (30 per initial
 sinkage level $d\in\{0.15,0.20,0.25,0.28\}$\,m). Escape is scored by the
 environment's \emph{pre-reset} termination flag (projected progress $>3.0$\,m):
 reading the chassis pose \emph{after} \texttt{step()} instead returns the

@@ -9,6 +9,11 @@
 : "${ISAACLAB_SRC_PATH:=$HOME/IsaacLab/source}"
 : "${NEWTON_PATH:=$HOME/newton}"
 : "${CONDA_ENV_PATH:=/media/rmedu/18C6E68BC6E66888/conda-envs/env_isaaclab}"
+# Fallback: the default above is the lab-box external drive. If it isn't
+# mounted on this machine, use the local miniconda env instead.
+if [ ! -x "$CONDA_ENV_PATH/bin/python3" ] && [ -x "$HOME/miniconda3/envs/env_isaaclab/bin/python3" ]; then
+    CONDA_ENV_PATH="$HOME/miniconda3/envs/env_isaaclab"
+fi
 : "${RLROVER_ASSETS:=$HOME/RLRoverLab/rover_envs/assets}"
 
 # For bash scripts, also export shorter aliases (used by launch.sh)

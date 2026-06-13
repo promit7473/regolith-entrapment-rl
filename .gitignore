@@ -134,3 +134,5 @@ related_papers/
 fixing_ideas/
 patches/
 presentation/paper/tectonic
+paper/*.fls
+paper/*.fdb_latexmk

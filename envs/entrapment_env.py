@@ -51,7 +51,7 @@ from isaaclab.sim._impl.newton_manager_cfg import NewtonCfg
 from isaaclab.sim._impl.solvers_cfg import MJWarpSolverCfg
 from isaaclab.sim._impl.newton_manager import NewtonManager
 from isaaclab.utils import configclass
-from isaaclab.utils.math import sample_uniform
+from isaaclab.utils.math import quat_apply_inverse, sample_uniform
 
 import newton as nt
 from newton.solvers import SolverImplicitMPM
@@ -89,7 +89,7 @@ ESCAPE_DISTANCE = 3.0                       # m — projected travel along escap
 SAND_HALF    = 1.75            # m — half-side of the square sand bed
 SAND_HALF_X  = SAND_HALF      # kept for kernel call compatibility
 SAND_HALF_Y  = SAND_HALF
-SAND_DEPTH   = 0.60           # v8: 0.30 → 0.60. Curriculum sinkage tops out at 0.28 m and wheel radius is 0.10 m → wheel bottom at 0.38 m below surface at max sinkage. 0.60 m bed leaves 0.22 m (>2× wheel radius) of compliant sand below the deepest wheel position — fully removes the rigid-floor confound that fed the bulldoze exploit at 0.30 m. Particle count scales ~2× (z cells 12 → 24).
+SAND_DEPTH   = 0.60           # v8: 0.30 → 0.60. Curriculum sinkage tops out at 0.28 m (wheel bottom 0.28 below the SETTLED surface by definition); with the measured wheel r=0.0994 the bed leaves >0.25 m (≈2.5× wheel radius) of compliant sand below the deepest wheel position — removes the rigid-floor confound that fed the v7-era bulldoze exploit at 0.30 m bed depth. Particle count scales ~2× (z cells 12 → 24).
 VOXEL_SIZE   = 0.05
 PPC          = 2.0    # particles per cell; voxel=0.05 preserved so SDF coupling quality unchanged
 
@@ -127,7 +127,7 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     action_space      = 10
     state_space       = 0
 
-    episode_length_s = 40.0  # v8: 30 → 40. With effort_limit 22 Nm + pen_grind (v9) the policy can't bulldoze; real recovery (Bi & Ding 2026: ~12–15 s per rocking attempt) needs headroom for multiple attempts before the timeout clips a converging recovery.
+    episode_length_s = 40.0  # v8: 30 → 40. Real recovery (Bi & Ding 2026: ~12–15 s per attempt) needs headroom for multiple attempts before the timeout clips a converging recovery. (Original note cited the v8 22 Nm effort limit — reverted to 40 Nm in v9; the headroom rationale stands on its own.)
     decimation       = 2     # policy at 25 Hz
     skip_mpm         = False  # set True for viewer-only mode (no sand physics)
 
@@ -167,8 +167,10 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # Structured noise: different sensors have different noise characteristics.
     # These values match real sensor datasheets for the deployment hardware.
     # Replaces the old flat dr_obs_noise_std = 0.02 across all 29 dims.
+    # Physical-unit sigmas (rad/s, rad, m/s²) are divided by the obs channel's
+    # normaliser at the injection site so datasheet values apply verbatim.
     dr_noise_wheel_vel    = 0.05   # rad/s — encoder quantization + bearing noise (0.8% of 6 rad/s range)
-    dr_noise_slip         = 0.03   # slip ratio — derived from wheel velocity noise
+    dr_noise_slip         = 0.03   # slip ratio (dimensionless) — derived from wheel velocity noise
     dr_noise_steer_pos    = 0.01   # rad — potentiometer / encoder noise
     dr_noise_imu_acc      = 0.15   # m/s² — MEMS IMU white noise (MPU-6050 class: 0.1–0.2 m/s²)
     dr_noise_grav_z       = 0.02   # gravity projection noise from IMU attitude error
@@ -177,7 +179,21 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
 
     # Failure mode logging: write per-episode metadata to CSV for post-hoc analysis.
     log_failure_modes     = True   # set False to disable I/O overhead during profiling
-    dr_sinkage_range     = (0.15, 0.28) # m — full curriculum range. Deep spawn was previously capped at 0.22 due to MPM penetration-resolution launch on teleport; now stabilised by the settle_steps force clamp below, so deep burial is safe again.
+    # Curriculum range calibrated on the DEFINITIVE honest-spawn ladder
+    # (2026-06-13, pinned μ=0.75, full throttle, single draws):
+    #   0.05 easy escape (0.24 m/s) | 0.10 marginal (~25 s to escape)
+    #   0.15 stable trap | 0.20/0.25 terminal trap (self-burial)
+    # Floor 0.05 = clearly escapable bootstrap level; 0.10 is the first hard
+    # rung; ≥0.15 is where the naive baseline fails (hub-level burial — the
+    # real-world failure depth). Paper-grade numbers come from the N=50
+    # escape_eval sweep, not these single draws.
+    dr_sinkage_range     = (0.05, 0.28) # m — full curriculum range
+    # Sand cohesion (MPM shear yield stress, Pa). 0 = purely frictional sand,
+    # which only moderately traps a powered rover (constant-drive escapes ~35%
+    # in the in-engine sweep). Real regolith cohesion is ~0.1–10 kPa.
+    # MPM_YIELD_STRESS env var overrides this field (kept for the 2026-06-06
+    # cohesion-study workflow).
+    sand_yield_stress    = 0.0
     dr_friction_range    = (0.6, 0.9)   # μ_s sand friction DR per reset.
     # Eval overrides: when set, pin sinkage / friction to a single value.
     sinkage_override     = None         # float | None — m
@@ -190,9 +206,17 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # (800N) → clamp expires before penetration resolves → abrupt spike → launch.
     # FIX: longer window (60 steps = 1.2s) + gentler cap (250N) so particles
     # push out organically through the clamped-but-nonzero force. No abrupt spike.
-    settle_steps             = 60     # 1.2 s at 50 Hz physics — enough for full particle relaxation
-    settle_force_cap         = 250.0  # N per body — gentle: allows settling without bounce spike
-    settle_torque_cap        = 40.0   # N·m per body — proportional to force cap
+    # RETUNED for full-strength coupling (2026-06-13, post substep-dilution
+    # fix). The historical 250 N/body was calibrated when applied forces were
+    # silently ÷8 (effective ≈31 N — gentle). At full strength, 250 N/body
+    # LIFTED the rover out of its prescribed burial during the settle window
+    # (observed: rover "floating" on the bed surface at spawn; z rising during
+    # settle). 40 N/body ≈ the old effective value with margin: per-wheel
+    # static support needs ~22 N (130 N Mars weight / 6 wheels), so full
+    # support fits under the cap while teleport-overlap spikes stay bounded.
+    settle_steps             = 60     # 1.2 s at 50 Hz physics
+    settle_force_cap         = 40.0   # N per body (≈ old 250/8 effective, +margin)
+    settle_torque_cap        = 6.0    # N·m per body — proportional
 
     # Entrapment detection thresholds (v_x < vx AND mean_slip > slip for N steps)
     entrap_vx_thresh    = 0.15   # m/s
@@ -231,6 +255,11 @@ class EntrapmentEnvCfg(DirectRLEnvCfg):
     # the escape axis exceeds env_spacing/2 - safety margin. Prevents inter-env
     # collisions when the policy drifts sideways instead of progressing.
     lateral_oob_margin = 1.0  # m — subtract from env_spacing/2
+
+    # Sunk termination: wheel-bottom burial below the settled sand surface at
+    # which the episode ends (catastrophic swallowing). Must exceed the max
+    # curriculum sinkage (0.28) by a healthy dynamic-dig-in margin.
+    sunk_burial_thresh = 0.45  # m
 
     # Curriculum backoff: regress curriculum_progress when the policy collapses
     # (low escape rate) OR exploits bouncing (high trivial rate). Asymmetric — slower
@@ -305,6 +334,10 @@ class EntrapmentEnv(DirectRLEnv):
         self.grav_b     = wp.to_torch(self.robot.data.projected_gravity_b)
         self.lin_acc_w  = wp.to_torch(self.robot.data.body_com_lin_acc_w)[:, 0, :]
 
+        # Gravity vector/magnitude for the IMU specific-force observation.
+        self._g_vec_w = torch.tensor(self.cfg.sim.gravity, device=self.device)
+        self._g_mag   = float(torch.linalg.norm(self._g_vec_w).clamp(min=1e-6))
+
         self.prev_action = torch.zeros(
             self.num_envs, self.cfg.action_space, device=self.device
         )
@@ -322,6 +355,9 @@ class EntrapmentEnv(DirectRLEnv):
 
         # Per-env true sinkage (sampled each reset) — privileged critic signal.
         self._sinkage = torch.zeros(self.num_envs, device=self.device)
+        # Per-env sand friction (sampled each reset) — cached for failure-mode CSV.
+        # NaN until the first post-MPM-init reset writes a real DR sample.
+        self._friction = torch.full((self.num_envs,), float("nan"), device=self.device)
 
         # Escape tracking — counted in _get_dones (before reset) so the metric
         # isn't wiped by the env reset that happens between dones and rewards.
@@ -436,7 +472,10 @@ class EntrapmentEnv(DirectRLEnv):
             # add_usd skip them entirely. ~30s init instead of 1h+.
             # If you ever suspect this is hiding a real contact, set
             # STRIP_COLLISION_MESHES=False to revert.
-            STRIP_COLLISION_MESHES = True
+            # STRIP_COLLISION_MESHES=0 keeps the 368 USD collision meshes — for
+            # the "why not train on the real rover geometry?" experiment
+            # (expect: very long add_usd / per-shape BVH build; see comment).
+            STRIP_COLLISION_MESHES = os.environ.get("STRIP_COLLISION_MESHES", "1") != "0"
             if STRIP_COLLISION_MESHES:
                 # IMPORTANT: don't `SetActive(False)` on the prim — Mars_Rover.usd
                 # uses unified visual+collision mesh prims (same Mesh prim carries
@@ -474,11 +513,18 @@ class EntrapmentEnv(DirectRLEnv):
         # Ground plane + proxy cylinder collision shapes via Newton builder callback.
         # The USD mesh collision shapes (329 of them) flood XPBD's contact buffer
         # → NaN. Real wheel mesh approaches hang (high-poly USD mesh parsing).
-        # Proxy cylinders match real wheel dimensions (r=0.094m, half_width=0.052m)
-        # and resist lateral sand penetration correctly unlike spheres.
+        # Proxy cylinders use the DEFINITIVE measured wheel geometry
+        # (scripts/wheel_geometry.py; see ROVER_WHEEL_RADIUS): tire r=0.0939
+        # + half of the 1.1 cm grouser depth → r_eff=0.0994; contact width =
+        # rim width 0.1035. Same radius feeds the slip model + spawn formula.
         # Wheel axle is along X in USD frame → rotate cylinder 90° around Y so
         # its Z-axis (cylinder axis in Newton) aligns with wheel axle (X).
-        WHEEL_HALF_WIDTH = 0.052   # m — from USD: x-extent = 0.1035m / 2
+        # Width = RIM width 0.1035/2 (the continuous solid surface), not the
+        # grouser-blade envelope 0.125: blades are discrete 8 mm plates with
+        # gaps, so a solid cylinder at blade width overstates frontal/
+        # bulldozing area. Equivalent-cylinder convention: radius from blade
+        # penetration (r_eff=0.0994), width from the solid rim.
+        WHEEL_HALF_WIDTH = 0.052
 
         def _newton_init_cb():
             builder = NewtonManager._builder
@@ -526,26 +572,106 @@ class EntrapmentEnv(DirectRLEnv):
                         half_height=WHEEL_HALF_WIDTH,
                         cfg=cfg,
                     )
+                    # Grouser blades (SAND-only colliders; rigid-ground contact
+                    # stays on the smooth cylinder). MEASURED geometry
+                    # (scripts/wheel_geometry.py): tire r=0.0939; fine shallow
+                    # grousers to r=0.1053 (1.1 cm deep, 8 mm plate arc) — a
+                    # knobby tread, not paddles. At 1.1 cm ≈ 0.22 voxel these
+                    # are mostly sub-resolution; the blades give the SDF a
+                    # mild non-axisymmetric texture (best-effort) while the
+                    # equivalent-cylinder radius carries the main traction
+                    # model. 8 blades (the densest spacing the 5 cm grid can
+                    # distinguish; the real tread has dozens of fine grousers
+                    # that alias into a ring). SAND_GROUSERS=0 → smooth only.
+                    if os.environ.get("SAND_GROUSERS", "1") != "0":
+                        n_paddles = int(os.environ.get("SAND_GROUSERS_N", "8"))
+                        grouser_cfg = nt.ModelBuilder.ShapeConfig(
+                            ke=2e3, kd=1e2, kf=1e3, mu=0.75, density=0.0,
+                            has_shape_collision=False,     # no rigid contact
+                            has_particle_collision=True,   # sand only
+                            is_visible=False,
+                        )
+                        import math as _math
+                        # Blade half-extents from measured geometry: radial
+                        # 0.0055 (depth 1.1 cm), tangential 0.004 (8 mm plate),
+                        # axial = rim half-width.
+                        r_mid = 0.0939 + 0.0055   # blade mid-radius
+                        base_off = xform.p
+                        for k in range(n_paddles):
+                            ang = 2.0 * _math.pi * k / n_paddles
+                            # Wheel axle is body-X; blades lie in the body Y-Z
+                            # plane, offset radially, long axis radial.
+                            cy = r_mid * _math.cos(ang)
+                            cz = r_mid * _math.sin(ang)
+                            # Rotate the box about body-X so its local +Z
+                            # (the hz=radial half-extent) points along the
+                            # radial direction (0, cos ang, sin ang). Rotation
+                            # about X by θ maps +Z → (0, −sin θ, cos θ), so
+                            # θ = ang − π/2.
+                            th = ang - _math.pi / 2.0
+                            q = wp.quat(_math.sin(th / 2.0), 0.0, 0.0, _math.cos(th / 2.0))
+                            p_xf = wp.transform(
+                                wp.vec3(float(base_off[0]), float(base_off[1] + cy), float(base_off[2] + cz)),
+                                q,
+                            )
+                            builder.add_shape_box(
+                                body=b,
+                                xform=p_xf,
+                                hx=WHEEL_HALF_WIDTH,  # axial (along axle)
+                                hy=0.004,             # tangential: 8 mm plate (measured)
+                                hz=0.0055,            # radial: 1.1 cm blade depth (measured)
+                                cfg=grouser_cfg,
+                            )
                     n_wheels += 1
-                elif name == 'Body':
+                elif (name.split('/')[-1] == 'Body' or name.endswith('Body')) \
+                        and os.environ.get("SAND_HULL_COLLIDER") == "1":
+                    # OPT-IN (2026-06-13). History: the v9 belly box was silently
+                    # never added (`name == 'Body'` exact-match vs path-prefixed
+                    # body keys → "added 0 chassis sand box" in every log), so
+                    # ALL calibrated physics (convergence matrix, trap gradient)
+                    # is wheels-only. Binding a hull-sized box turned out to
+                    # detonate the bed at teleport-spawn (~20 kg of overlapping
+                    # sand evicted instantly → rover shoved ~0.9 m/s, episodes
+                    # die in the settle window) and erases the 0.20 m trap.
+                    # Until spawn pocket-carving is implemented and the matrix
+                    # recalibrated with hull contact, this stays OFF and the
+                    # "sand inside the hull" issue is handled at RENDER time
+                    # (grains inside the hull volume are hidden).
                     # Chassis sand collider — fills the missing body-soil interaction.
-                    # Without this, sand particles pass through the chassis bottom and
-                    # only the 6 wheels feel sand resistance. Real granular entrapment
+                    # Without this, sand particles pass through the chassis and only
+                    # the 6 wheels feel sand resistance. Real granular entrapment
                     # includes belly-pan / hull drag (Bi & Ding 2026).
+                    # v12: sized to the REAL hull (USD Body bbox: 0.665×0.490 m,
+                    # z ∈ [0, +0.253] above the Body root) plus the belly pan down
+                    # to −0.10. The old box (0.50×0.40, z ∈ [−0.10, 0]) covered
+                    # only the belly — at deep burial the sand line is up to
+                    # +0.11 above root, so sand flowed INSIDE the visual hull
+                    # (under-modelled drag + "grains floating in the rover").
                     chassis_xform = wp.transform(
-                        wp.vec3(0.0, 0.0, -0.05),
+                        wp.vec3(0.0, 0.0, 0.075),   # box spans z ∈ [−0.10, +0.25]
                         wp.quat_identity(),
                     )
                     builder.add_shape_box(
                         body=b,
                         xform=chassis_xform,
-                        hx=0.25, hy=0.20, hz=0.05,
+                        hx=0.33, hy=0.245, hz=0.175,
                         cfg=cfg,
                     )
                     n_chassis += 1
             print(f"[Newton Init] Disabled mesh collision on {n_shapes} shapes, "
                   f"added {n_wheels} wheel proxy cylinders (r={WHEEL_RADIUS}m, hw={WHEEL_HALF_WIDTH}m), "
                   f"added {n_chassis} chassis sand box.")
+            n_env_expected = max(1, n_bodies // 16)  # 16 bodies per env clone
+            n_chassis_expected = n_env_expected if os.environ.get("SAND_HULL_COLLIDER") == "1" else 0
+            if n_wheels != 6 * n_env_expected or n_chassis != n_chassis_expected:
+                sample = [body_keys[b] for b in range(min(n_bodies, 16))]
+                raise RuntimeError(
+                    f"[Newton Init] Proxy collider binding failed: wheels={n_wheels} "
+                    f"(want {6*n_env_expected}), chassis={n_chassis} (want {n_chassis_expected}). "
+                    f"Body keys: {sample}. Sand would silently pass through unbound "
+                    f"geometry — refusing to continue (this exact failure shipped "
+                    f"unnoticed before)."
+                )
 
             # Fix passive joint effort_limit=0 — MuJoCo Warp rejects actfrcrange=[0,0].
             # Rocker/Differential joints in the USD have effort_limit=0 (free joints).
@@ -601,8 +727,9 @@ class EntrapmentEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=True)
         print(f"[Scene] Clone done.")
         
-        # NOTE: Mars gravity (3.72 m/s²) is set inside _init_mpm / _init_viewer_only
-        # because NewtonManager._model is None here (model built by Newton's start callbacks).
+        # NOTE: Robot-model gravity comes from SimulationCfg.gravity via NewtonManager.
+        # The MPM sand builder needs its own explicit gravity (set in _init_mpm) —
+        # nt.ModelBuilder defaults to Earth -9.81 otherwise.
 
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=[])
@@ -669,6 +796,13 @@ class EntrapmentEnv(DirectRLEnv):
         if hasattr(robot_model, 'shape_geo_type') and robot_model.shape_geo_type is not None:
             _p(f"[Debug] Shape geo types: {robot_model.shape_geo_type}")
 
+        # Ejecta z-headroom for the escaped-particle clamp. 0.10 = the value
+        # the v12 matrix was calibrated with (default; training + reported
+        # numbers). SAND_EJECTA_HEADROOM=0.45 for cinematic recordings only —
+        # it measurably weakens the trap (thrown sand no longer refills the rut).
+        self._ejecta_headroom = float(os.environ.get("SAND_EJECTA_HEADROOM", "0.10"))
+        _p(f"[MPM] Ejecta headroom = {self._ejecta_headroom} m")
+
         lo  = np.array([-SAND_HALF_X, -SAND_HALF_Y, 0.0])
         hi  = np.array([ SAND_HALF_X,  SAND_HALF_Y, SAND_DEPTH])
         res = np.array(np.ceil(PPC * (hi - lo) / VOXEL_SIZE), dtype=int)
@@ -677,7 +811,18 @@ class EntrapmentEnv(DirectRLEnv):
         mass      = float(np.prod(cell_size) * 1700.0)
         _p(f"[MPM] Grid res={res}, cell_size={cell_size}, radius={radius:.4f}, mass={mass:.4f}")
 
-        sand_builder = nt.ModelBuilder(up_axis=nt.Axis.Z)
+        # CRITICAL: ModelBuilder defaults to Earth gravity (-9.81). The robot model
+        # gets Mars gravity from SimulationCfg via NewtonManager, but this sand
+        # builder is constructed by hand — without an explicit gravity it simulates
+        # the bed at Earth weight (2.64× confining pressure → ~2.64× frictional
+        # shear strength) while the rover weighs Mars. All runs before 2026-06-12
+        # had this mismatch (sand: -9.81, rover: -3.72). Derive from cfg.sim so
+        # both phases always share one gravity value.
+        # SAND_GRAVITY env var reproduces the pre-2026-06-12 legacy behaviour
+        # (Earth-gravity bed) for A/B attribution studies; default = matched.
+        sand_gravity = float(os.environ.get("SAND_GRAVITY", self.cfg.sim.gravity[2]))
+        sand_builder = nt.ModelBuilder(up_axis=nt.Axis.Z, gravity=sand_gravity)
+        _p(f"[MPM] Sand gravity = {sand_gravity} m/s² (sim gravity = {self.cfg.sim.gravity[2]})")
         env_origins_np = self.scene.env_origins.cpu().numpy()
 
         self._particle_env_starts = []
@@ -699,7 +844,14 @@ class EntrapmentEnv(DirectRLEnv):
                 cell_y=float(cell_size[1]),
                 cell_z=float(cell_size[2]),
                 mass=mass,
-                jitter=2.0 * radius,
+                # v12: jitter 2.0r → 0.5r. Full-cell jitter (the Newton flowing-
+                # sand demo value) builds an overlap/void disordered lattice that
+                # consolidates ~36% under gravity — the bed couldn't statically
+                # bear the rover (sank to the rigid floor with zero action).
+                # particle_volume = (2r)³ exactly fills the cell, so a near-
+                # lattice packing starts at volume fraction ≈ 1 and bears load
+                # through the solver's unilateral incompressibility immediately.
+                jitter=0.5 * radius,
                 radius_mean=radius,
             )
 
@@ -723,31 +875,41 @@ class EntrapmentEnv(DirectRLEnv):
         # `material_parameters.friction` array directly (see _set_env_friction).
         total_particles = len(sand_builder.particle_q)
         self.sand_model.particle_mu = wp.full(total_particles, 0.9, dtype=float, device=device)
-        # particle_ke = bulk stiffness. Lowered 1e15 → 1e8 to match physical sand
-        # bulk modulus (~30–100 MPa). The Newton reference's 1e15 is for a ball-drop
-        # demo and treats sand as near-incompressible — wheel impulses then bounce
-        # off a rigid bed (trampoline effect → "hop-and-grab" locomotion). At 1e8
-        # the bed compresses realistically under wheel load. Implicit MPM solver is
-        # unconditionally stable at any ke; previous CFL blow-up came from missing
-        # subtract_body_force (double-counted velocities), not from ke itself.
+        # particle_ke = compression penalty stiffness (NOT a physical bulk modulus
+        # — see v10 notes in CLAUDE.md). History: Newton reference uses 1e15
+        # (near-incompressible → trampoline bounce); v7 tried 1e8 quoting compacted-
+        # sand bulk modulus, still rubber-mat stiff; v10 restored 2e5 Pa (the
+        # April-16 value) which gives visibly correct wheel-sand compliance.
+        # Implicit MPM solver is unconditionally stable at any ke; pick for
+        # visible compliance, not textbook modulus.
         self.sand_model.particle_ke = 2.0e5
         _p("[MPM] Sand model finalized.")
 
         mpm_opt = SolverImplicitMPM.Options()
         mpm_opt.voxel_size        = VOXEL_SIZE
-        mpm_opt.tolerance         = 1.0e-5
+        # v12 ROOT-CAUSE FIX: at the old 30 iterations / 1e-5 the rheology solve
+        # exited unconverged on this 24-voxel-deep bed — the pressure constraint
+        # never propagated to the ground, so the bed leaked volume EVERY step
+        # (~30% column collapse; rover sank to the rigid floor with zero action).
+        # Calibration (scripts/bed_calibration.py, 2026-06-13): leak is per-step
+        # not per-sim-second, insensitive to particle volume/jitter/cf/basis;
+        # 100 iters + 1e-7 → 27% → 6% compaction at +50% MPM cost (47 vs 31
+        # ms/step @ 0.5M particles). Override via env vars to retune on the 4090.
+        mpm_opt.tolerance         = float(os.environ.get("MPM_TOLERANCE", "1.0e-7"))
         mpm_opt.grid_type         = "sparse"
         mpm_opt.transfer_scheme   = "apic"   # angular-momentum-conserving PIC — better wheel↔sand momentum transfer
-        mpm_opt.strain_basis      = "P0"
-        mpm_opt.max_iterations    = 30
+        mpm_opt.strain_basis      = "P0"     # Q1 measured WORSE (48% leak) — keep P0
+        mpm_opt.max_iterations    = int(os.environ.get("MPM_MAX_ITERATIONS", "100"))
         mpm_opt.critical_fraction = 0.025
         mpm_opt.hardening         = 5.0
         mpm_opt.air_drag          = 1.0
-        # Cohesion (shear yield stress, Pa). Default 0 = purely frictional sand,
-        # which does NOT trap a powered rover under converged physics. Set via
-        # MPM_YIELD_STRESS to add cohesive strength and create a real trap
-        # (cohesion study 2026-06-06). Real regolith cohesion ~0.1-10 kPa.
-        mpm_opt.yield_stress      = float(os.environ.get("MPM_YIELD_STRESS", "0.0"))
+        # Cohesion (shear yield stress, Pa) — see cfg.sand_yield_stress.
+        # Env var takes precedence for sweep workflows.
+        _ys_env = os.environ.get("MPM_YIELD_STRESS")
+        mpm_opt.yield_stress = (
+            float(_ys_env) if _ys_env is not None else float(self.cfg.sand_yield_stress)
+        )
+        _p(f"[MPM] yield_stress = {mpm_opt.yield_stress} Pa")
 
         _p("[MPM] Creating MPM model...")
         mpm_model = SolverImplicitMPM.Model(self.sand_model, mpm_opt)
@@ -771,6 +933,72 @@ class EntrapmentEnv(DirectRLEnv):
                 "has_particle_collision=True and that mpm_model.setup_collider was "
                 "called with the correct robot model."
             )
+        mpm_dt = NewtonManager._dt if hasattr(NewtonManager, "_dt") else 1.0 / 50.0
+
+        # ── Bed pre-settle (v12) ─────────────────────────────────────────────
+        # add_particle_grid builds a LOOSE jittered lattice that has never
+        # consolidated. Under gravity the bed collapses for several seconds; a
+        # rover standing on it rides the collapse down (measured 2026-06-13:
+        # chassis −0.35 m in 5 s with ZERO action, identical at 0/1/2 kPa
+        # cohesion — i.e. not a shear-strength issue). Pre-Mars-gravity-fix
+        # runs masked this because Earth-weight sand consolidated faster and
+        # was ~2.6× stronger relative to the Mars-weight rover.
+        # Fix: settle the bed ONCE here with colliders parked far away, then
+        # cache the consolidated state as the per-episode reset state.
+        if self.sand_state.body_q is not None and n_col > 0:
+            bq = wp.to_torch(self.sand_state.body_q)
+            bq[:, :3]  = torch.tensor([0.0, 0.0, 1000.0], device=bq.device)
+            bq[:, 3:7] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=bq.device)
+            if self.sand_state.body_qd is not None:
+                wp.to_torch(self.sand_state.body_qd).zero_()
+        presettle_max = int(os.environ.get("BED_PRESETTLE_STEPS", "600"))
+        _p(f"[MPM] Pre-settling bed (max {presettle_max} steps @ dt={mpm_dt})...")
+        for i in range(presettle_max):
+            self.mpm_solver.step(self.sand_state, self.sand_state,
+                                 contacts=None, control=None, dt=mpm_dt)
+            # Keep the box walls during pre-settle — at runtime this clamp runs
+            # every step, so the settled state must be consolidated WITHIN the
+            # box, not a laterally-spread pile (first attempt without the clamp
+            # measured 0.274 m of apparent "compaction", mostly sideways spill).
+            wp.launch(
+                clamp_escaped_particles,
+                dim=int(self.sand_model.particle_count),
+                inputs=[
+                    self.sand_state.particle_q,
+                    self._env_origins_wp,
+                    int(self._particles_per_env),
+                    float(SAND_HALF_X),
+                    float(SAND_HALF_Y),
+                    float(SAND_DEPTH),
+                    self._ejecta_headroom,
+                ],
+                device=device,
+            )
+            if (i + 1) % 25 == 0:
+                v = torch.linalg.norm(
+                    wp.to_torch(self.sand_state.particle_qd), dim=1).mean().item()
+                _p(f"[MPM]   pre-settle {i+1}: mean |v| = {v:.4f} m/s")
+                if v < 0.005:
+                    break
+        wp.to_torch(self.sand_state.particle_qd).zero_()
+
+        # Measure the settled surface height (99th-percentile particle z of
+        # env 0, origin-relative). Compaction lowers the surface below the
+        # as-built SAND_DEPTH; spawn-sinkage and the privileged wheel-burial
+        # signal must reference the REAL surface or prescribed sinkage lies.
+        q_torch = wp.to_torch(self.sand_state.particle_q)
+        z_env0  = q_torch[: self._particles_per_env, 2] - float(env_origins_np[0][2])
+        self._sand_surface_z = float(torch.quantile(z_env0, 0.99).item())
+        _p(f"[MPM] Settled sand surface: {self._sand_surface_z:.3f} m "
+           f"(as-built {SAND_DEPTH} m → compaction {SAND_DEPTH - self._sand_surface_z:.3f} m)")
+
+        # Cache the CONSOLIDATED bed as the per-episode reset state (virgin
+        # settled bed, zero velocities, no rover cavity baked in).
+        self._sand_q0  = wp.clone(self.sand_state.particle_q)
+        self._sand_qd0 = wp.clone(self.sand_state.particle_qd)
+
+        # Now place the real collider poses and evict any particles that
+        # overlap the rover at its current pose.
         if self.sand_state.body_q is not None:
             robot_state_init = NewtonManager._state_0
             wp.copy(self.sand_state.body_q,
@@ -780,14 +1008,9 @@ class EntrapmentEnv(DirectRLEnv):
                 wp.copy(self.sand_state.body_qd,
                         robot_state_init.body_qd,
                         count=min(n_col, robot_state_init.body_qd.shape[0]))
-
-        mpm_dt = NewtonManager._dt if hasattr(NewtonManager, "_dt") else 1.0 / 50.0
         _p("[MPM] Running project_outside...")
         self.mpm_solver.project_outside(self.sand_state, self.sand_state, dt=mpm_dt)
         _p("[MPM] Initial project_outside complete.")
-
-        self._sand_q0  = wp.clone(self.sand_state.particle_q)
-        self._sand_qd0 = wp.clone(self.sand_state.particle_qd)
 
         max_nodes = 1 << 20
         self._col_impulses = wp.zeros(max_nodes, dtype=wp.vec3, device=device)
@@ -832,7 +1055,7 @@ class EntrapmentEnv(DirectRLEnv):
                 # MPM post-processing
                 for env_ref in NewtonManager._mpm_envs:
                     if env_ref._mpm_ready:
-                        env_ref._mpm_post_xpbd()
+                        env_ref._mpm_post_step()
                 # Viewer rendering (for viewer-only mode without MPM)
                 for env_ref in NewtonManager._viewer_envs:
                     if env_ref._viewer and env_ref._viewer.is_running():
@@ -847,6 +1070,37 @@ class EntrapmentEnv(DirectRLEnv):
                                 pass
 
             NewtonManager.step = _patched_step
+
+        # ── Keep sand forces alive across substeps ──────────────────────────
+        # NewtonManager's substep loop calls state.clear_forces() after every
+        # substep (states ping-pong), so a once-per-frame injection is consumed
+        # by substep 1 only — the ÷num_substeps dilution bug. Wrapping
+        # clear_forces to re-add the sand wrench after each clear makes the
+        # injected force CONTINUOUS over the frame: constant force ⇒ exactly
+        # the collected impulse J, without the first-substep kN-class pulse
+        # (an earlier ×num_substeps fix delivered J impulsively and ratcheted
+        # buried rovers upward at ~4 cm/s with net force ≈ 0).
+        if not hasattr(NewtonManager, "_sand_clear_forces_patched"):
+            NewtonManager._sand_clear_forces_patched = True
+            for _st in (NewtonManager._state_0, NewtonManager._state_1):
+                _orig_clear = _st.clear_forces
+
+                def _make_clear_wrapper(orig, st_ref):
+                    def _clear_and_readd():
+                        orig()
+                        if st_ref.body_f is None:
+                            return
+                        for env_ref in NewtonManager._mpm_envs:
+                            if env_ref._mpm_ready:
+                                wp.launch(
+                                    kernel=_add_spatial_forces,
+                                    dim=st_ref.body_f.shape[0],
+                                    inputs=[env_ref._body_sand_f, 1.0, st_ref.body_f],
+                                    device=env_ref.device,
+                                )
+                    return _clear_and_readd
+
+                _st.clear_forces = _make_clear_wrapper(_orig_clear, _st)
 
         # Register this env instance for MPM post-processing
         NewtonManager._mpm_envs.append(self)
@@ -926,14 +1180,17 @@ class EntrapmentEnv(DirectRLEnv):
             device=self.device,
         )
 
+        # scale=1.0: the clear_forces wrapper (see _init_mpm) re-adds the sand
+        # wrench after every substep clear, so this force acts CONTINUOUSLY
+        # over the frame — total impulse = collected J, no pulse ratcheting.
         wp.launch(
             kernel=_add_spatial_forces,
             dim=robot_model.body_count,
-            inputs=[self._body_sand_f, state_0.body_f],
+            inputs=[self._body_sand_f, 1.0, state_0.body_f],
             device=self.device,
         )
 
-    def _mpm_post_xpbd(self):
+    def _mpm_post_step(self):
         robot_model = NewtonManager._model
         state_0     = NewtonManager._state_0
         mpm_dt      = NewtonManager._dt
@@ -983,6 +1240,7 @@ class EntrapmentEnv(DirectRLEnv):
                 float(SAND_HALF_X),
                 float(SAND_HALF_Y),
                 float(SAND_DEPTH),
+                self._ejecta_headroom,
             ],
             device=self.device,
         )
@@ -1029,6 +1287,7 @@ class EntrapmentEnv(DirectRLEnv):
         self._viewer       = None
         self._vis_stride   = 1
         self._render_frame = 0
+        self._grains       = None   # cosmetic grain rendering (set up below if viewer opens)
 
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             print("[Sand Visual] No display — viewer disabled.")
@@ -1042,6 +1301,14 @@ class EntrapmentEnv(DirectRLEnv):
         n = self.sand_model.particle_count
         self._vis_stride = max(1, n // 60_000)
         n_vis = n // self._vis_stride
+        # Grain rendering (cosmetic only — physics unchanged). Each env-0
+        # physics particle is split into SAND_GRAINS_PPP small render grains
+        # advected by the solver's own update_render_grains (the look of
+        # Newton's example_mpm_grain_rendering / what makes the demo sand
+        # look like sand instead of voxel blobs). SAND_GRAINS=0 restores the
+        # raw-particle debug view.
+        self._grains = None
+        self._grains_enabled = os.environ.get("SAND_GRAINS", "1") != "0"
         robot_model = NewtonManager._model
         try:
             self._viewer = ViewerGL(width=1440, height=900, vsync=False)
@@ -1063,9 +1330,59 @@ class EntrapmentEnv(DirectRLEnv):
             )
             print(f"[Sand Visual] ViewerGL open — robots:{self.num_envs}  sand pts:{n_vis}  "
                   f"shapes:{n_shapes}")
+            if self._grains_enabled:
+                self._setup_grain_rendering()
         except Exception as e:
             print(f"[Sand Visual] ViewerGL setup failed: {e}")
             self._viewer = None
+
+    def _setup_grain_rendering(self):
+        """Cosmetic sub-particle grains for env 0 (the camera target).
+
+        Splits each physics particle into N small grains sampled inside the
+        particle's cube, advected each render frame by the solver's
+        update_render_grains (APIC-local + grid PIC + ellipsoid projection).
+        Pure rendering — the MPM state is never modified.
+        """
+        try:
+            ppp = int(os.environ.get("SAND_GRAINS_PPP", "3"))
+            ppe = int(self._particles_per_env)
+            # Sample over the full state (one-time), keep an env-0 view: the
+            # grain kernels index particle arrays by grain row, and env 0 owns
+            # rows [0, ppe) by construction.
+            grains_full = self.mpm_solver.sample_render_grains(self.sand_state, ppp)
+            self._grains_full = grains_full
+            self._grains = grains_full[:ppe]
+            n_g = ppe * ppp
+            grain_r = float(VOXEL_SIZE) / (3.0 * ppp)
+            dev = self.sand_state.particle_q.device
+            # ±30% size variation — uniform grain size reads as synthetic.
+            # base_radii holds the true sizes; _grain_radii is rewritten every
+            # render frame by the hull mask (radius 0 = hidden inside the hull).
+            _rr = np.random.default_rng(1)
+            self._grain_base_radii = wp.array(
+                (grain_r * _rr.uniform(0.7, 1.3, size=n_g)).astype(np.float32),
+                dtype=wp.float32, device=dev)
+            self._grain_radii = wp.clone(self._grain_base_radii)
+            # Mars-sand palette with per-grain jitter — a flat single colour is
+            # what makes point clouds look like plastic. (One-time, host-side.)
+            rng = np.random.default_rng(0)
+            # Martian regolith (iron-oxide butterscotch-red) — matches the
+            # raw-particle fallback palette and the paper's Mars-analogue claim.
+            base = np.array([0.62, 0.33, 0.20], dtype=np.float32)
+            cols = base[None, :] + rng.uniform(-0.05, 0.05, size=(n_g, 3)).astype(np.float32)
+            cols += rng.uniform(-0.06, 0.06, size=(n_g, 1)).astype(np.float32)  # luminance jitter
+            self._grain_colors = wp.array(np.clip(cols, 0.0, 1.0), dtype=wp.vec3, device=dev)
+            # Previous-frame particle positions: our MPM steps in place, so we
+            # keep our own snapshot for update_render_grains' state_prev.
+            self._grain_prev_q = wp.clone(self.sand_state.particle_q)
+            self._grain_err_once = False
+            print(f"[Sand Visual] Grain rendering ON — {n_g} grains for env 0 "
+                  f"(ppp={ppp}, r={grain_r*1000:.1f} mm). SAND_GRAINS=0 for raw debug view, "
+                  f"SAND_GRAINS_PPP to trade density vs FPS.")
+        except Exception as e:
+            print(f"[Sand Visual] Grain rendering unavailable ({e}) — using raw particles.")
+            self._grains = None
 
     def _render_sand_particles(self):
         if self._viewer is None or not self._viewer.is_running():
@@ -1078,22 +1395,62 @@ class EntrapmentEnv(DirectRLEnv):
             self._viewer.begin_frame(self._render_frame / 50.0)
             self._viewer.log_state(robot_state)
 
+            if self._grains is not None:
+                # Advect the cosmetic grains by the motion since the last
+                # render frame (we render every 3rd physics step). state_prev
+                # only needs particle_q — pass our snapshot through a shim.
+                from types import SimpleNamespace
+                prev = SimpleNamespace(particle_q=self._grain_prev_q)
+                dt_render = 3.0 * (NewtonManager._dt if hasattr(NewtonManager, "_dt") else 0.02)
+                try:
+                    self.mpm_solver.update_render_grains(
+                        prev, self.sand_state, self._grains, dt_render)
+                    wp.copy(self._grain_prev_q, self.sand_state.particle_q)
+                except Exception as ge:
+                    if not self._grain_err_once:
+                        self._grain_err_once = True
+                        print(f"[Sand Visual] grain update failed ({ge}) — reverting to raw particles")
+                    self._grains = None
+            if self._grains is not None:
+                # Hide grains inside the (physics-transparent) hull volume —
+                # render-only mask, re-evaluated against the live rover pose.
+                rp = self.root_pos[0] if hasattr(self, "root_pos") else None
+                if rp is not None:
+                    rq = wp.to_torch(self.robot.data.root_link_quat_w)[0]
+                    wp.launch(
+                        _mask_grains_in_hull,
+                        dim=self._grain_radii.shape[0],
+                        inputs=[
+                            self._grains.flatten(),
+                            self._grain_base_radii,
+                            self._grain_radii,
+                            wp.vec3(float(rp[0]), float(rp[1]), float(rp[2])),
+                            wp.quat(float(rq[0]), float(rq[1]), float(rq[2]), float(rq[3])),
+                        ],
+                        device=self.device,
+                    )
+                self._viewer.log_points(
+                    name="sand",
+                    points=self._grains.flatten(),
+                    radii=self._grain_radii,
+                    colors=self._grain_colors,
+                )
+            else:
+                sand_pts = self.sand_state.particle_q[::self._vis_stride]
+                n_vis = len(sand_pts)
+                # Reuse pre-allocated arrays to avoid VRAM fragmentation
+                if not hasattr(self, '_vis_radii') or len(self._vis_radii) != n_vis:
+                    self._vis_radii  = wp.full(n_vis, VOXEL_SIZE * 0.6,
+                                               dtype=wp.float32, device=sand_pts.device)
+                    self._vis_colors = wp.full(n_vis, wp.vec3(0.62, 0.30, 0.20),
+                                               dtype=wp.vec3, device=sand_pts.device)
 
-            sand_pts = self.sand_state.particle_q[::self._vis_stride]
-            n_vis = len(sand_pts)
-            # Reuse pre-allocated arrays to avoid VRAM fragmentation
-            if not hasattr(self, '_vis_radii') or len(self._vis_radii) != n_vis:
-                self._vis_radii  = wp.full(n_vis, VOXEL_SIZE * 0.6,
-                                           dtype=wp.float32, device=sand_pts.device)
-                self._vis_colors = wp.full(n_vis, wp.vec3(0.62, 0.30, 0.20),
-                                           dtype=wp.vec3, device=sand_pts.device)
-
-            self._viewer.log_points(
-                name="sand",
-                points=sand_pts,
-                radii=self._vis_radii,
-                colors=self._vis_colors,
-            )
+                self._viewer.log_points(
+                    name="sand",
+                    points=sand_pts,
+                    radii=self._vis_radii,
+                    colors=self._vis_colors,
+                )
             self._viewer.end_frame()
         except Exception:
             pass
@@ -1145,8 +1502,16 @@ class EntrapmentEnv(DirectRLEnv):
         # Steering joint positions normalised  (N, 4)
         steer_pos = self.joint_pos[:, self._steer_ids] / STEER_POS_LIMIT
 
-        # IMU acceleration normalised  (N, 3)
-        imu_acc = self.lin_acc_w / 9.81
+        # IMU specific force in BODY frame, normalised by local |g|  (N, 3).
+        # A physical IMU measures f_b = R⁻¹(a_w − g_w): body frame, gravity
+        # included. The old obs (world-frame coordinate acceleration / 9.81) was
+        # not measurable by any onboard sensor and used Earth g under Mars
+        # gravity. Normalising by the local g magnitude makes the at-rest
+        # reading a unit vector on any planet — deployment maps the real
+        # accelerometer output to this obs by dividing by local g.
+        quat_w  = wp.to_torch(self.robot.data.root_link_quat_w)  # (x,y,z,w)
+        spec_force_w = self.lin_acc_w - self._g_vec_w
+        imu_acc = quat_apply_inverse(quat_w, spec_force_w) / self._g_mag
 
         # Tilt indicator  (N, 1)
         grav_z = self.grav_b[:, 2:3]
@@ -1237,10 +1602,14 @@ class EntrapmentEnv(DirectRLEnv):
         # signals, so noise is injected before the privileged block is concatenated.
         # Binary flags (entrap_flag at dim 26, slip_anomaly at dim 27) are NOT noised
         # — they are computed decisions, not raw sensor measurements.
-        obs[:, 0:6]   += self.cfg.dr_noise_wheel_vel    * torch.randn(self.num_envs, 6,  device=self.device)
+        # Physical-unit sigmas are divided by the same normaliser as the obs
+        # channel they perturb, so the datasheet values are applied verbatim.
+        # (Pre-2026-06-13 bug: physical sigmas were added to NORMALISED obs —
+        # IMU noise was ~10× datasheet, wheel-vel ~6×.)
+        obs[:, 0:6]   += (self.cfg.dr_noise_wheel_vel / DRIVE_VEL_LIMIT) * torch.randn(self.num_envs, 6,  device=self.device)
         obs[:, 6:12]  += self.cfg.dr_noise_slip         * torch.randn(self.num_envs, 6,  device=self.device)
-        obs[:, 12:16] += self.cfg.dr_noise_steer_pos    * torch.randn(self.num_envs, 4,  device=self.device)
-        obs[:, 16:19] += self.cfg.dr_noise_imu_acc      * torch.randn(self.num_envs, 3,  device=self.device)
+        obs[:, 12:16] += (self.cfg.dr_noise_steer_pos / STEER_POS_LIMIT) * torch.randn(self.num_envs, 4,  device=self.device)
+        obs[:, 16:19] += (self.cfg.dr_noise_imu_acc / self._g_mag)       * torch.randn(self.num_envs, 3,  device=self.device)
         obs[:, 19:20] += self.cfg.dr_noise_grav_z       * torch.randn(self.num_envs, 1,  device=self.device)
         obs[:, 20:26] += self.cfg.dr_noise_drive_torque * torch.randn(self.num_envs, 6,  device=self.device)
         # obs[:, 26:27] — entrap_flag: binary, no noise
@@ -1253,7 +1622,7 @@ class EntrapmentEnv(DirectRLEnv):
             # train or deploy time — the critic slices [:, 29:] from the full obs.
             chassis_z    = self.root_pos[:, 2:3] - self.scene.env_origins[:, 2:3]
             wheel_center_z = chassis_z - CHASSIS_TO_WHEEL_Z
-            sand_top_z   = SAND_DEPTH
+            sand_top_z   = getattr(self, "_sand_surface_z", SAND_DEPTH)
             wheel_burial = (sand_top_z - wheel_center_z).clamp(min=0.0)
             sand_force_proxy = drive_torque.abs().mean(dim=-1, keepdim=True)
             priv = torch.cat([
@@ -1455,11 +1824,23 @@ class EntrapmentEnv(DirectRLEnv):
         escaped = axial_progress_done > ESCAPE_DISTANCE
 
         flipped = grav_b[:, 2] > -0.34   # >70° tilt
-        # Sunk: chassis root z below env_origin z by >20 cm. Subtracting env_origin
-        # makes this robust to per-env origin elevation (matters when LOAD_MARS_TERRAIN=1
-        # places envs on uneven terrain). At env_origin z = 0 the formula reduces to
-        # the previous absolute-z check, so flat-ground behaviour is unchanged.
-        sunk    = (self.root_pos[:, 2] - self.scene.env_origins[:, 2]) < -0.20
+        # Sunk: wheel-bottom burial below the SETTLED sand surface exceeds the
+        # threshold (v12). The old check (root z < origin − 0.20) required the
+        # rover to fall through the entire 0.60 m bed before firing — dead code;
+        # the 2026-06-13 probe showed a rover fully swallowed (−0.35 m) without
+        # terminating. Threshold 0.45 m sits well past max prescribed sinkage
+        # (0.28) so legitimate deep-burial episodes aren't clipped, but
+        # catastrophic swallowing terminates instead of wasting the episode.
+        if self.cfg.skip_mpm:
+            # No sand → no burial. The rover legitimately drives on the ground
+            # plane, ~0.6 m "below the surface" — the sunk check would fire
+            # instantly and is meaningless here.
+            sunk = torch.zeros_like(flipped)
+        else:
+            sand_top_done = getattr(self, "_sand_surface_z", SAND_DEPTH)
+            wheel_bottom_z = (self.root_pos[:, 2] - self.scene.env_origins[:, 2]) \
+                             - CHASSIS_TO_WHEEL_Z - WHEEL_RADIUS
+            sunk = wheel_bottom_z < (sand_top_done - self.cfg.sunk_burial_thresh)
 
         # Lateral out-of-bounds: drift perpendicular to escape_dir > env_spacing/2 - margin.
         # Without this, a sideways-drifting rover never terminates and can collide with
@@ -1522,8 +1903,7 @@ class EntrapmentEnv(DirectRLEnv):
                 for ei in done_env_ids.tolist():
                     esc_val   = int(escaped[ei].item())
                     sinkage   = float(self._sinkage[ei].item())
-                    # Friction: not cached per-env on CPU — emit NaN (MPM array is on GPU).
-                    friction  = float('nan')
+                    friction  = float(self._friction[ei].item())
                     rel_pos_ei = self.root_pos[ei, :2] - self._spawn_pos[ei]
                     final_dist = float((rel_pos_ei * self._escape_dir[ei]).sum().item())
                     ep_steps   = int(self._episode_step[ei].item())
@@ -1581,10 +1961,20 @@ class EntrapmentEnv(DirectRLEnv):
                     or trivial_frac >  self.cfg.curriculum_backoff_trivial_thresh):
                     backoff_gate = self.cfg.curriculum_backoff_scale
             step_norm = len(env_ids) / float(total_resets_est)
-            self._curriculum_progress += (competence_gate * curriculum_speed - backoff_gate * curriculum_speed) * step_norm
-            # Lower bound 0.2: backoff never resets to trivial difficulty, preventing
-            # catastrophic forgetting when the policy regresses at max curriculum level.
-            self._curriculum_progress = torch.clamp(self._curriculum_progress, min=0.2, max=1.0)
+            prev_prog = self._curriculum_progress.clone()
+            self._curriculum_progress = (
+                self._curriculum_progress
+                + (competence_gate - backoff_gate) * curriculum_speed * step_norm
+            )
+            # Backoff floor: once the curriculum has reached 0.2, backoff never
+            # decays it below 0.2 (no reset to trivial difficulty / catastrophic
+            # forgetting). The floor is min(prev, 0.2) so it can never LIFT
+            # progress — the old clamp(min=0.2) jumped the very first episode
+            # to 0.2 difficulty instead of starting at the shallow end.
+            floor = torch.minimum(prev_prog, torch.full_like(prev_prog, 0.2))
+            self._curriculum_progress = torch.clamp(
+                torch.maximum(self._curriculum_progress, floor), min=0.0, max=1.0
+            )
 
         # ── Robot pose ───────────────────────────────────────────────────────
         default_root_pose = wp.to_torch(
@@ -1624,9 +2014,12 @@ class EntrapmentEnv(DirectRLEnv):
             (len(env_ids),), self.device,
         )
         self._sinkage[env_ids] = sinkage_depth
+        # Surface = measured post-consolidation height (v12), not the as-built
+        # SAND_DEPTH — the bed compacts during the init pre-settle.
+        sand_top = getattr(self, "_sand_surface_z", SAND_DEPTH)
         default_root_pose[:, 2] = (
             self.scene.env_origins[env_ids, 2]
-            + SAND_DEPTH + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS - sinkage_depth
+            + sand_top + CHASSIS_TO_WHEEL_Z + WHEEL_RADIUS - sinkage_depth
         )
 
         # Yaw = escape_angle (rover faces its per-episode escape direction exactly).
@@ -1716,6 +2109,7 @@ class EntrapmentEnv(DirectRLEnv):
                     inputs=[friction_arr, start, count, float(mu_per_env[k])],
                     device=self.device,
                 )
+                self._friction[ei] = float(mu_per_env[k])
 
         # ── Reset MPM sand patches ────────────────────────────────────────────
         if self._mpm_ready:
@@ -1741,6 +2135,44 @@ class EntrapmentEnv(DirectRLEnv):
                 )
             self._col_imp_ids.fill_(-1)
 
+            # ── Spawn pocket-carving (audit fix A1, 2026-06-13) ─────────────
+            # Teleport-spawn leaves sand particles overlapping the wheel/blade
+            # volumes. At full coupling strength the per-step eviction of that
+            # overlap squeezes the rover UPWARD out of its prescribed burial
+            # (~120–180 N sustained — the "rover floats on the bed" symptom;
+            # in the force-dilution era this was ÷8 and went unnoticed).
+            # Resolve the overlap POSITIONALLY here, before any dynamics: sync
+            # the just-teleported collider poses into the sand state and run
+            # repeated project_outside passes. Particles get seated around the
+            # wheels with zero velocity; the first dynamics step then sees a
+            # carved pocket instead of interpenetration. project_outside is
+            # global, which is harmless — it runs every step anyway.
+            robot_state = NewtonManager._state_0
+            if self.sand_state.body_q is not None and self._n_col_bodies > 0:
+                n = min(self._n_col_bodies, robot_state.body_q.shape[0])
+                wp.copy(self.sand_state.body_q, robot_state.body_q, count=n)
+                if self.sand_state.body_qd is not None and robot_state.body_qd is not None:
+                    wp.copy(self.sand_state.body_qd, robot_state.body_qd, count=n)
+            _mpm_dt = NewtonManager._dt if hasattr(NewtonManager, "_dt") else 0.02
+            for _ in range(int(os.environ.get("SPAWN_CARVE_ITERS", "8"))):
+                self.mpm_solver.project_outside(self.sand_state, self.sand_state, dt=_mpm_dt)
+
+            # Re-snap cosmetic render grains when env 0 (the rendered env)
+            # resets — its particles just teleported back to the settled
+            # lattice. Pure rendering; never touches the MPM state.
+            if getattr(self, "_grains", None) is not None:
+                try:
+                    ids = env_ids.tolist() if hasattr(env_ids, "tolist") else list(env_ids)
+                    if 0 in ids:
+                        ppe = int(self._particles_per_env)
+                        ppp = int(self._grains_full.shape[1])
+                        self._grains_full = self.mpm_solver.sample_render_grains(
+                            self.sand_state, ppp)
+                        self._grains = self._grains_full[:ppe]
+                        wp.copy(self._grain_prev_q, self.sand_state.particle_q)
+                except Exception:
+                    pass
+
     def close(self):
         """Cleanup: unregister this env from MPM post-processing and viewer rendering."""
         if hasattr(NewtonManager, '_mpm_envs') and self in NewtonManager._mpm_envs:
@@ -1755,8 +2187,44 @@ class EntrapmentEnv(DirectRLEnv):
 @wp.kernel
 def _add_spatial_forces(
     src: wp.array(dtype=wp.spatial_vector),
+    scale: float,
     dst: wp.array(dtype=wp.spatial_vector),
 ):
-    """dst[i] += src[i]  — accumulate sand forces into Newton's force buffer."""
+    """dst[i] += scale * src[i] — accumulate sand forces into Newton's force buffer.
+
+    scale = num_substeps (v12 CRITICAL FIX): NewtonManager's substep loop calls
+    `state_0.clear_forces()` after EVERY substep, so a force injected once per
+    frame is consumed by substep 1 only — the delivered impulse was J/n. With
+    n=8 substeps, every sand force in every run to date was diluted 8×: no
+    wheel traction (thrust/8), phantom "fluidization" sinking (support/8 → the
+    bed had to overshoot 8× through deep penetration to hold the rover at all).
+    Scaling by n delivers the full collected impulse J in the first substep.
+    `_body_sand_f` itself stays UNSCALED — subtract_body_force (the MPM
+    anti-double-count) needs the frame-average force.
+    """
     i = wp.tid()
-    wp.atomic_add(dst, i, src[i])
+    wp.atomic_add(dst, i, scale * src[i])
+
+
+@wp.kernel
+def _mask_grains_in_hull(
+    grains:     wp.array(dtype=wp.vec3),
+    base_radii: wp.array(dtype=wp.float32),
+    radii:      wp.array(dtype=wp.float32),
+    root_pos:   wp.vec3,
+    root_quat:  wp.quat,   # (x, y, z, w)
+):
+    """RENDER-ONLY: zero the radius of grains inside the rover hull volume.
+
+    Hull–soil contact is unmodelled (wheels-only sand colliders — see the
+    SAND_HULL_COLLIDER note in _newton_init_cb), so at deep burial sand
+    legitimately occupies the space where the hull is drawn. Hiding those
+    grains fixes the "sand floating inside the rover" visual without touching
+    physics. Bounds = USD Body bbox (0.665×0.490 m, z ∈ [0, 0.253]) + margin.
+    """
+    i = wp.tid()
+    p = wp.quat_rotate_inv(root_quat, grains[i] - root_pos)
+    if wp.abs(p[0]) < 0.35 and wp.abs(p[1]) < 0.26 and p[2] > -0.12 and p[2] < 0.27:
+        radii[i] = 0.0
+    else:
+        radii[i] = base_radii[i]
