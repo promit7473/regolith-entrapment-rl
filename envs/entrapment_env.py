@@ -1253,6 +1253,9 @@ class EntrapmentEnv(DirectRLEnv):
         self._viewer = None
         self._render_frame = 0
 
+        if os.environ.get("ENTRAPMENT_NO_VIEWER") == "1":
+            print("[Viewer-Only] ENTRAPMENT_NO_VIEWER=1 — disabled (training).")
+            return
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             print("[Viewer-Only] No display — disabled.")
             return
@@ -1289,6 +1292,15 @@ class EntrapmentEnv(DirectRLEnv):
         self._render_frame = 0
         self._grains       = None   # cosmetic grain rendering (set up below if viewer opens)
 
+        # Training must NEVER open the live ViewerGL: rendering 60k+ sand points
+        # (or 1.5M grains) every few frames at <1 FPS wastes huge GPU time over a
+        # multi-hour run AND the partial 16-env render makes the rover look like
+        # it floats (no sand drawn). train.py sets ENTRAPMENT_NO_VIEWER=1; eval /
+        # probe scripts leave it unset so they still get the viewer. The
+        # headless arg alone does NOT suppress ViewerGL (it only gates DISPLAY).
+        if os.environ.get("ENTRAPMENT_NO_VIEWER") == "1":
+            print("[Sand Visual] ENTRAPMENT_NO_VIEWER=1 — viewer disabled (training).")
+            return
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             print("[Sand Visual] No display — viewer disabled.")
             return
@@ -1347,13 +1359,22 @@ class EntrapmentEnv(DirectRLEnv):
         try:
             ppp = int(os.environ.get("SAND_GRAINS_PPP", "3"))
             ppe = int(self._particles_per_env)
-            # Sample over the full state (one-time), keep an env-0 view: the
-            # grain kernels index particle arrays by grain row, and env 0 owns
-            # rows [0, ppe) by construction.
+            # How many envs to draw sand under. Particles are laid out env-major
+            # (env e owns rows [e*ppe, (e+1)*ppe)), so rendering the first
+            # n_render_envs envs is just a longer slice. Default: ALL envs when
+            # there are few (≤4 → nice multi-rover view), else env-0 only (16+
+            # envs would be millions of grains → viewer chokes). SAND_GRAINS_ENVS
+            # overrides. The hull-grain mask is env-0-specific so it's only
+            # applied when rendering a single env.
+            default_envs = self.num_envs if self.num_envs <= 4 else 1
+            self._grain_render_envs = max(1, min(
+                self.num_envs,
+                int(os.environ.get("SAND_GRAINS_ENVS", str(default_envs)))))
+            n_render = ppe * self._grain_render_envs
             grains_full = self.mpm_solver.sample_render_grains(self.sand_state, ppp)
             self._grains_full = grains_full
-            self._grains = grains_full[:ppe]
-            n_g = ppe * ppp
+            self._grains = grains_full[:n_render]
+            n_g = n_render * ppp
             grain_r = float(VOXEL_SIZE) / (3.0 * ppp)
             dev = self.sand_state.particle_q.device
             # ±30% size variation — uniform grain size reads as synthetic.
@@ -1377,9 +1398,11 @@ class EntrapmentEnv(DirectRLEnv):
             # keep our own snapshot for update_render_grains' state_prev.
             self._grain_prev_q = wp.clone(self.sand_state.particle_q)
             self._grain_err_once = False
-            print(f"[Sand Visual] Grain rendering ON — {n_g} grains for env 0 "
-                  f"(ppp={ppp}, r={grain_r*1000:.1f} mm). SAND_GRAINS=0 for raw debug view, "
-                  f"SAND_GRAINS_PPP to trade density vs FPS.")
+            print(f"[Sand Visual] Grain rendering ON — {n_g} grains across "
+                  f"{self._grain_render_envs}/{self.num_envs} env(s) "
+                  f"(ppp={ppp}, r={grain_r*1000:.1f} mm). SAND_GRAINS_ENVS to change how "
+                  f"many envs show sand, SAND_GRAINS=0 for raw debug view, SAND_GRAINS_PPP "
+                  f"to trade density vs FPS.")
         except Exception as e:
             print(f"[Sand Visual] Grain rendering unavailable ({e}) — using raw particles.")
             self._grains = None
@@ -1414,7 +1437,10 @@ class EntrapmentEnv(DirectRLEnv):
             if self._grains is not None:
                 # Hide grains inside the (physics-transparent) hull volume —
                 # render-only mask, re-evaluated against the live rover pose.
-                rp = self.root_pos[0] if hasattr(self, "root_pos") else None
+                # Only valid for the single-env view (mask uses env-0's pose);
+                # when drawing multiple envs, skip it and show raw grains.
+                rp = self.root_pos[0] if (hasattr(self, "root_pos")
+                                          and self._grain_render_envs == 1) else None
                 if rp is not None:
                     rq = wp.to_torch(self.robot.data.root_link_quat_w)[0]
                     wp.launch(
@@ -2157,18 +2183,19 @@ class EntrapmentEnv(DirectRLEnv):
             for _ in range(int(os.environ.get("SPAWN_CARVE_ITERS", "8"))):
                 self.mpm_solver.project_outside(self.sand_state, self.sand_state, dt=_mpm_dt)
 
-            # Re-snap cosmetic render grains when env 0 (the rendered env)
-            # resets — its particles just teleported back to the settled
-            # lattice. Pure rendering; never touches the MPM state.
+            # Re-snap cosmetic render grains when any RENDERED env resets — its
+            # particles just teleported back to the settled lattice. Pure
+            # rendering; never touches the MPM state.
             if getattr(self, "_grains", None) is not None:
                 try:
                     ids = env_ids.tolist() if hasattr(env_ids, "tolist") else list(env_ids)
-                    if 0 in ids:
+                    n_rendered = getattr(self, "_grain_render_envs", 1)
+                    if any(i < n_rendered for i in ids):
                         ppe = int(self._particles_per_env)
                         ppp = int(self._grains_full.shape[1])
                         self._grains_full = self.mpm_solver.sample_render_grains(
                             self.sand_state, ppp)
-                        self._grains = self._grains_full[:ppe]
+                        self._grains = self._grains_full[:ppe * n_rendered]
                         wp.copy(self._grain_prev_q, self.sand_state.particle_q)
                 except Exception:
                     pass

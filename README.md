@@ -1,7 +1,7 @@
 # Regolith Wheel Entrapment Recovery
 
 **RL-trained escape policy for Mars rovers stuck in granular regolith**  
-Newton MPM + Isaac Lab + skrl PPO with LSTM, dual-sensor detection, curriculum learning. Designed to integrate with a high-level navigator.
+Newton MPM (two-way coupled granular sand) + Isaac Lab + skrl Recurrent PPO (GRU) with asymmetric actor-critic, slip-anomaly detection, and competence-gated curriculum learning. Validated against scripted + literature recovery baselines. Designed to integrate with a high-level navigator.
 
 ## [-] Project Structure
 ```
@@ -25,10 +25,15 @@ regolith_entrapment_research/
 │   └── __init__.py
 │
 ├── scripts/                 # Executables
-│   ├── train.py             # PPO training
+│   ├── train.py             # Recurrent-PPO training (GUI default; --headless to disable)
+│   ├── train_multiseed.sh   # Serial multi-seed training driver
 │   ├── eval.py              # Evaluation & visualization (Newton ViewerGL)
-│   ├── plot_episode.py      # Episode dashboard plotting
-│   ├── plot_training.py     # Training curve visualization
+│   ├── escape_eval.py       # Validation: policy vs scripted + literature baselines
+│   ├── tune_scripted_baseline.sh  # Sweep scripted baselines for the fairness champion
+│   ├── openloop_probe.py    # Open-loop physics probe (drive + F_sand telemetry)
+│   ├── wheel_geometry.py    # Definitive wheel-geometry extraction from the USD
+│   ├── bed_calibration.py   # Standalone MPM bed calibration (pure Newton)
+│   ├── plot_*.py            # Episode / training / figure plotting
 │   └── view_rover.py        # Standalone Newton viewer
 │
 ├── sim2real/                # Sim-to-real prep
@@ -66,14 +71,14 @@ This repository provides a **standalone escape policy subsystem** trained to det
     → Monitors slip/torque sensors 
     → On entrapment detection: SWITCHES to [Escape Policy] 
     → Escape policy executes recovery maneuvers 
-    → On escape (>1.5m from origin): RETURNS control to navigator 
+    → On escape (projected progress >3.0m along escape heading): RETURNS control to navigator 
     → Navigator resumes point A → B path following
 ```
 
 **What's included**:
 - [x] Trained escape policy (`*.pt` checkpoints) - 10D action space (6 drive + 4 steer)
-- [x] **Recurrent PPO (GRU)**: policy carries temporal memory across steps (GRU hidden 256, seq_len 16)
-- [x] Dual entrapment detection: slip-based (low v_x + high slip) + torque-based (high motor torque)
+- [x] **Recurrent PPO (GRU)**: policy carries temporal memory across steps (GRU hidden 256, seq_len 32)
+- [x] Entrapment detection: slip-anomaly (sustained high slip + low forward progress) + burial-grace flag
 - [x] Observation space: 29D (wheel states, slip, IMU, joint torques, entrapment/torque flags, escape progress)
 - [x] Reward shaping: progress + shaped escape - penalties + rocking bonus
 - [x] Curriculum learning: sinkage depth increases with training progress
@@ -151,62 +156,102 @@ Example:
 ```bash
 export ISAAC_SIM_PATH=/custom/path/to/isaac-sim
 export NEWTON_PATH=/custom/path/to/newton
-./launch.sh scripts/train.py --num_envs 64
+./launch.sh scripts/train.py --num_envs 16 --headless
 ```
 
 ### 6. Verify Installation
 
 ```bash
-./launch.sh scripts/train.py --num_envs 1 --timesteps 100
+./launch.sh scripts/train.py --num_envs 2 --timesteps 80 --headless
 ```
 
 ## [-] Quick Start
 
-### GUI Mode (Newton ViewerGL — needs DISPLAY)
+### Training
 
-Opens a live 3D viewer window with the rover + sand particles rendered in real-time.
-Isaac Sim's GUI is broken in conda-Python; all visualization uses Newton ViewerGL instead.
-
-```bash
-# GUI eval with random actions (sanity check — no checkpoint needed)
-./launch.sh scripts/eval.py --num_envs 1
-
-# GUI eval with trained policy
-./launch.sh scripts/eval.py --num_envs 1 \
-    --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
-
-# GUI eval without MPM sand (faster, viewer-only)
-./launch.sh scripts/eval.py --num_envs 1 --no-mpm
-
-# Standalone rover viewer (Newton only, no Isaac Lab / no RL)
-./view.sh
-./view.sh --no-sand
-```
-
-### Headless Mode (no display needed)
-
-Runs without any GUI window. Use for training and batch evaluation.
+`train.py` shows the Newton ViewerGL **by default**; pass `--headless` to disable it
+(recommended for long/unattended runs). Isaac Sim's own GUI is broken in conda-Python,
+so all live visualization uses Newton ViewerGL.
 
 ```bash
-# Train with 64 parallel environments (headless, ~200k steps)
-./launch.sh scripts/train.py --num_envs 64 --timesteps 200000
+# Pilot: single seed, headless (RTX 5070Ti: 16 envs ≈ 1.0 s/step; ~14 h for 50k)
+WANDB_MODE=offline ./launch.sh scripts/train.py --num_envs 16 --timesteps 50000 --seed 1 --headless
 
-# Smoke test (quick sanity check)
-./launch.sh scripts/train.py --num_envs 4 --timesteps 500
+# Watch it train (GUI default): use a SMALL env count for a clean view
+WANDB_MODE=offline ./launch.sh scripts/train.py --num_envs 4 --timesteps 50000 --seed 1
 
-# Resume from checkpoint
-./launch.sh scripts/train.py --num_envs 64 --timesteps 200000 \
-    --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
+# Full run on RTX 4090 (more envs feasible there)
+WANDB_MODE=offline ./launch.sh scripts/train.py --num_envs 64 --timesteps 200000 --seed 1 --headless
 
-# Headless evaluation (metrics only, no viewer)
-./launch.sh scripts/eval.py --num_envs 64 --headless --episodes 50 \
-    --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
+# Resume from a checkpoint (restores weights; step counter restarts at 0)
+WANDB_MODE=offline ./launch.sh scripts/train.py --num_envs 16 --timesteps 50000 --seed 1 --headless \
+    --checkpoint experiments/regolith_recovery/seed_1/seed_1/checkpoints/agent_10000.pt
+
+# Multi-seed driver (runs seeds serially, each headless)
+bash scripts/train_multiseed.sh --seeds "0 1 2 3 4" --timesteps 200000 --num_envs 16
 
 # Monitor training (separate terminal)
 tensorboard --logdir experiments/
+```
 
-# Generate training curve plots
-python3 scripts/plot_training.py --compare
+> **Viewer controls** (env vars): `SAND_GRAINS_ENVS=N` sets how many envs render sand
+> (default: all when ≤4 envs, env-0 only above); `SAND_GRAINS=0` shows raw voxel
+> particles instead of fine grains; `SAND_GRAINS_PPP` trades grain density vs FPS.
+
+### Evaluation & Visualization
+
+```bash
+# GUI eval with a trained policy
+./launch.sh scripts/eval.py --num_envs 1 \
+    --checkpoint experiments/regolith_recovery/seed_1/seed_1/checkpoints/best_agent.pt
+
+# GUI eval, random actions (no checkpoint needed — sanity check)
+./launch.sh scripts/eval.py --num_envs 1
+
+# Headless eval (metrics only, no window)
+./launch.sh scripts/eval.py --num_envs 16 --headless --episodes 50 \
+    --checkpoint experiments/regolith_recovery/seed_1/seed_1/checkpoints/best_agent.pt
+
+# Standalone rover viewer (Newton only, no Isaac Lab / no RL)
+./view.sh            # or: ./view.sh --no-sand
+```
+
+### Physics Probes & Calibration (no training)
+
+```bash
+# Open-loop physics probe — drive the rover with a fixed command and watch it
+# (GUI shows the buried rover in sand; prints F_sand telemetry + escape verdict)
+./launch.sh scripts/openloop_probe.py --num_envs 1 --sinkage 0.20 --friction 0.75 --phase_b 12
+
+# Definitive wheel-geometry extraction from the USD (no Isaac needed)
+python3 scripts/wheel_geometry.py
+
+# Standalone MPM bed calibration (pure Newton, ~3 min/config — no Isaac)
+PYTHONPATH=~/newton python3 scripts/bed_calibration.py --max_iterations 100 --tolerance 1e-7
+```
+
+### Validation — Escape Eval (policy vs scripted + literature baselines)
+
+Runs the same sinkage sweep under every controller for a fair comparison. Tier-1
+compatible-actuation baselines + Tier-2 published gaits + the learned policy.
+
+```bash
+# Naive baseline (full throttle), then the learned policy
+./launch.sh scripts/escape_eval.py --headless --control constant_drive \
+    --num_envs 16 --episodes_per_level 50 --sinkage_levels 0.15,0.20,0.25,0.28 \
+    --out_json experiments/escape_eval/constdrv.json
+./launch.sh scripts/escape_eval.py --headless --control policy \
+    --num_envs 16 --episodes_per_level 50 --sinkage_levels 0.15,0.20,0.25,0.28 \
+    --checkpoint experiments/regolith_recovery/seed_1/seed_1/checkpoints/best_agent.pt \
+    --out_json experiments/escape_eval/policy.json
+
+# Scripted baselines: rocking | inching (Creager 2015) | steer_paddle (Shrivastava 2020)
+#                     | rock_paddle (operator) | spiral (ours)
+./launch.sh scripts/escape_eval.py --headless --control inching \
+    --num_envs 16 --episodes_per_level 50 --out_json experiments/escape_eval/inching.json
+
+# Tune the scripted family (period × throttle) to find the fairness-bar champion
+bash scripts/tune_scripted_baseline.sh
 ```
 
 ### Video Recording
@@ -216,7 +261,7 @@ Isaac Sim's RTX headless renderer is incompatible with the Newton MPM solver in 
 1. Run eval.py with the Newton ViewerGL window open:
 ```bash
 ./launch.sh scripts/eval.py --num_envs 1 \
-    --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt
+    --checkpoint experiments/regolith_recovery/seed_1/seed_1/checkpoints/best_agent.pt
 ```
 2. Wait ~10-15 min for the viewer window to appear.
 3. Press **Ctrl+Alt+Shift+R** (GNOME built-in recorder) or use **OBS Studio** to capture the window.
@@ -226,7 +271,7 @@ Isaac Sim's RTX headless renderer is incompatible with the Newton MPM solver in 
 ```bash
 # Save episode data during eval
 ./launch.sh scripts/eval.py --num_envs 1 --episodes 5 \
-    --checkpoint experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt \
+    --checkpoint experiments/regolith_recovery/seed_1/seed_1/checkpoints/best_agent.pt \
     --save-data experiments/regolith_recovery/episode_data/run1.npz
 
 # Plot saved data anywhere (no Isaac Sim needed)
@@ -239,8 +284,8 @@ conda run -n env_isaaclab python3 scripts/plot_episode.py \
 Training and eval can run for hours. Use shell job control to manage them:
 
 ```bash
-# Run training in background
-./launch.sh scripts/train.py --num_envs 64 --timesteps 200000 &
+# Run training in background (always --headless for unattended runs)
+WANDB_MODE=offline ./launch.sh scripts/train.py --num_envs 16 --timesteps 50000 --seed 1 --headless &
 
 # List background jobs (shows job numbers like [1], [2], etc.)
 jobs
@@ -269,9 +314,9 @@ ps aux | grep train.py
 ### Export Trained Policy
 
 ```bash
-# Export to ONNX (29D obs, 10D actions for 6-wheel Mars rover)
-python sim2real/onnx_export/export_model.py \
-    --policy_ckpt experiments/regolith_recovery/ppo_regolith/checkpoints/best_agent.pt \
+# Export to ONNX (slices the 37D checkpoint to the deployed 29D obs, 10D actions)
+./launch.sh sim2real/onnx_export/export_model.py \
+    --policy_ckpt experiments/regolith_recovery/seed_1/seed_1/checkpoints/best_agent.pt \
     --out_dir sim2real/onnx_export/output \
     --num_obs 29 --num_actions 10
 ```
@@ -303,11 +348,11 @@ python sim2real/rpi5_deploy/rover_controller.py \
 | Metric | Expected Behavior |
 |--------|-------------------|
 | `reward/mean` | Should trend upward |
-| `episode/escape_rate` | Should increase from 0% |
-| `Info/curriculum_progress` | Should increase 0→1.0 over training |
-| `Info/entrap_flag_rate` | Should stabilize (not 0 or 1) |
-| `Info/torque_anomaly_rate` | Should stabilize (not 0 or 1) |
-| `entropy` | Should stay > 0.02 (prevents collapse) |
+| `escape_rate` | Should lift off 0% (shallow curriculum levels are escapable) |
+| `curriculum_progress` | Should ramp from 0 (competence-gated) |
+| `entrap_flag_rate` | Should stabilize (not 0 or 1) |
+| `slip_anomaly_rate` | Should stabilize (not 0 or 1) |
+| policy `log_std` / entropy | Should not collapse (entropy floor + optional KL-adaptive LR guard) |
 
 ## [-] Core Enhancements
 
@@ -326,9 +371,9 @@ python sim2real/rpi5_deploy/rover_controller.py \
 - **Python**: 3.11 (conda: env_isaaclab)
 - **Physics (training)**: Isaac Lab `MJWarpSolverCfg(use_mujoco_cpu=True)` (MuJoCo CPU rigid bodies) + Newton `SolverImplicitMPM` (granular sand)
 - **Physics (viewer)**: Newton `SolverMuJoCo` (rigid bodies) + Newton `SolverImplicitMPM` (sand)
-- **Solver**: 4 iterations, 4 substeps, 50 Hz physics / 25 Hz policy
-- **Note**: MuJoCo CPU is used (not Newton XPBD) because Newton's XPBD cannot stably support an articulated rover on a ground plane (329 mesh collision shapes → contact buffer overflow). Mesh collision disabled; 6 invisible proxy spheres on wheel bodies used instead. `use_mujoco_cpu=True` also bypasses the warp-lang / mujoco_warp version conflict (see CLAUDE.md "Warp version").
-- **MPM**: voxel_size=0.05m, sand 2.0m×2.0m×0.15m, µ=0.7 (~38k particles/env)
+- **Rigid solver**: MuJoCo CPU, 4 iterations, 8 substeps, 50 Hz physics / 25 Hz policy
+- **Note**: MuJoCo CPU is used (not Newton XPBD) because Newton's XPBD cannot stably support an articulated rover on a ground plane (mesh collision shapes → contact buffer overflow). USD mesh collision disabled; 6 proxy cylinders (measured wheel geometry, r_eff=0.0994 m) + grouser blade colliders on wheel bodies used instead. `use_mujoco_cpu=True` also bypasses the warp-lang / mujoco_warp version conflict (see CLAUDE.md "Warp version").
+- **MPM**: voxel_size=0.05m, sand 3.5m×3.5m×0.60m, µ=0.75 (DR 0.6–0.9 per reset), 100 solver iterations / tol 1e-7, APIC transfer, ~497k particles/env. Bed is pre-settled at init; sand gravity matched to the rover (Mars −3.72 m/s²); sand forces delivered continuously across substeps. (See CLAUDE.md "CURRENT STATE" for the full physics-fix history.)
 
 **Policy Observation Space (29D — deployed to rover)**:
 - `wheel_vel` (6) — drive joint velocities normalized by 6 rad/s
@@ -390,5 +435,5 @@ export PXR_EXT_PATH=~/.local/share/ov/data/exts/v2/omni.usd.libs-<hash>
 
 ---
 
-*Last updated: 2026-04-23*  
+*Last updated: 2026-06-13*  
 *Questions? Open an issue on GitHub.*

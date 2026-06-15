@@ -51,6 +51,7 @@ for SEED in $SEEDS; do
       --seed "$SEED" \
       --num_envs "$NUM_ENVS" \
       --timesteps "$TIMESTEPS" \
+      --headless \
     2>&1 | tee "$LOG_DIR/seed_${SEED}.log"
   echo "[multiseed] Finished seed=$SEED at $(date -Is)"
 done

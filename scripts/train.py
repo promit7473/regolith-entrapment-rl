@@ -36,11 +36,26 @@ parser.add_argument("--timesteps",  type=int,   default=200_000,
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, hydra_args = parser.parse_known_args()
-# Always headless for training.  LAUNCH_OV_APP=1 forces SimulationApp creation
-# without loading the heavy RTX rendering stack (enable_cameras loads viewport +
-# replicator + shaders which adds >60s startup and wastes VRAM).
+# Capture the user's --headless intent BEFORE we force the Isaac stack off
+# below (AppLauncher.add_app_launcher_args added the --headless flag).
+_user_headless = bool(getattr(args_cli, "headless", False))
+
+# The Isaac/Omniverse RTX GUI is ALWAYS off for training (broken in conda-Python;
+# the heavy stack wastes >60s + VRAM). LAUNCH_OV_APP=1 forces SimulationApp
+# creation without loading viewport/replicator/shaders.
 os.environ["LAUNCH_OV_APP"] = "1"
 args_cli.headless = True
+
+# The lightweight Newton ViewerGL (the live sand/rover window) is SEPARATE and
+# is controlled by --headless the intuitive way:
+#   ./launch.sh scripts/train.py ...              -> GUI shows (default)
+#   ./launch.sh scripts/train.py --headless ...   -> no GUI
+# setdefault lets an explicit ENTRAPMENT_NO_VIEWER env var still override.
+# Note: the viewer costs little speed (MPM dominates) but the multi-env view is
+# cluttered — use a small --num_envs (e.g. 4) if you actually want to watch.
+os.environ.setdefault("ENTRAPMENT_NO_VIEWER", "1" if _user_headless else "0")
+print(f"[train] Newton viewer: "
+      f"{'OFF (--headless)' if os.environ['ENTRAPMENT_NO_VIEWER']=='1' else 'ON (pass --headless to disable)'}")
 sys.argv = [sys.argv[0]] + hydra_args
 
 app_launcher = AppLauncher(args_cli)
